@@ -1,0 +1,212 @@
+<UserControl x:Class="YangzaiWorkshop.Views.CharacterPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource WindowBackgroundBrush}">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- 小说选择（封面横条，鼠标滚轮滚动） -->
+        <Border Grid.Row="0" Style="{StaticResource CardStyle}"
+                Padding="10,8" Margin="0,0,0,8">
+            <ScrollViewer x:Name="NovelScroller"
+                          HorizontalScrollBarVisibility="Hidden"
+                          VerticalScrollBarVisibility="Disabled"
+                          PreviewMouseWheel="NovelScroller_MouseWheel">
+                <WrapPanel x:Name="NovelCardPanel" Orientation="Horizontal"/>
+            </ScrollViewer>
+        </Border>
+
+        <!-- 左右布局 -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220" MinWidth="200"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 左侧人物列表（两列，可滚动） -->
+            <Border Grid.Column="0" Style="{StaticResource CardStyle}"
+                    Padding="6" Margin="0,0,8,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" FontSize="13" FontWeight="Bold"
+                               Foreground="{DynamicResource TextPrimaryBrush}"
+                               Margin="4,2,0,8">
+                        👤 人物列表
+                    </TextBlock>
+
+                    <ScrollViewer Grid.Row="1"
+                                  VerticalScrollBarVisibility="Hidden">
+                        <WrapPanel x:Name="CharacterPanel"
+                                   Orientation="Horizontal"/>
+                    </ScrollViewer>
+
+                    <Button Grid.Row="2" Content="+ 新建角色"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            FontSize="11" Padding="6,6" Margin="0,8,0,0"
+                            Click="AddCharacter_Click"/>
+                </Grid>
+            </Border>
+
+            <!-- 右侧人物详情 -->
+            <Border Grid.Column="1" Style="{StaticResource CardStyle}" Padding="20">
+                <Grid>
+                <TextBlock x:Name="NoSelectionHint" FontSize="14"
+                           Foreground="{DynamicResource TextSecondaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           TextAlignment="Center" LineHeight="24">
+                    👤<LineBreak/><LineBreak/>
+                    请在左侧选择一个人物角色<LineBreak/>或点击「+ 新建角色」创建
+                </TextBlock>
+
+                <ScrollViewer x:Name="DetailScroll" VerticalScrollBarVisibility="Auto"
+                              Visibility="Collapsed"
+                              PreviewMouseWheel="DetailScroll_PreviewMouseWheel">
+                    <StackPanel x:Name="DetailPanel">
+
+                        <!-- 头像 + 名称 -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Width="72" Height="72"
+                                    CornerRadius="36" Cursor="Hand"
+                                    Background="{DynamicResource PrimaryBrush}"
+                                    ClipToBounds="True"
+                                    MouseLeftButtonDown="Avatar_Click" Margin="0,0,16,0">
+                                <Grid>
+                                    <Image x:Name="CharAvatarImage" Stretch="UniformToFill"/>
+                                    <TextBlock x:Name="CharAvatarPlaceholder"
+                                               FontFamily="Segoe MDL2 Assets"
+                                               Text="&#xE77B;" FontSize="30"
+                                               Foreground="White"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                            </Border>
+
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock x:Name="CharNameDisplay" FontSize="22"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
+                                    <Button Content="改名" FontSize="11" Padding="6,3"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="RenameCharacter_Click"/>
+                                    <Button Content="删除" FontSize="11" Padding="6,3"
+                                            Margin="6,0,0,0"
+                                            Foreground="{DynamicResource DangerBrush}"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="DeleteCharacter_Click"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Grid>
+
+                        <Border Height="1" Background="{DynamicResource BorderBrush}"
+                                Margin="0,4,0,12"/>
+
+                        <!-- 角色性格设定 -->
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Grid.Row="0" Orientation="Horizontal"
+                                        Margin="0,0,0,6">
+                                <TextBlock Text="角色性格设定" FontSize="14"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           VerticalAlignment="Center"/>
+                                <Button x:Name="EditPersonalityBtn"
+                                        Content="编辑" FontSize="11" Padding="6,3"
+                                        Margin="10,0,4,0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="EditPersonality_Click"/>
+                                <Button Content="复制" FontSize="11" Padding="6,3"
+                                        Margin="4,0,0,0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="CopyPersonality_Click"/>
+                            </StackPanel>
+
+                            <TextBlock x:Name="PersonalityDisplay" Grid.Row="1"
+                                       TextWrapping="Wrap" FontSize="14"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       FontFamily="Microsoft YaHei" LineHeight="24"
+                                       Margin="0,0,0,8"/>
+
+                            <Grid x:Name="PersonalityEditArea" Grid.Row="1"
+                                  Visibility="Collapsed">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBox x:Name="PersonalityEditBox" Grid.Row="0"
+                                         TextWrapping="Wrap" AcceptsReturn="True"
+                                         MinHeight="100"
+                                         Foreground="{DynamicResource TextPrimaryBrush}"
+                                         FontSize="14" FontFamily="Microsoft YaHei"
+                                         Padding="8" Margin="0,0,0,6"
+                                         Style="{StaticResource ModernTextBoxStyle}"/>
+                                <StackPanel Grid.Row="1" Orientation="Horizontal"
+                                            HorizontalAlignment="Right">
+                                    <Button Content="保存" FontSize="12" Padding="10,4"
+                                            Style="{StaticResource PrimaryButtonStyle}"
+                                            Click="SavePersonality_Click"/>
+                                    <Button Content="取消" FontSize="12" Padding="10,4"
+                                            Margin="6,0,0,0"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="CancelPersonality_Click"/>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+
+                        <Border Height="1" Background="{DynamicResource BorderBrush}"
+                                Margin="0,8,0,12"/>
+
+                        <!-- 角色图像素材（固定最小高度，确保可滚动） -->
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="角色图像素材" FontSize="14"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                           VerticalAlignment="Center"/>
+                                <Button Content="+ 添加" FontSize="11" Padding="6,3"
+                                        Margin="10,0,0,0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="UploadImage_Click"/>
+                            </StackPanel>
+                            <ScrollViewer x:Name="CharImageScroller"
+                                          VerticalScrollBarVisibility="Hidden"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          MinHeight="180" MaxHeight="280"
+                                          PreviewMouseWheel="CharImageScroller_MouseWheel">
+                                <WrapPanel x:Name="CharImagePanel"/>
+                            </ScrollViewer>
+                        </StackPanel>
+
+                    </StackPanel>
+                </ScrollViewer>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Toast 提示浮层 -->
+        <Border x:Name="ToastBorder" Grid.ColumnSpan="2"
+                Background="#E0333333" CornerRadius="8"
+                Padding="14,8" Opacity="0"
+                HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                Margin="0,0,0,20" IsHitTestVisible="False">
+            <TextBlock x:Name="ToastText" Foreground="White" FontSize="13"/>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,566 @@
+using System.IO;
+using System.Linq;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using YangzaiWorkshop.Models;
+using YangzaiWorkshop.Services;
+
+namespace YangzaiWorkshop.Views;
+
+public partial class CharacterPage : UserControl
+{
+    private List<NovelInfo> _novels = new();
+    private NovelInfo? _currentNovel;
+    private List<CharacterInfo> _characters = new();
+    private CharacterInfo? _currentCharacter;
+    private bool _isEditingPersonality;
+
+    public CharacterPage()
+    {
+        InitializeComponent();
+        Loaded += OnLoaded;
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e) => RefreshNovels();
+
+    private void NovelScroller_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        NovelScroller.ScrollToHorizontalOffset(NovelScroller.HorizontalOffset - e.Delta / 2);
+        e.Handled = true;
+    }
+
+    // ===== Toast 反馈 =====
+    private void ShowImageFullScreen(string path)
+    {
+        try
+        {
+            var win = new Window
+            {
+                Title = Path.GetFileName(path),
+                WindowState = WindowState.Maximized,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = Window.GetWindow(this),
+                Background = Brushes.Black
+            };
+            var bmp = new BitmapImage(); bmp.BeginInit();
+            bmp.UriSource = new Uri(path);
+            bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
+            var img = new Image { Source = bmp, Stretch = Stretch.Uniform };
+            win.Content = img;
+            win.KeyDown += (_, e) => { if (e.Key == Key.Escape) win.Close(); };
+            img.MouseLeftButtonDown += (_, _) => win.Close();
+            win.ShowDialog();
+        }
+        catch { }
+    }
+
+    private async void Toast(string msg)
+    {
+        ToastText.Text = msg;
+        ToastBorder.Opacity = 1;
+        await System.Threading.Tasks.Task.Delay(1500);
+        var a = new System.Windows.Media.Animation.DoubleAnimation(1, 0,
+            TimeSpan.FromSeconds(0.3));
+        ToastBorder.BeginAnimation(UIElement.OpacityProperty, a);
+    }
+
+    // ===== 小说选择 =====
+    private void RefreshNovels()
+    {
+        _novels = FileService.LoadAllNovels(App.WorkRoot);
+        NovelCardPanel.Children.Clear();
+        foreach (var novel in _novels)
+        {
+            var card = new Border
+            {
+                Background = (Brush)FindResource("CardBackgroundBrush"),
+                CornerRadius = new CornerRadius(6), Cursor = Cursors.Hand,
+                Tag = novel, Width = 120,
+                Margin = new Thickness(2, 0, 2, 0),
+                Padding = new Thickness(8, 6, 8, 6),
+                BorderThickness = new Thickness(1),
+                BorderBrush = (Brush)FindResource("BorderBrush")
+            };
+            var stack = new StackPanel();
+            var coverBox = new Border
+            {
+                Width = 70, Height = 95, CornerRadius = new CornerRadius(4),
+                Background = ParseColor(novel.CoverColor),
+                Margin = new Thickness(0, 0, 0, 6), ClipToBounds = true
+            };
+            if (novel.HasCoverImage)
+            {
+                try
+                {
+                    var bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri(FileService.NovelCoverFile(App.WorkRoot, novel.Id));
+                    bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
+                    coverBox.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
+                }
+                catch { coverBox.Child = CoverFb(novel.Name); }
+            }
+            else coverBox.Child = CoverFb(novel.Name);
+            stack.Children.Add(coverBox);
+            stack.Children.Add(new TextBlock
+            {
+                Text = novel.Name, FontSize = 10, FontWeight = FontWeights.Bold,
+                Foreground = (Brush)FindResource("TextPrimaryBrush"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 110
+            });
+            card.Child = stack;
+            card.MouseLeftButtonDown += (s, _) => SelectNovel(novel);
+            card.MouseEnter += (s, _) =>
+            { if (s is Border b && b.Tag is NovelInfo ni && ni != _currentNovel) b.Opacity = 0.85; };
+            card.MouseLeave += (s, _) =>
+            { if (s is Border b && b.Tag is NovelInfo ni && ni != _currentNovel) b.Opacity = 0.65; };
+            NovelCardPanel.Children.Add(card);
+        }
+        if (_novels.Count > 0 && _currentNovel == null) SelectNovel(_novels[0]);
+    }
+
+    private static TextBlock CoverFb(string n) => new()
+    {
+        Text = n.Length > 0 ? n[..System.Math.Min(2, n.Length)] : "书",
+        Foreground = Brushes.White, FontSize = 22, FontWeight = FontWeights.Bold,
+        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+    };
+
+    private void SelectNovel(NovelInfo novel)
+    {
+        _currentNovel = novel; _currentCharacter = null;
+        foreach (Border c in NovelCardPanel.Children)
+        {
+            if (c.Tag is NovelInfo ni)
+            {
+                bool a = ni.Id == novel.Id;
+                c.Opacity = a ? 1.0 : 0.65;
+                c.BorderThickness = a ? new Thickness(1.5) : new Thickness(1);
+            }
+        }
+        RefreshCharacterList();
+    }
+
+    private static SolidColorBrush ParseColor(string h)
+    {
+        try { return new SolidColorBrush((Color)ColorConverter.ConvertFromString(h)); }
+        catch { return new SolidColorBrush(Color.FromRgb(0x4A, 0x90, 0xE2)); }
+    }
+
+    // ===== 人物列表（WrapPanel 左上到右下） =====
+    private void RefreshCharacterList()
+    {
+        CharacterPanel.Children.Clear(); _characters.Clear();
+        if (_currentNovel == null) { ClearDetail(); return; }
+        var p = FileService.NovelCharactersPath(App.WorkRoot, _currentNovel.Id);
+        if (!Directory.Exists(p)) { ClearDetail(); return; }
+        foreach (var d in FileService.GetDirectories(p))
+        {
+            var info = FileService.ReadJson<CharacterInfo>(Path.Combine(d, "info.json"));
+            _characters.Add(info ?? new CharacterInfo
+            { Id = Path.GetFileName(d), Name = Path.GetFileName(d), Personality = "暂无性格设定" });
+        }
+        if (_characters.Count == 0) { ClearDetail(); return; }
+        foreach (var c in _characters) CharacterPanel.Children.Add(CreateCharacterCard(c));
+        if (_currentCharacter == null || !_characters.Any(c => c.Id == _currentCharacter.Id))
+            SelectCharacter(_characters[0]);
+    }
+
+    private void ClearDetail()
+    {
+        DetailScroll.Visibility = Visibility.Collapsed;
+        NoSelectionHint.Visibility = Visibility.Visible;
+    }
+
+    private Border CreateCharacterCard(CharacterInfo ch)
+    {
+        var card = new Border
+        {
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            CornerRadius = new CornerRadius(6), Cursor = Cursors.Hand,
+            Tag = ch, Width = 90, Height = 105,
+            Margin = new Thickness(3), Padding = new Thickness(3),
+            BorderThickness = new Thickness(1),
+            BorderBrush = (Brush)FindResource("BorderBrush")
+        };
+        var g = new Grid();
+        g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var av = new Border
+        {
+            Width = 64, Height = 64, CornerRadius = new CornerRadius(32),
+            Background = new SolidColorBrush(Color.FromRgb(0x5C, 0x6B, 0xC0)),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 4, 0, 0), ClipToBounds = true
+        };
+        var avP = FileService.CharacterAvatarFile(App.WorkRoot, _currentNovel!.Id, ch.Id);
+        if (File.Exists(avP))
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit(); bmp.UriSource = new Uri(avP);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 80; bmp.EndInit();
+                av.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
+            }
+            catch { av.Child = Fallback(ch.Name); }
+        }
+        else av.Child = Fallback(ch.Name);
+        Grid.SetRow(av, 0);
+        g.Children.Add(av);
+
+        var name = new TextBlock
+        {
+            Text = ch.Name, FontSize = 11, FontWeight = FontWeights.Bold,
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 2, 0, 2), MaxWidth = 82
+        };
+        Grid.SetRow(name, 1);
+        g.Children.Add(name);
+
+        card.Child = g;
+        card.MouseLeftButtonDown += (s, e) => SelectCharacter(ch);
+        card.MouseRightButtonDown += (s, e) =>
+        {
+            var m = new ContextMenu();
+            var d = new MenuItem { Header = "删除角色" };
+            d.Click += (_, _) => ConfirmDeleteCharacter(ch);
+            m.Items.Add(d); m.IsOpen = true;
+        };
+        return card;
+    }
+
+    private static TextBlock Fallback(string n) => new()
+    {
+        Text = n.Length > 0 ? n[..System.Math.Min(1, n.Length)] : "?",
+        Foreground = Brushes.White, FontSize = 26, FontWeight = FontWeights.Bold,
+        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+    };
+
+    private void SelectCharacter(CharacterInfo ch)
+    {
+        _currentCharacter = ch;
+        DetailScroll.Visibility = Visibility.Visible;
+        NoSelectionHint.Visibility = Visibility.Collapsed;
+        CharNameDisplay.Text = ch.Name;
+        PersonalityDisplay.Text = string.IsNullOrWhiteSpace(ch.Personality) ? "暂无性格设定" : ch.Personality;
+        _isEditingPersonality = false;
+        PersonalityEditArea.Visibility = Visibility.Collapsed;
+        PersonalityDisplay.Visibility = Visibility.Visible;
+        RefreshCharacterAvatar();
+        RefreshCharacterImages();
+        foreach (Border c in CharacterPanel.Children)
+        {
+            if (c.Tag is CharacterInfo ci)
+            {
+                bool a = ci.Id == ch.Id;
+                c.Opacity = a ? 1.0 : 0.6;
+                c.BorderThickness = a ? new Thickness(1.5) : new Thickness(1);
+            }
+        }
+    }
+
+    private void RefreshCharacterAvatar()
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        var p = FileService.CharacterAvatarFile(App.WorkRoot, _currentNovel.Id, _currentCharacter.Id);
+        if (File.Exists(p))
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit(); bmp.UriSource = new Uri(p);
+                bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
+                CharAvatarImage.Source = bmp;
+                CharAvatarPlaceholder.Visibility = Visibility.Collapsed; return;
+            }
+            catch { }
+        }
+        CharAvatarImage.Source = null;
+        CharAvatarPlaceholder.Visibility = Visibility.Visible;
+    }
+
+    private void Avatar_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        { Filter = "图片文件|*.png;*.jpg;*.jpeg;*.webp", Title = "选择角色头像" };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            var cw = new CropWindow(dlg.FileName)
+            { Owner = Window.GetWindow(this) };
+            if (cw.ShowDialog() == true && cw.CroppedImage != null)
+            {
+                var dir = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, _currentCharacter.Id);
+                FileService.EnsureDirectory(dir);
+                var ap = FileService.CharacterAvatarFile(App.WorkRoot, _currentNovel.Id, _currentCharacter.Id);
+                if (File.Exists(ap)) FileService.DeleteFile(ap);
+                var enc = new PngBitmapEncoder();
+                enc.Frames.Add(BitmapFrame.Create(cw.CroppedImage));
+                using var fs = new FileStream(ap, FileMode.Create);
+                enc.Save(fs);
+                RefreshCharacterAvatar(); RefreshCharacterList();
+            }
+        }
+        catch { }
+    }
+
+    // ===== 重命名 =====
+    private void RenameCharacter_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        var dlg = new InputDialog("重命名角色", "新名称：", _currentCharacter.Name)
+        { Owner = Window.GetWindow(this) };
+        if (dlg.ShowDialog() != true || string.IsNullOrWhiteSpace(dlg.InputText)) return;
+        var nn = dlg.InputText.Trim();
+        var oldCharId = _currentCharacter.Id;
+        var sid = Sanitize(nn);
+        var old = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, oldCharId);
+        var np = Path.Combine(Path.GetDirectoryName(old)!, sid);
+        if (!string.Equals(old, np, StringComparison.OrdinalIgnoreCase))
+        {
+            if (Directory.Exists(np))
+            { sid += "_" + System.Guid.NewGuid().ToString()[..6];
+              np = Path.Combine(Path.GetDirectoryName(old)!, sid); }
+            try { Directory.Move(old, np); }
+            catch
+            { Toast("✗ 重命名失败"); return; }
+        }
+        _currentCharacter.Name = nn; _currentCharacter.Id = sid;
+        FileService.WriteJson(Path.Combine(np, "info.json"), _currentCharacter);
+
+        // 同步移动 Image/人物素材 文件夹
+        var oldImgDir = FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, oldCharId);
+        if (Directory.Exists(oldImgDir))
+        {
+            var newImgDir = FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, sid);
+            try
+            {
+                FileService.EnsureDirectory(Path.GetDirectoryName(newImgDir)!);
+                if (Directory.Exists(newImgDir))
+                    Directory.Delete(newImgDir, true);
+                Directory.Move(oldImgDir, newImgDir);
+            }
+            catch { /* 移动失败不阻断流程 */ }
+        }
+
+        RefreshCharacterList(); SelectCharacter(_currentCharacter);
+        Toast("✓ 重命名成功");
+    }
+
+    private static string Sanitize(string n)
+    {
+        var inv = Path.GetInvalidFileNameChars();
+        var s = new string(n.Select(c => inv.Contains(c) ? '_' : c).ToArray());
+        return string.IsNullOrWhiteSpace(s) ? "unnamed" : s;
+    }
+
+    private void DeleteCharacter_Click(object sender, RoutedEventArgs e)
+    { if (_currentCharacter != null) ConfirmDeleteCharacter(_currentCharacter); }
+
+    private void ConfirmDeleteCharacter(CharacterInfo ch)
+    {
+        if (_currentNovel == null) return;
+        if (MessageBox.Show($"确定删除「{ch.Name}」？", "确认",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        try
+        {
+            var p = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, ch.Id);
+            if (Directory.Exists(p)) FileService.MoveToTrash(p);
+        }
+        catch { Toast("✗ 删除失败"); return; }
+        _currentCharacter = null; RefreshCharacterList();
+        Toast("✓ 已删除");
+    }
+
+    // ===== 性格设定 =====
+    private void EditPersonality_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentCharacter == null) return;
+        _isEditingPersonality = true;
+        PersonalityEditBox.Text = _currentCharacter.Personality ?? "";
+        PersonalityDisplay.Visibility = Visibility.Collapsed;
+        PersonalityEditArea.Visibility = Visibility.Visible;
+    }
+
+    private void SavePersonality_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        _currentCharacter.Personality = PersonalityEditBox.Text;
+        var cp = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, _currentCharacter.Id);
+        FileService.EnsureDirectory(cp);
+        FileService.WriteJson(Path.Combine(cp, "info.json"), _currentCharacter);
+        _isEditingPersonality = false;
+        PersonalityDisplay.Text = string.IsNullOrWhiteSpace(_currentCharacter.Personality)
+            ? "暂无性格设定" : _currentCharacter.Personality;
+        PersonalityDisplay.Visibility = Visibility.Visible;
+        PersonalityEditArea.Visibility = Visibility.Collapsed;
+        Toast("✓ 已保存");
+    }
+
+    private void CancelPersonality_Click(object sender, RoutedEventArgs e)
+    {
+        _isEditingPersonality = false;
+        PersonalityDisplay.Visibility = Visibility.Visible;
+        PersonalityEditArea.Visibility = Visibility.Collapsed;
+    }
+
+    private void CopyPersonality_Click(object sender, RoutedEventArgs e)
+    {
+        Clipboard.SetText(_isEditingPersonality ? PersonalityEditBox.Text : PersonalityDisplay.Text);
+        Toast("✓ 已复制");
+    }
+
+    // ===== 外/内滚动路由 =====
+    private void DetailScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        // 鼠标在图像区 → 转发滚轮事件到内层，外层不动
+        if (CharImageScroller.IsVisible && CharImageScroller.IsMouseOver)
+        {
+            CharImageScroller.ScrollToVerticalOffset(
+                CharImageScroller.VerticalOffset - e.Delta);
+            e.Handled = true;
+        }
+    }
+
+    // ===== 角色图像素材 =====
+    private void CharImageScroller_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        var sv = (ScrollViewer)sender;
+        sv.ScrollToVerticalOffset(sv.VerticalOffset - e.Delta);
+        e.Handled = true;
+    }
+
+    private void RefreshCharacterImages()
+    {
+        CharImagePanel.Children.Clear();
+        if (_currentNovel == null || _currentCharacter == null) return;
+        var p = FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, _currentCharacter.Id);
+        var imgs = FileService.GetFiles(p, ".png", ".jpg", ".jpeg", ".webp");
+        foreach (var ip in imgs)
+        {
+            string nm = Path.GetFileName(ip);
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit(); bmp.UriSource = new Uri(ip);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 180; bmp.EndInit();
+
+                var card = new Border
+                {
+                    Width = 170, Margin = new Thickness(4),
+                    CornerRadius = new CornerRadius(4),
+                    ClipToBounds = true, Background = Brushes.Transparent
+                };
+                var cs = new StackPanel();
+                var ia = new Grid();
+                ia.Children.Add(new Image { Source = bmp, Stretch = Stretch.Uniform, MaxHeight = 150 });
+
+                var tb = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Margin = new Thickness(0, 0, 0, 4), Opacity = 0
+                };
+                tb.Children.Add(ImgBtn("复制", () =>
+                { Clipboard.SetImage(bmp); Toast("✓ 已复制"); }));
+                tb.Children.Add(ImgBtn("改名", () =>
+                {
+                    var d = new InputDialog("重命名", "名称（不含扩展名）：",
+                        Path.GetFileNameWithoutExtension(ip))
+                    { Owner = Window.GetWindow(this) };
+                    if (d.ShowDialog() == true && !string.IsNullOrWhiteSpace(d.InputText))
+                    {
+                        var np2 = Path.Combine(Path.GetDirectoryName(ip)!,
+                            d.InputText.Trim() + Path.GetExtension(ip));
+                        if (!string.Equals(ip, np2, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (File.Exists(np2)) FileService.DeleteFile(np2);
+                            File.Move(ip, np2);
+                            RefreshCharacterImages();
+                            Toast("✓ 已改名");
+                        }
+                    }
+                }));
+                tb.Children.Add(ImgBtn("删除", () =>
+                {
+                    try { FileService.DeleteFile(ip); RefreshCharacterImages(); Toast("✓ 已删除"); }
+                    catch { Toast("✗ 删除失败"); }
+                }));
+                ia.Children.Add(tb);
+                cs.Children.Add(ia);
+                cs.Children.Add(new TextBlock
+                {
+                    Text = nm, FontSize = 10,
+                    Foreground = (Brush)FindResource("TextSecondaryBrush"),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 4, 0, 0), MaxWidth = 160
+                });
+                card.Child = cs;
+                card.MouseEnter += (_, _) => tb.Opacity = 1;
+                card.MouseLeave += (_, _) => tb.Opacity = 0;
+                card.MouseLeftButtonDown += (_, _) => ShowImageFullScreen(ip);
+                CharImagePanel.Children.Add(card);
+            }
+            catch { }
+        }
+    }
+
+    private static Button ImgBtn(string text, Action click)
+    {
+        var b = new Button
+        {
+            Content = text, FontSize = 10,
+            Width = 36, Height = 22, Padding = new Thickness(0),
+            Margin = new Thickness(1, 0, 1, 0), Cursor = Cursors.Hand,
+            Background = new SolidColorBrush(Color.FromArgb(0xD0, 0x33, 0x33, 0x33)),
+            Foreground = Brushes.White, BorderThickness = new Thickness(0)
+        };
+        b.Click += (_, _) => click();
+        b.MouseEnter += (s, _) => ((Button)s).Background =
+            new SolidColorBrush(Color.FromArgb(0xF0, 0x55, 0x55, 0x55));
+        b.MouseLeave += (s, _) => ((Button)s).Background =
+            new SolidColorBrush(Color.FromArgb(0xD0, 0x33, 0x33, 0x33));
+        return b;
+    }
+
+    private void UploadImage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        { Filter = "图片文件|*.png;*.jpg;*.jpeg;*.webp", Multiselect = true, Title = "选择角色图片素材" };
+        if (dlg.ShowDialog() != true) return;
+        var t = FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, _currentCharacter.Id);
+        foreach (var f in dlg.FileNames) FileService.CopyFile(f, t);
+        RefreshCharacterImages();
+        Toast("✓ 已添加");
+    }
+
+    private void AddCharacter_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null) return;
+        var nc = new CharacterInfo
+        { Id = "新角色_" + System.DateTime.Now.ToString("yyyyMMdd_HHmmss"), Name = "新角色", Personality = "" };
+        var cp = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, nc.Id);
+        if (Directory.Exists(cp))
+        { nc.Id += "_" + System.Guid.NewGuid().ToString()[..4];
+          cp = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, nc.Id); }
+        FileService.EnsureDirectory(cp);
+        FileService.EnsureDirectory(Path.Combine(cp, "images"));
+        FileService.WriteJson(Path.Combine(cp, "info.json"), nc);
+        RefreshCharacterList(); SelectCharacter(nc);
+    }
+}

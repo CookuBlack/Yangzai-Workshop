@@ -1,0 +1,232 @@
+<UserControl x:Class="YangzaiWorkshop.Views.StatsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ScottPlot="clr-namespace:ScottPlot.WPF;assembly=ScottPlot.WPF"
+             Background="{DynamicResource WindowBackgroundBrush}">
+    <Grid Margin="16">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition x:Name="RightPanelCol" Width="240" MinWidth="0"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- 左侧：图表 -->
+        <Grid Grid.Column="0" Margin="0,0,8,0">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- 平台切换 + 面板按钮（同一行延长） -->
+            <Border Grid.Row="0" Style="{StaticResource CardStyle}" Padding="6" Margin="0,0,0,8">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                        <Button x:Name="DouyinBtn" Content="抖音" FontSize="13" FontFamily="Microsoft YaHei"
+                                Padding="16,6" Margin="0,0,8,0"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="DouyinBtn_Click"/>
+                        <Button x:Name="KuaishouBtn" Content="快手" FontSize="13" FontFamily="Microsoft YaHei"
+                                Padding="16,6" Margin="0,0,8,0"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="KuaishouBtn_Click"/>
+                        <Button x:Name="BilibiliBtn" Content="Bilibili" FontSize="13" FontFamily="Microsoft YaHei"
+                                Padding="16,6"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="BilibiliBtn_Click"/>
+                    </StackPanel>
+                    <!-- 展开/收起按钮（与平台按钮同行） -->
+                    <Button Grid.Column="1"
+                            Content=">"
+                            FontSize="13" FontWeight="Bold" FontFamily="Microsoft YaHei"
+                            Width="28" Height="28" Padding="0"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Click="TogglePanel_Click" ToolTip="收起面板"/>
+                </Grid>
+            </Border>
+
+            <!-- 三图表 -->
+            <Grid Grid.Row="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Border Grid.Row="0" Style="{StaticResource CardStyle}" Padding="4" Margin="0,0,0,4">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="播放量趋势"
+                                   FontSize="13" FontWeight="Bold" FontFamily="Microsoft YaHei"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   HorizontalAlignment="Center" Margin="0,0,0,2"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="播放量"
+                                   FontSize="10" FontFamily="Microsoft YaHei"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,2,0"
+                                   RenderTransformOrigin="0.5,0.5">
+                            <TextBlock.RenderTransform><RotateTransform Angle="-90"/></TextBlock.RenderTransform>
+                        </TextBlock>
+                        <ScottPlot:WpfPlot Grid.Row="1" Grid.Column="1" x:Name="PlayChart" Margin="0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="日期"
+                                   FontSize="10" FontFamily="Microsoft YaHei"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </Grid>
+                </Border>
+                <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="4" Margin="0,4,0,4">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="点赞量趋势"
+                                   FontSize="13" FontWeight="Bold" FontFamily="Microsoft YaHei"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   HorizontalAlignment="Center" Margin="0,0,0,2"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="点赞量"
+                                   FontSize="10" FontFamily="Microsoft YaHei"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,2,0"
+                                   RenderTransformOrigin="0.5,0.5">
+                            <TextBlock.RenderTransform><RotateTransform Angle="-90"/></TextBlock.RenderTransform>
+                        </TextBlock>
+                        <ScottPlot:WpfPlot Grid.Row="1" Grid.Column="1" x:Name="LikeChart" Margin="0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="日期"
+                                   FontSize="10" FontFamily="Microsoft YaHei"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </Grid>
+                </Border>
+                <Border Grid.Row="2" Style="{StaticResource CardStyle}" Padding="4" Margin="0,4,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="评论量趋势"
+                                   FontSize="13" FontWeight="Bold" FontFamily="Microsoft YaHei"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   HorizontalAlignment="Center" Margin="0,0,0,2"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="评论量"
+                                   FontSize="10" FontFamily="Microsoft YaHei"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,2,0"
+                                   RenderTransformOrigin="0.5,0.5">
+                            <TextBlock.RenderTransform><RotateTransform Angle="-90"/></TextBlock.RenderTransform>
+                        </TextBlock>
+                        <ScottPlot:WpfPlot Grid.Row="1" Grid.Column="1" x:Name="CommentChart" Margin="0"/>
+                        <TextBlock Grid.Row="2" Grid.Column="1" Text="日期"
+                                   FontSize="10" FontFamily="Microsoft YaHei"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- 右侧面板 -->
+        <Border x:Name="RightPanel" Grid.Column="1" Style="{StaticResource CardStyle}"
+                Padding="12" Margin="8,0,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="数据录入" FontSize="14" FontWeight="Bold"
+                           Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8"/>
+
+                <Grid Grid.Row="1">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 录入表单（标签固定宽度对齐） -->
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="48"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="日期" FontSize="11"
+                                   VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,6,4"/>
+                        <TextBox x:Name="DateInput" Grid.Row="0" Grid.Column="1" FontSize="12"
+                                 FontFamily="Microsoft YaHei" Padding="6,3" Margin="0,0,0,4"
+                                 Foreground="{DynamicResource TextPrimaryBrush}"
+                                 Style="{StaticResource ModernTextBoxStyle}"/>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="播放量" FontSize="11"
+                                   VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,6,4"/>
+                        <TextBox x:Name="PlaysInput" Grid.Row="1" Grid.Column="1" FontSize="12"
+                                 FontFamily="Microsoft YaHei" Padding="6,3" Margin="0,0,0,4"
+                                 Foreground="{DynamicResource TextPrimaryBrush}"
+                                 Style="{StaticResource ModernTextBoxStyle}"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="点赞量" FontSize="11"
+                                   VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,6,4"/>
+                        <TextBox x:Name="LikesInput" Grid.Row="2" Grid.Column="1" FontSize="12"
+                                 FontFamily="Microsoft YaHei" Padding="6,3" Margin="0,0,0,4"
+                                 Foreground="{DynamicResource TextPrimaryBrush}"
+                                 Style="{StaticResource ModernTextBoxStyle}"/>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="评论量" FontSize="11"
+                                   VerticalAlignment="Center" HorizontalAlignment="Right"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,6,4"/>
+                        <TextBox x:Name="CommentsInput" Grid.Row="3" Grid.Column="1" FontSize="12"
+                                 FontFamily="Microsoft YaHei" Padding="6,3" Margin="0,0,0,4"
+                                 Foreground="{DynamicResource TextPrimaryBrush}"
+                                 Style="{StaticResource ModernTextBoxStyle}"/>
+
+                        <Button Grid.Row="4" Grid.Column="1" Content="添加数据" FontSize="12" Padding="8,5"
+                                HorizontalAlignment="Right"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Click="AddData_Click"/>
+                    </Grid>
+
+                    <!-- 已录入数据（可拖拽排序） -->
+                    <Grid Grid.Row="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Text="已录入数据（长按拖拽排序）" FontSize="11" FontWeight="Bold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4"/>
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Hidden">
+                            <ItemsControl x:Name="DataList"/>
+                        </ScrollViewer>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

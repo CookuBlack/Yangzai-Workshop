@@ -1,0 +1,377 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using Microsoft.Win32;
+using YangzaiWorkshop.Models;
+using YangzaiWorkshop.Services;
+
+namespace YangzaiWorkshop.Views;
+
+public partial class SettingsPage : UserControl
+{
+    private AppConfig _config = null!;
+    private bool _isLoading;
+    private DispatcherTimer? _noticeStatusTimer;
+
+    public SettingsPage()
+    {
+        InitializeComponent();
+        Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        _isLoading = true;
+        _config = FileService.LoadConfig(App.WorkRoot);
+        RefreshSettings();
+
+        if (_config.FollowSystemTheme)
+            SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+
+        // 加载关于图标
+        LoadAboutIcon();
+
+        _isLoading = false;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+    }
+
+    private void LoadAboutIcon()
+    {
+        try
+        {
+            var iconPath = FileService.DefaultAvatarFile;
+            if (File.Exists(iconPath))
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(iconPath);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                bmp.Freeze();
+                AboutIcon.Source = bmp;
+            }
+        }
+        catch { /* 图标加载失败静默忽略 */ }
+    }
+
+    private void RefreshSettings()
+    {
+        // 主题
+        FollowSystemCheck.IsChecked = _config.FollowSystemTheme;
+        LightRadio.IsChecked = _config.Theme == "Light";
+        DarkRadio.IsChecked = _config.Theme == "Dark";
+        ThemeManualPanel.Visibility = _config.FollowSystemTheme
+            ? Visibility.Collapsed : Visibility.Visible;
+
+        // 工作目录（显示相对路径）
+        WorkPathText.Text = GetRelativePath(App.WorkRoot);
+        WorkPathText.ToolTip = App.WorkRoot;
+
+        // 通用设置
+        AutoSaveCheck.IsChecked = _config.AutoSaveScript;
+        FontSizeSlider.Value = _config.FontSize;
+        FontSizeLabel.Text = $"{_config.FontSize}px";
+        AutoPlayCheck.IsChecked = _config.AutoPlayBanner;
+        IntervalSlider.Value = _config.BannerIntervalSeconds;
+        IntervalLabel.Text = $"{_config.BannerIntervalSeconds}秒";
+
+        // 公告
+        var notice = FileService.ReadText(FileService.NoticeFile(App.WorkRoot));
+        NoticeEditBox.Text = notice;
+
+        // 版本信息
+        VersionLabel.Text = $"v{_config.Version}";
+        UpdateDateLabel.Text = _config.LastUpdateDate;
+        VersionSubText.Text = $"版本 v{_config.Version} · 更新于 {_config.LastUpdateDate}";
+        GitHubLink.Text = "GitHub: https://github.com/CookuBlack/Yangzai-Workshop";
+    }
+
+    // ===== 滚轮 =====
+    private void SettingsScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        var sv = (ScrollViewer)sender;
+        sv.ScrollToVerticalOffset(sv.VerticalOffset - e.Delta / 3);
+        e.Handled = true;
+    }
+
+    // ==================== 主题 ====================
+    private void LightRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.Theme = "Light";
+        ThemeService.ApplyTheme("Light", App.WorkRoot);
+        SaveConfig();
+    }
+
+    private void DarkRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.Theme = "Dark";
+        ThemeService.ApplyTheme("Dark", App.WorkRoot);
+        SaveConfig();
+    }
+
+    private void FollowSystemCheck_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.FollowSystemTheme = true;
+        SaveConfig();
+        ThemeManualPanel.Visibility = Visibility.Collapsed;
+        SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        ApplySystemTheme();
+    }
+
+    private void FollowSystemCheck_Unchecked(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.FollowSystemTheme = false;
+        SaveConfig();
+        ThemeManualPanel.Visibility = Visibility.Visible;
+        SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        // 恢复之前手动选择的主题
+        ThemeService.ApplyTheme(_config.Theme, App.WorkRoot);
+    }
+
+    private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category == UserPreferenceCategory.General)
+        {
+            Dispatcher.Invoke(ApplySystemTheme);
+        }
+    }
+
+    private void ApplySystemTheme()
+    {
+        var isLight = ThemeService.IsSystemLightTheme();
+        var theme = isLight ? "Light" : "Dark";
+        if (ThemeService.CurrentTheme != theme)
+        {
+            ThemeService.ApplyTheme(theme, App.WorkRoot);
+            _config.Theme = theme;
+            SaveConfig();
+        }
+        _isLoading = true;
+        LightRadio.IsChecked = isLight;
+        DarkRadio.IsChecked = !isLight;
+        _isLoading = false;
+    }
+
+    // ==================== 工作目录 ====================
+    private void OpenWorkDir_Click(object sender, RoutedEventArgs e)
+    {
+        try { Process.Start("explorer.exe", App.WorkRoot); }
+        catch { }
+    }
+
+    private static string GetRelativePath(string fullPath)
+    {
+        var baseDir = FileService.AppBasePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        fullPath = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        if (fullPath.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase))
+        {
+            var relative = fullPath.Substring(baseDir.Length);
+            return ".\\" + relative;
+        }
+        return fullPath;
+    }
+
+    // ==================== 通用设置 ====================
+    private void AutoSaveCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.AutoSaveScript = AutoSaveCheck.IsChecked == true;
+        SaveConfig();
+    }
+
+    private void FontSizeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.FontSize = (int)e.NewValue;
+        FontSizeLabel.Text = $"{_config.FontSize}px";
+        SaveConfig();
+
+        // 同步应用到 ScriptPage 编辑器
+        ApplyFontSizeToEditor(_config.FontSize);
+    }
+
+    private static void ApplyFontSizeToEditor(int fontSize)
+    {
+        try
+        {
+            var mainWindow = Application.Current.MainWindow;
+            if (mainWindow == null) return;
+            // 查找 ScriptPage 中的文本框并应用字体大小
+            var scriptPage = FindVisualChild<ScriptPage>(mainWindow);
+            if (scriptPage != null)
+                scriptPage.ApplyFontSize(fontSize);
+        }
+        catch { /* 非关键路径 */ }
+    }
+
+    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child is T t) return t;
+            var result = FindVisualChild<T>(child);
+            if (result != null) return result;
+        }
+        return null;
+    }
+
+    private void AutoPlayCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.AutoPlayBanner = AutoPlayCheck.IsChecked == true;
+        SaveConfig();
+    }
+
+    private void IntervalSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.BannerIntervalSeconds = (int)e.NewValue;
+        IntervalLabel.Text = $"{_config.BannerIntervalSeconds}秒";
+        SaveConfig();
+    }
+
+    // ==================== 公告 ====================
+    private void SaveNotice_Click(object sender, RoutedEventArgs e)
+    {
+        FileService.WriteText(FileService.NoticeFile(App.WorkRoot), NoticeEditBox.Text);
+
+        NoticeSaveStatus.Text = "✓ 公告已保存";
+        NoticeSaveStatus.Visibility = Visibility.Visible;
+        NoticeSaveStatus.Foreground = (Brush)FindResource("SuccessBrush");
+
+        _noticeStatusTimer?.Stop();
+        _noticeStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+        _noticeStatusTimer.Tick += (_, _) =>
+        {
+            _noticeStatusTimer.Stop();
+            NoticeSaveStatus.Visibility = Visibility.Collapsed;
+        };
+        _noticeStatusTimer.Start();
+    }
+
+    // ==================== 备份与恢复 ====================
+    private void BackupData_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new SaveFileDialog
+        {
+            Filter = "ZIP文件|*.zip",
+            FileName = $"YangzaiWorkshop_Backup_{DateTime.Now:yyyyMMdd_HHmmss}.zip",
+            Title = "选择备份保存位置"
+        };
+
+        if (dlg.ShowDialog() == true)
+        {
+            try
+            {
+                FileService.BackupData(App.WorkRoot, dlg.FileName);
+                var size = new FileInfo(dlg.FileName).Length;
+                MessageBox.Show(
+                    $"备份成功！\n\n保存位置：{dlg.FileName}\n文件大小：{FormatFileSize(size)}",
+                    "备份完成", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"备份失败：{ex.Message}", "错误",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+    }
+
+    private void RestoreData_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "ZIP备份文件|*.zip",
+            Title = "选择要恢复的备份文件"
+        };
+
+        if (dlg.ShowDialog() != true) return;
+
+        if (!IsValidBackup(dlg.FileName))
+        {
+            MessageBox.Show("所选文件不是有效的 Yangzai Workshop 备份文件。", "无效备份",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var result = MessageBox.Show(
+            "⚠ 恢复数据将覆盖当前所有数据！\n\n确定要继续吗？",
+            "⚠ 确认恢复数据", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+
+        if (result != MessageBoxResult.Yes) return;
+
+        try
+        {
+            var safetyBackup = Path.Combine(
+                Path.GetDirectoryName(App.WorkRoot)!,
+                $"SafetyBackup_{DateTime.Now:yyyyMMdd_HHmmss}.zip");
+            FileService.BackupData(App.WorkRoot, safetyBackup);
+
+            FileService.RestoreData(App.WorkRoot, dlg.FileName);
+            FileService.InitializeWorkData(App.WorkRoot);
+            _config = FileService.LoadConfig(App.WorkRoot);
+            SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+            RefreshSettings();
+            ThemeService.InitTheme(App.WorkRoot);
+            if (_config.FollowSystemTheme)
+                SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+
+            MessageBox.Show("数据恢复成功！", "恢复完成",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"恢复失败：{ex.Message}\n\n已自动备份恢复前的数据。",
+                "恢复失败", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private static bool IsValidBackup(string zipPath)
+    {
+        try
+        {
+            using var archive = System.IO.Compression.ZipFile.OpenRead(zipPath);
+            return archive.Entries.Any(e =>
+                e.FullName.EndsWith("Config/appsettings.json", StringComparison.OrdinalIgnoreCase));
+        }
+        catch { return false; }
+    }
+
+    // ==================== 关于 ====================
+    private void GitHubLink_Click(object sender, MouseButtonEventArgs e)
+    {
+        try { Process.Start(new ProcessStartInfo("https://github.com/CookuBlack/Yangzai-Workshop") { UseShellExecute = true }); }
+        catch { }
+    }
+
+    // ==================== 工具方法 ====================
+    private void SaveConfig()
+    {
+        FileService.SaveConfig(App.WorkRoot, _config);
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024 * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+}

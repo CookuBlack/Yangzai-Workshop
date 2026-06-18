@@ -1,0 +1,959 @@
+using System.IO;
+using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
+using System.Windows.Documents;
+using YangzaiWorkshop.Models;
+using YangzaiWorkshop.Services;
+
+namespace YangzaiWorkshop.Views;
+
+public partial class ScriptPage : UserControl
+{
+    private List<NovelInfo> _novels = new();
+    private List<Chapter> _chapters = new();
+    private NovelInfo? _currentNovel;
+    private Chapter? _currentChapter;
+    private bool _isOriginalExpanded = true;
+    private bool _isScriptExpanded = true;
+    private bool _isImageExpanded = true;
+    private double _savedOriginalWidth;
+    private double _savedScriptWidth;
+    private double _savedImageWidth;
+
+    public ScriptPage()
+    {
+        InitializeComponent();
+        Loaded += OnLoaded;
+    }
+
+    /// <summary>从设置页面同步字体大小到编辑器</summary>
+    public void ApplyFontSize(int fontSize)
+    {
+        ScriptTextBox.FontSize = fontSize;
+        OriginalTextBox.FontSize = fontSize;
+    }
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            RefreshNovelList();
+        }
+        catch { /* 初始化静默失败 */ }
+
+        // 加载保存的字体大小
+        try
+        {
+            var config = FileService.LoadConfig(App.WorkRoot);
+            ScriptTextBox.FontSize = config.FontSize;
+            OriginalTextBox.FontSize = config.FontSize;
+        }
+        catch { }
+
+        _savedOriginalWidth = 300;
+        _savedScriptWidth = 300;
+        _savedImageWidth = 300;
+    }
+
+    // ===== 小说列表 =====
+    private void RefreshNovelList()
+    {
+        _novels = FileService.LoadAllNovels(App.WorkRoot);
+        NovelListPanel.Children.Clear();
+
+        foreach (var novel in _novels)
+        {
+            var card = CreateNovelCard(novel);
+            NovelListPanel.Children.Add(card);
+        }
+
+        if (_novels.Count > 0 && _currentNovel == null)
+            SelectNovel(_novels[0]);
+    }
+
+    private Border CreateNovelCard(NovelInfo novel)
+    {
+        var border = new Border
+        {
+            Style = (Style)FindResource("ListItemCardStyle"),
+            Cursor = Cursors.Hand,
+            Tag = novel,
+            Width = 110
+        };
+
+        var stack = new StackPanel();
+
+        // 封面
+        var coverBorder = new Border
+        {
+            Width = 80, Height = 110,
+            CornerRadius = new CornerRadius(4),
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+
+        if (novel.HasCoverImage)
+        {
+            try
+            {
+                var img = new Image { Stretch = Stretch.UniformToFill };
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(FileService.NovelCoverFile(App.WorkRoot, novel.Id));
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                img.Source = bmp;
+                coverBorder.Child = img;
+            }
+            catch
+            {
+                coverBorder.Background = ParseColorBrush(novel.CoverColor);
+            }
+        }
+        else
+        {
+            coverBorder.Background = ParseColorBrush(novel.CoverColor);
+            coverBorder.Child = new TextBlock
+            {
+                Text = novel.Name.Length > 0 ? novel.Name[..Math.Min(2, novel.Name.Length)] : "书",
+                Foreground = Brushes.White,
+                FontSize = 22,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+        stack.Children.Add(coverBorder);
+
+        // 书名
+        stack.Children.Add(new TextBlock
+        {
+            Text = novel.Name,
+            FontSize = 11,
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            TextWrapping = TextWrapping.Wrap,
+            TextAlignment = TextAlignment.Center,
+            MaxWidth = 120
+        });
+
+        border.Child = stack;
+        border.MouseLeftButtonDown += (s, e) => SelectNovel(novel);
+        border.MouseRightButtonDown += (s, e) =>
+        {
+            var menu = new ContextMenu();
+            var coverItem = new MenuItem { Header = "修改封面" };
+            coverItem.Click += (_, _) => ChangeNovelCover(novel);
+            menu.Items.Add(coverItem);
+            var renameItem = new MenuItem { Header = "重命名" };
+            renameItem.Click += (_, _) => RenameNovel(novel);
+            menu.Items.Add(renameItem);
+            var delItem = new MenuItem { Header = "删除小说" };
+            delItem.Click += (_, _) => DeleteNovel(novel);
+            menu.Items.Add(delItem);
+            menu.IsOpen = true;
+        };
+        return border;
+    }
+
+    private void RenameNovel(NovelInfo novel)
+    {
+        var dialog = new InputDialog("重命名小说", "请输入新的小说名称：", novel.Name);
+        dialog.Owner = Window.GetWindow(this);
+        if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.InputText))
+        {
+            var oldFolder = novel.MediaFolder;
+            novel.Name = dialog.InputText.Trim();
+            novel.MediaFolder = FileService.SanitizeFolderName(novel.Name);
+            FileService.SaveNovelInfo(App.WorkRoot, novel);
+            // 移动 Image/小说、Image/人物素材、Video 下的文件夹
+            FileService.MoveNovelMediaFolders(App.WorkRoot, oldFolder, novel.MediaFolder, novel.Id);
+            RefreshNovelList();
+        }
+    }
+
+    private void DeleteNovel(NovelInfo novel)
+    {
+        var result = MessageBox.Show(
+            $"确定要删除《{novel.Name}》吗？\n\n此操作会删除该小说的所有数据，无法恢复。",
+            "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Warning);
+        if (result != MessageBoxResult.Yes) return;
+        try
+        {
+            FileService.DeleteDirectory(FileService.NovelPath(App.WorkRoot, novel.Id));
+            if (_currentNovel?.Id == novel.Id)
+            { _currentNovel = null; _currentChapter = null; _chapters.Clear(); }
+            RefreshNovelList();
+            ChapterTabsPanel.Children.Clear();
+            try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
+            try { ScriptTextBox.Document.Blocks.Clear(); } catch { }
+            ImageGrid.Children.Clear();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"删除失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void ChangeNovelCover(NovelInfo novel)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "图片文件|*.png;*.jpg;*.jpeg;*.webp",
+            Title = "选择封面图片"
+        };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            var novelDir = FileService.NovelPath(App.WorkRoot, novel.Id);
+            FileService.EnsureDirectory(novelDir);
+            var destPath = FileService.NovelCoverFile(App.WorkRoot, novel.Id);
+            // 删除旧封面
+            if (File.Exists(destPath)) FileService.DeleteFile(destPath);
+            // 复制新封面
+            File.Copy(dlg.FileName, destPath, overwrite: true);
+            novel.HasCoverImage = true;
+            FileService.SaveNovelInfo(App.WorkRoot, novel);
+            RefreshNovelList();
+            if (_currentNovel?.Id == novel.Id)
+            {
+                _currentNovel.HasCoverImage = true;
+                SelectNovel(novel);
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"设置封皮失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private void SelectNovel(NovelInfo novel)
+    {
+        _currentNovel = novel;
+        foreach (Border child in NovelListPanel.Children)
+        {
+            if (child.Tag is NovelInfo ni)
+                child.BorderBrush = ni.Id == novel.Id
+                    ? (Brush)FindResource("PrimaryBrush")
+                    : (Brush)FindResource("BorderBrush");
+        }
+        LoadChapters();
+    }
+
+    private void LoadChapters()
+    {
+        if (_currentNovel == null) return;
+        _chapters = FileService.LoadChapters(App.WorkRoot, _currentNovel.Id);
+        var originalFile = FileService.NovelOriginalFile(App.WorkRoot, _currentNovel.Id);
+        if (_chapters.Count == 0 && File.Exists(originalFile))
+        {
+            _chapters = ChapterParserService.ParseNovel(originalFile);
+            FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
+        }
+        RefreshChapterTabs();
+        if (_chapters.Count > 0) SelectChapter(_chapters[0]);
+        else
+        {
+            try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
+            try { ScriptTextBox.Document.Blocks.Clear(); } catch { }
+            RefreshImageGrid();
+        }
+    }
+
+    // ===== 章节导航栏 =====
+    private void ChapterTabsScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (e.Delta > 0)
+            ChapterTabsScroller.ScrollToHorizontalOffset(ChapterTabsScroller.HorizontalOffset - 60);
+        else
+            ChapterTabsScroller.ScrollToHorizontalOffset(ChapterTabsScroller.HorizontalOffset + 60);
+        e.Handled = true;
+    }
+
+    private void ChapterExpandBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (ChapterPopup.IsOpen)
+        {
+            ChapterPopup.IsOpen = false;
+            return;
+        }
+
+        ChapterPopupList.Children.Clear();
+        var displayOrder = _chapters
+            .OrderBy(c => c.IsCompleted ? 1 : 0)
+            .ThenBy(c => c.Index)
+            .ToList();
+
+        // 弹窗宽度延伸到右侧「书籍列表」面板左边界
+        double leftEdge = ChapterExpandBtn.TranslatePoint(new Point(0, 0), this).X;
+        double rightEdge = ActualWidth - NovelListCol.ActualWidth - 16;
+        double popupWidth = Math.Max(400, rightEdge - leftEdge + 40);
+        ChapterPopupBorder.MaxWidth = popupWidth;
+        ChapterPopupBorder.MinWidth = Math.Min(400, popupWidth);
+
+        foreach (var ch in displayOrder)
+        {
+            bool isSelected = ch == _currentChapter;
+            var btn = new Button
+            {
+                Content = ch.DisplayName,
+                Tag = ch,
+                Style = (Style)FindResource("SecondaryButtonStyle"),
+                Margin = new Thickness(2),
+                FontSize = 11,
+                Padding = new Thickness(8, 5, 8, 5),
+                Background = isSelected ? (Brush)FindResource("PrimaryBrush") : null,
+                Foreground = isSelected ? Brushes.White : (Brush)FindResource("TextPrimaryBrush")
+            };
+            btn.Click += (s, _) =>
+            {
+                ChapterPopup.IsOpen = false;
+                SelectChapter(ch);
+                Dispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.Loaded,
+                    () => ScrollTabToChapter(ch));
+            };
+            ChapterPopupList.Children.Add(btn);
+        }
+        ChapterPopup.IsOpen = true;
+    }
+
+    /// <summary>
+    /// 将顶部章节 Tab 条横向滚动到指定章节按钮可见
+    /// </summary>
+    private void ScrollTabToChapter(Chapter chapter)
+    {
+        var tabBtn = ChapterTabsPanel.Children
+            .OfType<Button>()
+            .FirstOrDefault(b => b.Tag is Chapter ch && ch == chapter);
+        tabBtn?.BringIntoView();
+    }
+
+    private void RefreshChapterTabs()
+    {
+        ChapterTabsPanel.Children.Clear();
+        var displayOrder = _chapters
+            .OrderBy(c => c.IsCompleted ? 1 : 0)
+            .ThenBy(c => c.Index)
+            .ToList();
+
+        foreach (var ch in displayOrder)
+        {
+            var stack = new StackPanel { Orientation = Orientation.Horizontal };
+            if (ch.IsCompleted)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "\u2713 ",
+                    FontSize = 12,
+                    Foreground = (Brush)FindResource("SuccessBrush"),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+            }
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"第{ch.Index}章：{ch.Title}",
+                FontSize = 12,
+                Foreground = ch.IsCompleted ? (Brush)FindResource("TextSecondaryBrush") : (Brush)FindResource("TextPrimaryBrush"),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+
+            var btn = new Button
+            {
+                Content = stack,
+                Tag = ch,
+                Style = (Style)FindResource("SecondaryButtonStyle"),
+                Margin = new Thickness(2, 0, 2, 0),
+                Padding = new Thickness(12, 4, 12, 4),
+                Opacity = ch.IsCompleted ? 0.6 : 1.0
+            };
+            btn.Click += (s, e) => SelectChapter(ch);
+            btn.MouseRightButtonDown += (s, e) =>
+            {
+                var menu = new ContextMenu();
+                var header = ch.IsCompleted ? "取消完成" : "标记完成";
+                var item = new MenuItem { Header = header };
+                item.Click += (_, _) => ToggleChapterComplete(ch);
+                menu.Items.Add(item);
+                menu.IsOpen = true;
+            };
+            ChapterTabsPanel.Children.Add(btn);
+        }
+
+        var addBtn = new Button
+        {
+            Content = "+",
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            Width = 32, Margin = new Thickness(4, 0, 0, 0), FontSize = 16
+        };
+        addBtn.Click += AddChapter_Click;
+        ChapterTabsPanel.Children.Add(addBtn);
+    }
+
+    private void ToggleChapterComplete(Chapter chapter)
+    {
+        chapter.IsCompleted = !chapter.IsCompleted;
+        FileService.SaveChapters(App.WorkRoot, _currentNovel!.Id, _chapters);
+        RefreshChapterTabs();
+    }
+
+    private void SelectChapter(Chapter chapter)
+    {
+        _currentChapter = chapter;
+        foreach (Button btn in ChapterTabsPanel.Children.OfType<Button>())
+        {
+            if (btn.Tag is Chapter ch)
+            {
+                btn.Background = ch == chapter ? (Brush)FindResource("PrimaryBrush") : Brushes.Transparent;
+                btn.Foreground = ch == chapter ? Brushes.White : (Brush)FindResource("TextPrimaryBrush");
+            }
+        }
+        UpdateContent();
+    }
+
+    private void UpdateContent()
+    {
+        if (_currentChapter == null) return;
+        try
+        {
+            // 加载小说原文（RichTextBox）
+            var textRange = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
+            textRange.Text = _currentChapter.OriginalContent ?? "";
+        }
+        catch { }
+
+        new TextRange(ScriptTextBox.Document.ContentStart, ScriptTextBox.Document.ContentEnd).Text =
+            _currentChapter.ScriptContent ?? "";
+        RefreshImageGrid();
+    }
+
+    // ===== RichTextBox 文字高亮功能 =====
+    private void HighlightRed_Click(object sender, RoutedEventArgs e)
+    {
+        ApplyHighlight("#E81123");
+    }
+
+    private void HighlightColor_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem item && item.Tag is string color)
+            ApplyHighlight(color);
+    }
+
+    private void ApplyHighlight(string colorHex)
+    {
+        if (OriginalTextBox.Selection.IsEmpty) return;
+        try
+        {
+            var color = (Color)ColorConverter.ConvertFromString(colorHex);
+            OriginalTextBox.Selection.ApplyPropertyValue(TextElement.BackgroundProperty,
+                new SolidColorBrush(color) { Opacity = 0.3 });
+        }
+        catch { }
+    }
+
+    private void ClearHighlight_Click(object sender, RoutedEventArgs e)
+    {
+        if (OriginalTextBox.Selection.IsEmpty) return;
+        OriginalTextBox.Selection.ApplyPropertyValue(TextElement.BackgroundProperty,
+            Brushes.Transparent);
+    }
+
+    // ===== 图像素材 =====
+    private void AddImage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentChapter == null) return;
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "图片文件|*.png;*.jpg;*.jpeg;*.webp",
+            Multiselect = true,
+            Title = "选择要添加的图像素材"
+        };
+        if (dlg.ShowDialog() != true) return;
+        var targetDir = FileService.ChapterImagesPath(
+            App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+        foreach (var file in dlg.FileNames)
+            FileService.CopyFile(file, targetDir);
+        RefreshImageGrid();
+    }
+
+    private void RefreshImageGrid()
+    {
+        ImageGrid.Children.Clear();
+        ImageGrid.RowDefinitions.Clear();
+        ImageGrid.ColumnDefinitions.Clear();
+
+        if (_currentNovel == null || _currentChapter == null) return;
+
+        var chapterPath = FileService.ChapterImagesPath(
+            App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+        var images = FileService.GetFiles(chapterPath, ".png", ".jpg", ".jpeg", ".webp");
+
+        if (images.Count == 0)
+        {
+            ImageGrid.Children.Add(new TextBlock
+            {
+                Text = "暂无素材\n拖拽图片或点击「添加」导入",
+                Foreground = (Brush)FindResource("TextSecondaryBrush"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 12, TextAlignment = TextAlignment.Center
+            });
+            return;
+        }
+
+        int cols = 3;
+        for (int i = 0; i < cols; i++)
+            ImageGrid.ColumnDefinitions.Add(new ColumnDefinition());
+
+        for (int i = 0; i < images.Count; i++)
+        {
+            ImageGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            // ★ 关键：捕获到局部变量，避免 for 循环闭包问题
+            string imgPath = images[i];
+            string imgName = Path.GetFileName(imgPath);
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(imgPath);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 240;
+                bmp.EndInit();
+
+                var img = new Image
+                {
+                    Source = bmp, Stretch = Stretch.Uniform,
+                    MaxHeight = 170, Tag = imgPath
+                };
+
+                // 卡片容器：图片 + 名称 + 悬停操作栏
+                var card = new Border
+                {
+                    Margin = new Thickness(4),
+                    CornerRadius = new CornerRadius(4),
+                    ClipToBounds = true,
+                    Background = Brushes.Transparent,
+                    Tag = imgPath
+                };
+
+                var cardStack = new StackPanel();
+
+                // 图片区域（带悬停工具栏）
+                var imageArea = new Grid();
+                imageArea.Children.Add(img);
+
+                var toolbar = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Margin = new Thickness(0, 0, 0, 6),
+                    Opacity = 0
+                };
+                toolbar.Children.Add(CreateImageBtn("\uE8C8", "复制", () => CopyImageFile(imgPath)));
+                toolbar.Children.Add(CreateImageBtn("\uE8AC", "重命名", () => RenameImageFile(imgPath)));
+                toolbar.Children.Add(CreateImageBtn("\uE74D", "删除", () => DeleteImageFile(imgPath)));
+                imageArea.Children.Add(toolbar);
+                cardStack.Children.Add(imageArea);
+
+                // 图片名称
+                cardStack.Children.Add(new TextBlock
+                {
+                    Text = imgName,
+                    FontSize = 10,
+                    Foreground = (Brush)FindResource("TextSecondaryBrush"),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 4, 0, 0),
+                    MaxWidth = 200
+                });
+
+                card.Child = cardStack;
+                card.MouseEnter += (_, _) => toolbar.Opacity = 1;
+                card.MouseLeave += (_, _) => toolbar.Opacity = 0;
+                // 单击查看大图
+                card.MouseLeftButtonDown += (_, _) => ShowImageFullScreen(imgPath);
+
+                Grid.SetRow(card, i / cols);
+                Grid.SetColumn(card, i % cols);
+                ImageGrid.Children.Add(card);
+            }
+            catch { }
+        }
+    }
+
+    private Button CreateImageBtn(string icon, string tooltip, Action click)
+    {
+        var btn = new Button
+        {
+            Content = icon,
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            FontSize = 11, Width = 26, Height = 26,
+            Padding = new Thickness(0),
+            Margin = new Thickness(2, 0, 2, 0),
+            ToolTip = tooltip,
+            Cursor = Cursors.Hand,
+            Background = new SolidColorBrush(Color.FromArgb(0xD0, 0x33, 0x33, 0x33)),
+            Foreground = Brushes.White,
+            BorderThickness = new Thickness(0)
+        };
+        btn.Click += (_, _) => click();
+        btn.MouseEnter += (s, _) => ((Button)s).Background =
+            new SolidColorBrush(Color.FromArgb(0xF0, 0x55, 0x55, 0x55));
+        btn.MouseLeave += (s, _) => ((Button)s).Background =
+            new SolidColorBrush(Color.FromArgb(0xD0, 0x33, 0x33, 0x33));
+        return btn;
+    }
+
+    private void CopyImageFile(string path)
+    {
+        try
+        {
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.UriSource = new Uri(path);
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            Clipboard.SetImage(bmp);
+            ShowCopyToast("✓ 图像已复制到剪贴板");
+        }
+        catch { ShowCopyToast("✗ 复制失败"); }
+    }
+
+    private void RenameImageFile(string path)
+    {
+        var currentName = Path.GetFileNameWithoutExtension(path);
+        var dialog = new InputDialog("重命名素材", "请输入新的名称（不含扩展名）：", currentName);
+        dialog.Owner = Window.GetWindow(this);
+        if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.InputText))
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(path)!;
+                var ext = Path.GetExtension(path);
+                var newPath = Path.Combine(dir, dialog.InputText.Trim() + ext);
+                if (!string.Equals(path, newPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (File.Exists(newPath)) FileService.DeleteFile(newPath);
+                    File.Move(path, newPath);
+                    RefreshImageGrid();
+                }
+            }
+            catch { }
+        }
+    }
+
+    private void DeleteImageFile(string path)
+    {
+        try { FileService.DeleteFile(path); RefreshImageGrid(); }
+        catch { }
+    }
+
+    private void Image_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Image img && img.Tag is string path)
+        { try { System.Diagnostics.Process.Start("explorer.exe", path); } catch { } }
+    }
+
+    private void ShowImageFullScreen(string path)
+    {
+        try
+        {
+            var win = new Window
+            {
+                Title = Path.GetFileName(path),
+                WindowState = WindowState.Maximized,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = Window.GetWindow(this),
+                Background = Brushes.Black
+            };
+            var bmp = new BitmapImage(); bmp.BeginInit();
+            bmp.UriSource = new Uri(path);
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.EndInit();
+            var img = new Image { Source = bmp, Stretch = Stretch.Uniform };
+            win.Content = img;
+            win.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) win.Close(); };
+            img.MouseLeftButtonDown += (_, _) => win.Close();
+            win.ShowDialog();
+        }
+        catch { }
+    }
+
+    private void Image_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Image img && img.Tag is string path)
+        {
+            var menu = new ContextMenu();
+            var delItem = new MenuItem { Header = "删除素材" };
+            delItem.Click += (s, a) => { FileService.DeleteFile(path); RefreshImageGrid(); };
+            menu.Items.Add(delItem);
+            menu.IsOpen = true;
+        }
+    }
+
+    // ===== 面板折叠/展开（展开后自动按比例压缩，防止溢出） =====
+    private void ToggleOriginal_Click(object sender, RoutedEventArgs e)
+    {
+        _isOriginalExpanded = !_isOriginalExpanded;
+        if (_isOriginalExpanded)
+        {
+            double w = _savedOriginalWidth > 80 ? _savedOriginalWidth : 300;
+            OriginalCol.Width = new GridLength(w, GridUnitType.Pixel);
+            OriginalCol.MinWidth = 80;
+            OriginalPanel.Visibility = Visibility.Visible;
+            Splitter1.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            _savedOriginalWidth = OriginalCol.ActualWidth > 40 ? OriginalCol.ActualWidth : _savedOriginalWidth;
+            OriginalCol.Width = new GridLength(40, GridUnitType.Pixel);
+            OriginalCol.MinWidth = 0;
+            Splitter1.Visibility = Visibility.Collapsed;
+            return;
+        }
+        FitColumnsToContainer();
+    }
+
+    private void ToggleScript_Click(object sender, RoutedEventArgs e)
+    {
+        _isScriptExpanded = !_isScriptExpanded;
+        if (_isScriptExpanded)
+        {
+            double w = _savedScriptWidth > 80 ? _savedScriptWidth : 300;
+            ScriptCol.Width = new GridLength(w, GridUnitType.Pixel);
+            ScriptCol.MinWidth = 80;
+            ScriptPanel.Visibility = Visibility.Visible;
+            Splitter2.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            _savedScriptWidth = ScriptCol.ActualWidth > 40 ? ScriptCol.ActualWidth : _savedScriptWidth;
+            ScriptCol.Width = new GridLength(40, GridUnitType.Pixel);
+            ScriptCol.MinWidth = 0;
+            Splitter2.Visibility = Visibility.Collapsed;
+            return;
+        }
+        FitColumnsToContainer();
+    }
+
+    private void ToggleImage_Click(object sender, RoutedEventArgs e)
+    {
+        _isImageExpanded = !_isImageExpanded;
+        if (_isImageExpanded)
+        {
+            double w = _savedImageWidth > 80 ? _savedImageWidth : 300;
+            ImageCol.Width = new GridLength(w, GridUnitType.Pixel);
+            ImageCol.MinWidth = 80;
+            ImagePanel.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            _savedImageWidth = ImageCol.ActualWidth > 40 ? ImageCol.ActualWidth : _savedImageWidth;
+            ImageCol.Width = new GridLength(40, GridUnitType.Pixel);
+            ImageCol.MinWidth = 0;
+            return;
+        }
+        FitColumnsToContainer();
+    }
+
+    /// <summary>
+    /// 按当前容器宽度，将已保存的列宽等比压缩到不溢出
+    /// </summary>
+    private void FitColumnsToContainer()
+    {
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
+            () => ClampColumnsNow());
+    }
+
+    /// <summary>
+    /// 窗口大小变化时硬约束：三列总宽决不超过书籍列表左边界
+    /// </summary>
+    private void ContentGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        ClampColumnsNow();
+    }
+
+    /// <summary>
+    /// 窗口缩放时：仅当三列总宽即将溢出时等比压缩，不主动扩展
+    /// </summary>
+    private void ClampColumnsNow()
+    {
+        double total = ContentGrid.ActualWidth > 0 ? ContentGrid.ActualWidth
+            : this.ActualWidth - NovelListCol.ActualWidth - 32;
+        int visible = (_isOriginalExpanded ? 1 : 0) + (_isScriptExpanded ? 1 : 0) + (_isImageExpanded ? 1 : 0);
+        if (visible == 0) return;
+        double collapsed = (3 - visible) * 40;
+        double available = total - collapsed - 8;
+        if (available < visible * 80) return;
+
+        double actualSum = 0;
+        if (_isOriginalExpanded) actualSum += OriginalCol.ActualWidth;
+        if (_isScriptExpanded) actualSum += ScriptCol.ActualWidth;
+        if (_isImageExpanded) actualSum += ImageCol.ActualWidth;
+
+        // 不溢出就不动，保留用户手动调节
+        if (actualSum <= available + 2) return;
+
+        double[] saved = { _savedOriginalWidth, _savedScriptWidth, _savedImageWidth };
+        bool[] show = { _isOriginalExpanded, _isScriptExpanded, _isImageExpanded };
+        double savedSum = 0;
+        for (int j = 0; j < 3; j++) if (show[j]) savedSum += saved[j];
+        if (savedSum <= 0) return;
+
+        double ratio = available / savedSum;
+        if (_isOriginalExpanded)
+            OriginalCol.Width = new GridLength(Math.Max(80, saved[0] * ratio), GridUnitType.Pixel);
+        if (_isScriptExpanded)
+            ScriptCol.Width = new GridLength(Math.Max(80, saved[1] * ratio), GridUnitType.Pixel);
+        if (_isImageExpanded)
+            ImageCol.Width = new GridLength(Math.Max(80, saved[2] * ratio), GridUnitType.Pixel);
+    }
+
+    /// <summary>
+    /// 拖拽 Splitter1 时：不让脚本列缩到 80 以下，也不让图像列被挤出边界
+    /// </summary>
+    private void Splitter1_DragDelta(object sender, DragDeltaEventArgs e)
+    {
+        double newScriptW = ScriptCol.ActualWidth - e.HorizontalChange;
+        // 脚本列最小 80
+        if (newScriptW < 80) { e.Handled = true; return; }
+        // 图像列不能被挤出：必须保留至少 80
+        double spaceForImage = ContentGrid.ActualWidth -
+            (OriginalCol.ActualWidth + e.HorizontalChange) - newScriptW - 8;
+        if (_isImageExpanded && spaceForImage < 80) e.Handled = true;
+    }
+
+    /// <summary>
+    /// 拖拽 Splitter2 时：图像列不超出容器，脚本列也不缩到 80 以下
+    /// </summary>
+    private void Splitter2_DragDelta(object sender, DragDeltaEventArgs e)
+    {
+        double newScriptW = ScriptCol.ActualWidth - e.HorizontalChange;
+        // 脚本列最小 80
+        if (newScriptW < 80) { e.Handled = true; return; }
+        // 图像列不超出右边界
+        double used = (_isOriginalExpanded ? OriginalCol.ActualWidth : 40) + newScriptW;
+        double maxImg = ContentGrid.ActualWidth - used - 8;
+        if (ImageCol.ActualWidth + e.HorizontalChange > maxImg) e.Handled = true;
+    }
+
+    private void Splitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        ImageCol.ClearValue(ColumnDefinition.MaxWidthProperty);
+        if (OriginalCol.ActualWidth > 80) _savedOriginalWidth = OriginalCol.ActualWidth;
+        if (ScriptCol.ActualWidth > 80) _savedScriptWidth = ScriptCol.ActualWidth;
+        if (ImageCol.ActualWidth > 80) _savedImageWidth = ImageCol.ActualWidth;
+    }
+
+    // ===== 导入小说 =====
+    private void ImportNovel_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        { Filter = "文本文件|*.txt", Title = "选择要导入的小说文件" };
+        if (dlg.ShowDialog() != true) return;
+        try
+        {
+            var fileName = Path.GetFileNameWithoutExtension(dlg.FileName);
+            var novelId = Guid.NewGuid().ToString();
+            FileService.EnsureDirectory(FileService.NovelPath(App.WorkRoot, novelId));
+            var novelInfo = new NovelInfo { Id = novelId, Name = fileName, Description = $"导入时间: {DateTime.Now:yyyy-MM-dd HH:mm}" };
+            var encoding = ChapterParserService.DetectEncoding(dlg.FileName);
+            var rawText = File.ReadAllText(dlg.FileName, encoding);
+            File.WriteAllText(FileService.NovelOriginalFile(App.WorkRoot, novelId), rawText, System.Text.Encoding.UTF8);
+            FileService.SaveNovelInfo(App.WorkRoot, novelInfo);
+            var chapters = ChapterParserService.ParseNovel(dlg.FileName);
+            FileService.SaveChapters(App.WorkRoot, novelId, chapters);
+            RefreshNovelList();
+            SelectNovel(novelInfo);
+            MessageBox.Show($"导入成功！\n\n小说：《{fileName}》\n自动识别 {chapters.Count} 个章节\n编码：{encoding.EncodingName}", "导入完成", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        { MessageBox.Show($"导入失败：{ex.Message}", "导入错误", MessageBoxButton.OK, MessageBoxImage.Error); }
+    }
+
+    private void AddChapter_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null) return;
+        var newChapter = new Chapter { Index = _chapters.Count + 1, Title = "新章节", OriginalContent = string.Empty };
+        _chapters.Add(newChapter);
+        FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
+        RefreshChapterTabs();
+        SelectChapter(newChapter);
+    }
+
+    /// <summary>
+    /// 复制小说原文到剪贴板
+    /// </summary>
+    private void CopyOriginal_Click(object sender, RoutedEventArgs e)
+    {
+        var textRange = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
+        Clipboard.SetText(textRange.Text);
+        ShowCopyToast("\u2713 原文已复制");
+    }
+
+    /// <summary>
+    /// 复制剧本内容到剪贴板
+    /// </summary>
+    private void CopyScript_Click(object sender, RoutedEventArgs e)
+    {
+        var range = new TextRange(ScriptTextBox.Document.ContentStart, ScriptTextBox.Document.ContentEnd);
+        Clipboard.SetText(range.Text);
+        ShowCopyToast("\u2713 剧本已复制");
+    }
+
+    /// <summary>
+    /// 底部浮动提示，淡入→停留→淡出
+    /// </summary>
+    private async void ShowCopyToast(string message)
+    {
+        CopyToastText.Text = message;
+        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.2));
+        CopyToast.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+        await Task.Delay(1500);
+        var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.35));
+        CopyToast.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+    }
+
+    private void ScriptTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentChapter == null) return;
+        var config = FileService.LoadConfig(App.WorkRoot);
+        if (!config.AutoSaveScript) return;
+        var range = new TextRange(ScriptTextBox.Document.ContentStart, ScriptTextBox.Document.ContentEnd);
+        _currentChapter.ScriptContent = range.Text;
+        FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
+    }
+
+    private void ImageGrid_Drop(object sender, DragEventArgs e)
+    {
+        if (_currentNovel == null || _currentChapter == null) return;
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            var targetDir = FileService.ChapterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+            foreach (var file in files)
+            {
+                var ext = Path.GetExtension(file).ToLower();
+                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp")
+                    FileService.CopyFile(file, targetDir);
+            }
+            RefreshImageGrid();
+        }
+    }
+
+    private void ImageGrid_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private static SolidColorBrush ParseColorBrush(string hex)
+    {
+        try { return new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)); }
+        catch { return new SolidColorBrush(Colors.SteelBlue); }
+    }
+}

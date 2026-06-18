@@ -1,0 +1,23 @@
+# .NET Build artifacts
+bin/
+obj/
+# Installer/
+*.user
+*.suo
+*.cache
+
+# WorkData (user runtime data)
+**/WorkData/
+
+# IDE
+.vs/
+.idea/
+.vscode/
+
+# OS
+Thumbs.db
+*.DS_Store
+
+# File
+build_to_msi.md
+项目文档.md
