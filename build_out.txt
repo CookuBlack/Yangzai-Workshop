@@ -1,0 +1,11 @@
+  Determining projects to restore...
+  Restored c:\Users\CooKu\Desktop\Material\LearningNotes\Yangzai Workshop\YangzaiWorkshop.csproj (in 313 ms).
+c:\Users\CooKu\Desktop\Material\LearningNotes\Yangzai Workshop\obj\Debug\net8.0-windows\.NETCoreApp,Version=v8.0.AssemblyAttributes.cs(4,12): error CS0579: Duplicate 'global::System.Runtime.Versioning.TargetFrameworkAttribute' attribute [c:\Users\CooKu\Desktop\Material\LearningNotes\Yangzai Workshop\YangzaiWorkshop.csproj]
+
+Build FAILED.
+
+c:\Users\CooKu\Desktop\Material\LearningNotes\Yangzai Workshop\obj\Debug\net8.0-windows\.NETCoreApp,Version=v8.0.AssemblyAttributes.cs(4,12): error CS0579: Duplicate 'global::System.Runtime.Versioning.TargetFrameworkAttribute' attribute [c:\Users\CooKu\Desktop\Material\LearningNotes\Yangzai Workshop\YangzaiWorkshop.csproj]
+    0 Warning(s)
+    1 Error(s)
+
+Time Elapsed 00:00:01.72
