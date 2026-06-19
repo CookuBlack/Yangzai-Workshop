@@ -1,5 +1,9 @@
+using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -12,25 +16,46 @@ namespace YangzaiWorkshop;
 
 public partial class MainWindow : Window
 {
-    private readonly Dictionary<string, Button> _navButtons = new();
-    private bool _isTransitioning;
+    private bool _isNavigating;
 
     public MainWindow()
     {
         InitializeComponent();
 
-        _navButtons["Profile"] = NavProfile;
-        _navButtons["Home"] = NavHome;
-        _navButtons["Script"] = NavScript;
-        _navButtons["Character"] = NavCharacter;
-        _navButtons["Video"] = NavVideo;
-        _navButtons["Stats"] = NavStats;
-        _navButtons["Toolbox"] = NavToolbox;
-        _navButtons["Settings"] = NavSettings;
-
         NavigationService.Instance.PageChanged += OnPageChanged;
 
-        NavigateToPage("Home");
+        // 回收站还原文件后，清除相关页面缓存强制下次访问重新加载
+        FileService.FileRestored += restoredPath =>
+        {
+            Dispatcher.Invoke(() =>
+            {
+                // 根据路径判断还原的是图片还是视频，清除对应页面缓存
+                var path = restoredPath.Replace('\\', '/');
+                if (path.Contains("/Image/")) NavigationService.Instance.ClearPage("Script");
+                else if (path.Contains("/Video/")) NavigationService.Instance.ClearPage("Video");
+
+                // 如果当前正在该页面，立即刷新
+                var current = NavigationService.Instance.CurrentPageName;
+                if (current == "Script" && NavigationService.Instance.CurrentPage is Views.ScriptPage sp)
+                    NavigationService.Instance.NavigateTo("Script");
+                else if (current == "Video" && NavigationService.Instance.CurrentPage is Views.VideoPage vp)
+                    NavigationService.Instance.NavigateTo("Video");
+            });
+        };
+
+        ThemeService.ThemeChanged += () =>
+        {
+            var current = NavigationService.Instance.CurrentPageName;
+            NavigationService.Instance.ClearCache();
+            NavigationService.Instance.NavigateTo(current);
+            ContentArea.Content = NavigationService.Instance.CurrentPage;
+            ContentArea.Opacity = 1;
+            SelectNavItem(current);
+            UpdateStatusBar();
+            LoadNavAvatar();
+        };
+
+        _ = NavigateToPage("Home");
         UpdateThemeIcon();
         UpdateStatusBar();
         LoadAvatars();
@@ -38,7 +63,6 @@ public partial class MainWindow : Window
 
     private void LoadAvatars()
     {
-        // 顶部标题栏 Logo 使用 Yangzai.ico
         var logoPath = Path.Combine(FileService.AppBasePath, "Assets", "Icon", "Yangzai.ico");
         var logoImg = FileService.LoadImage(logoPath, decodeWidth: 40);
         if (logoImg != null) LogoBrush.ImageSource = logoImg;
@@ -49,13 +73,31 @@ public partial class MainWindow : Window
     {
         var custom = FileService.CustomAvatarFile;
         var path = File.Exists(custom) ? custom : FileService.DefaultMiniAvatarFile;
-        var img = FileService.LoadImage(path, decodeWidth: 40);
-        if (img == null) return;
+        if (!File.Exists(path)) return;
+        try
+        {
+            var data = File.ReadAllBytes(path);
+            var bmp = new System.Windows.Media.Imaging.BitmapImage();
+            bmp.BeginInit();
+            bmp.StreamSource = new MemoryStream(data);
+            bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bmp.DecodePixelWidth = 48;
+            bmp.EndInit();
+            bmp.Freeze();
 
-        // 模板内的 ImageBrush 通过 FindName 获取
-        NavProfile.ApplyTemplate();
-        var brush = NavProfile.Template.FindName("NavAvatarBrush", NavProfile) as ImageBrush;
-        if (brush != null) brush.ImageSource = img;
+            // 在 BottomNavList 中找到 Profile 项，更新其头像
+            foreach (ListBoxItem item in BottomNavList.Items)
+            {
+                if (item.Tag is string tag && tag == "Profile"
+                    && item.Content is StackPanel sp && sp.Children.Count > 0
+                    && sp.Children[0] is System.Windows.Shapes.Ellipse ellipse)
+                {
+                    ellipse.Fill = new ImageBrush(bmp) { Stretch = Stretch.UniformToFill };
+                    break;
+                }
+            }
+        }
+        catch { }
     }
 
     private void UpdateStatusBar()
@@ -63,97 +105,98 @@ public partial class MainWindow : Window
         var config = FileService.LoadConfig(App.WorkRoot);
         VersionText.Text = $"v{config.Version}";
         UpdateDateText.Text = config.LastUpdateDate;
-        GitHubStarsText.Text = config.GitHubStars.ToString();
     }
 
-    // ===== 页面导航（丝滑淡入淡出） =====
-    private async void NavigateToPage(string pageName)
+    // ===== 页面导航（带淡入淡出过渡动画） =====
+    private async Task NavigateToPage(string pageName)
     {
-        if (_isTransitioning) return;
-        _isTransitioning = true;
+        if (_isNavigating) return;
+        if (ContentArea.Content != null
+            && NavigationService.Instance.CurrentPageName == pageName)
+            return;
 
-        var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        _isNavigating = true;
 
-        // 淡出当前页面
-        var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.15)) { EasingFunction = ease };
-        ContentArea.BeginAnimation(UIElement.OpacityProperty, fadeOut);
-        await Task.Delay(TimeSpan.FromSeconds(0.15));
+        bool animate = ContentArea.Content != null;
 
-        // 切换页面
+        if (animate)
+        {
+            // 淡出当前页面
+            await AnimateOpacityTo(ContentArea, 0, 150);
+        }
+
+        // 切换内容
         NavigationService.Instance.NavigateTo(pageName);
         ContentArea.Content = NavigationService.Instance.CurrentPage;
+        SelectNavItem(pageName);
 
-        // 淡入新页面
-        ContentArea.Opacity = 0;
-        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.2)) { EasingFunction = ease };
-        fadeIn.BeginTime = TimeSpan.FromSeconds(0.05);
-        ContentArea.BeginAnimation(UIElement.OpacityProperty, fadeIn);
-
-        UpdateNavHighlight(pageName);
-        _isTransitioning = false;
-    }
-
-    private async void OnPageChanged()
-    {
-        if (_isTransitioning) return;
-        _isTransitioning = true;
-
-        var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
-
-        var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.15)) { EasingFunction = ease };
-        ContentArea.BeginAnimation(UIElement.OpacityProperty, fadeOut);
-        await Task.Delay(TimeSpan.FromSeconds(0.15));
-
-        ContentArea.Content = NavigationService.Instance.CurrentPage;
-        ContentArea.Opacity = 0;
-        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.2)) { EasingFunction = ease };
-        fadeIn.BeginTime = TimeSpan.FromSeconds(0.05);
-        ContentArea.BeginAnimation(UIElement.OpacityProperty, fadeIn);
-
-        UpdateNavHighlight(NavigationService.Instance.CurrentPageName);
-        _isTransitioning = false;
-    }
-
-    private void UpdateNavHighlight(string activePage)
-    {
-        foreach (var kvp in _navButtons)
+        if (animate)
         {
-            var isActive = kvp.Key == activePage;
-            if (kvp.Key == "Profile")
+            // 淡入新页面
+            await AnimateOpacityTo(ContentArea, 1, 150);
+        }
+        else
+        {
+            ContentArea.Opacity = 1;
+        }
+
+        _isNavigating = false;
+    }
+
+    /// <summary>淡入淡出核心方法</summary>
+    private static async Task AnimateOpacityTo(UIElement target, double to, double durationMs)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+        var anim = new DoubleAnimation(to, TimeSpan.FromMilliseconds(durationMs))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        anim.Completed += (_, _) => tcs.TrySetResult(true);
+        target.BeginAnimation(UIElement.OpacityProperty, anim);
+        await tcs.Task;
+    }
+
+    private void OnPageChanged()
+    {
+        // NavigateToPage 已处理内容切换，此处仅同步导航选中状态
+        SelectNavItem(NavigationService.Instance.CurrentPageName);
+    }
+
+    private void SelectNavItem(string pageName)
+    {
+        // 主导航列表
+        foreach (ListBoxItem item in NavList.Items)
+        {
+            if (item.Tag is string tag && tag == pageName)
             {
-                NavProfile.BorderBrush = isActive
-                    ? (Brush)FindResource("PrimaryBrush") : Brushes.Transparent;
-                NavProfile.BorderThickness = isActive
-                    ? new Thickness(2) : new Thickness(0);
-            }
-            else if (kvp.Value.Style == FindResource("SideNavButtonStyle"))
-            {
-                kvp.Value.Background = isActive
-                    ? (Brush)FindResource("PrimaryBrush") : Brushes.Transparent;
-                kvp.Value.Foreground = isActive
-                    ? Brushes.White : (Brush)FindResource("TextSecondaryBrush");
+                NavList.SelectedItem = item;
+                BottomNavList.SelectedItem = null;
+                return;
             }
         }
+        // 底部导航（Profile / Settings）
+        NavList.SelectedItem = null;
+        foreach (ListBoxItem item in BottomNavList.Items)
+        {
+            if (item.Tag is string tag && tag == pageName)
+            {
+                BottomNavList.SelectedItem = item;
+                return;
+            }
+        }
+        BottomNavList.SelectedItem = null;
     }
 
-    private void NavButton_Click(object sender, RoutedEventArgs e)
+    private void NavList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (sender is Button btn)
-        {
-            var pageName = btn.Name switch
-            {
-                "NavProfile" => "Profile",
-                "NavHome" => "Home",
-                "NavScript" => "Script",
-                "NavCharacter" => "Character",
-                "NavVideo" => "Video",
-                "NavStats" => "Stats",
-                "NavToolbox" => "Toolbox",
-                "NavSettings" => "Settings",
-                _ => "Home"
-            };
-            NavigateToPage(pageName);
-        }
+        if (NavList.SelectedItem is ListBoxItem item && item.Tag is string tag)
+            _ = NavigateToPage(tag);
+    }
+
+    private void BottomNavList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (BottomNavList.SelectedItem is ListBoxItem item && item.Tag is string tag)
+            _ = NavigateToPage(tag);
     }
 
     // ===== 窗口控制 =====
@@ -166,15 +209,55 @@ public partial class MainWindow : Window
     private void MinimizeButton_Click(object sender, RoutedEventArgs e) =>
         WindowState = WindowState.Minimized;
 
+    private bool _isMaximized;
+    private double _normalLeft, _normalTop, _normalWidth, _normalHeight;
+
     private void MaximizeButton_Click(object sender, RoutedEventArgs e) =>
         ToggleMaximize();
 
     private void ToggleMaximize()
     {
-        if (WindowState == WindowState.Maximized)
-        { WindowState = WindowState.Normal; MaxIcon.Text = "\uE922"; }
+        if (_isMaximized)
+        {
+            _isMaximized = false;
+            MaxIcon.Text = "\uE922";
+            MainBorder.CornerRadius = new CornerRadius(12);
+            MainBorder.Effect = new DropShadowEffect
+            {
+                ShadowDepth = 3, BlurRadius = 25, Opacity = 0.35,
+                Direction = 315,
+                Color = (Color)ColorConverter.ConvertFromString("#35000000")
+            };
+            Left = _normalLeft;
+            Top = _normalTop;
+            Width = _normalWidth;
+            Height = _normalHeight;
+        }
         else
-        { WindowState = WindowState.Maximized; MaxIcon.Text = "\uE923"; }
+        {
+            _normalLeft = Left;
+            _normalTop = Top;
+            _normalWidth = Width;
+            _normalHeight = Height;
+            _isMaximized = true;
+            MaxIcon.Text = "\uE923";
+            MainBorder.CornerRadius = new CornerRadius(0);
+            MainBorder.Effect = null;
+
+            var workArea = SystemParameters.WorkArea;
+            Left = workArea.Left;
+            Top = workArea.Top;
+            Width = workArea.Width;
+            Height = workArea.Height;
+        }
+    }
+
+    /// <summary>
+    /// 标题栏双击最大/还原由 ToggleMaximize 独占处理，CaptionHeight=0 让 WindowChrome 不插手
+    /// </summary>
+    protected override void OnStateChanged(EventArgs e)
+    {
+        base.OnStateChanged(e);
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
@@ -189,45 +272,7 @@ public partial class MainWindow : Window
     private void UpdateThemeIcon() =>
         ThemeIcon.Text = ThemeService.CurrentTheme == "Light" ? "\uE706" : "\uE708";
 
-    protected override void OnStateChanged(EventArgs e)
-    {
-        base.OnStateChanged(e);
-        AnimateStateChange();
-    }
-
-    /// <summary>
-    /// 最大化/还原时平滑渐变圆角，圆角 12↔0 线性动画约 250ms，
-    /// 配合 Windows 原生窗口动效，视觉上自然丝滑
-    /// </summary>
-    private async void AnimateStateChange()
-    {
-        bool toMaximized = WindowState == WindowState.Maximized;
-        MaxIcon.Text = toMaximized ? "\uE923" : "\uE922";
-
-        double fromRadius = toMaximized ? 12 : 0;
-        double toRadius = toMaximized ? 0 : 12;
-
-        const int frames = 25;
-        const int interval = 10; // 25 × 10 = 250ms
-
-        for (int i = 1; i <= frames; i++)
-        {
-            // Cubic ease-out: 开头快、收尾慢，过渡自然
-            double t = (double)i / frames;
-            double eased = 1.0 - Math.Pow(1.0 - t, 3.0);
-            double r = fromRadius + (toRadius - fromRadius) * eased;
-            MainBorder.CornerRadius = new CornerRadius(r);
-            await Task.Delay(interval);
-        }
-
-        // 确保最终状态精确到位
-        MainBorder.CornerRadius = new CornerRadius(toRadius);
-        MainBorder.Effect = toMaximized
-            ? null
-            : new DropShadowEffect { ShadowDepth = 0, BlurRadius = 12, Opacity = 0.3 };
-    }
-
-    private void GitHubLink_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    private void GitHubLink_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         try
         {

@@ -10,6 +10,7 @@
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -43,6 +44,7 @@
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -187,14 +189,15 @@
 
     <!-- 侧边导航按钮样式 -->
     <Style x:Key="SideNavButtonStyle" TargetType="Button">
-        <Setter Property="Width" Value="64"/>
-        <Setter Property="Height" Value="56"/>
+        <Setter Property="Width" Value="68"/>
+        <Setter Property="Height" Value="60"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="FontFamily" Value="Microsoft YaHei"/>
-        <Setter Property="FontSize" Value="10"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
@@ -203,16 +206,109 @@
                             Padding="4,6">
                         <StackPanel>
                             <TextBlock x:Name="icon" Text="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"
-                                       FontFamily="Segoe MDL2 Assets" FontSize="18"
+                                       FontFamily="Segoe MDL2 Assets" FontSize="20"
                                        Foreground="{TemplateBinding Foreground}"
-                                       HorizontalAlignment="Center"/>
+                                       HorizontalAlignment="Center"
+                                       RenderTransformOrigin="0.5,0.5">
+                                <TextBlock.RenderTransform>
+                                    <ScaleTransform/>
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
                             <ContentPresenter HorizontalAlignment="Center"
-                                              Margin="0,2,0,0"/>
+                                              Margin="0,5,0,0"/>
                         </StackPanel>
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter TargetName="border" Property="Background" Value="{DynamicResource HoverBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- 侧边导航 ListBoxItem（选中时：棕色背景 + 白色前景 + 微放大动画） -->
+    <Style x:Key="NavItemStyle" TargetType="ListBoxItem">
+        <Setter Property="Width" Value="68"/>
+        <Setter Property="Height" Value="60"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ListBoxItem">
+                    <Border x:Name="border" CornerRadius="6"
+                            Background="{TemplateBinding Background}"
+                            Padding="4,6">
+                        <!-- 包裹一层 ContentPresenter 作为缩放目标，这样不会影响 Foreground -->
+                        <ContentPresenter x:Name="content"
+                                          RenderTransformOrigin="0.5,0.5">
+                            <ContentPresenter.RenderTransform>
+                                <ScaleTransform ScaleX="1" ScaleY="1"/>
+                            </ContentPresenter.RenderTransform>
+                        </ContentPresenter>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="border" Property="Background"
+                                    Value="{DynamicResource HoverBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <!-- 前景色切白色，确保在棕色背景上清晰可见 -->
+                            <Setter Property="Foreground" Value="White"/>
+                            <Setter TargetName="border" Property="Background"
+                                    Value="{DynamicResource PrimaryBrush}"/>
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="content"
+                                            Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                            To="1.15" Duration="0:0:0.25">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="content"
+                                            Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                            To="1.15" Duration="0:0:0.25">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="content"
+                                            Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)"
+                                            To="1.0" Duration="0:0:0.25">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation
+                                            Storyboard.TargetName="content"
+                                            Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)"
+                                            To="1.0" Duration="0:0:0.25">
+                                            <DoubleAnimation.EasingFunction>
+                                                <CubicEase EasingMode="EaseOut"/>
+                                            </DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

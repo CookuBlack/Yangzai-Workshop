@@ -24,7 +24,14 @@ public partial class CharacterPage : UserControl
         Loaded += OnLoaded;
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e) => RefreshNovels();
+    private bool _loaded;
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_loaded) return;
+        _loaded = true;
+        RefreshNovels();
+    }
 
     private void NovelScroller_MouseWheel(object sender, MouseWheelEventArgs e)
     {
@@ -33,30 +40,6 @@ public partial class CharacterPage : UserControl
     }
 
     // ===== Toast 反馈 =====
-    private void ShowImageFullScreen(string path)
-    {
-        try
-        {
-            var win = new Window
-            {
-                Title = Path.GetFileName(path),
-                WindowState = WindowState.Maximized,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Owner = Window.GetWindow(this),
-                Background = Brushes.Black
-            };
-            var bmp = new BitmapImage(); bmp.BeginInit();
-            bmp.UriSource = new Uri(path);
-            bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
-            var img = new Image { Source = bmp, Stretch = Stretch.Uniform };
-            win.Content = img;
-            win.KeyDown += (_, e) => { if (e.Key == Key.Escape) win.Close(); };
-            img.MouseLeftButtonDown += (_, _) => win.Close();
-            win.ShowDialog();
-        }
-        catch { }
-    }
-
     private async void Toast(string msg)
     {
         ToastText.Text = msg;
@@ -139,6 +122,7 @@ public partial class CharacterPage : UserControl
             {
                 bool a = ni.Id == novel.Id;
                 c.Opacity = a ? 1.0 : 0.65;
+                c.BorderBrush = a ? (Brush)FindResource("PrimaryBrush") : (Brush)FindResource("BorderBrush");
                 c.BorderThickness = a ? new Thickness(1.5) : new Thickness(1);
             }
         }
@@ -204,10 +188,13 @@ public partial class CharacterPage : UserControl
         {
             try
             {
+                var data = File.ReadAllBytes(avP);
                 var bmp = new BitmapImage();
-                bmp.BeginInit(); bmp.UriSource = new Uri(avP);
+                bmp.BeginInit();
+                bmp.StreamSource = new MemoryStream(data);
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.DecodePixelWidth = 80; bmp.EndInit();
+                bmp.Freeze();
                 av.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
             }
             catch { av.Child = Fallback(ch.Name); }
@@ -277,9 +264,13 @@ public partial class CharacterPage : UserControl
         {
             try
             {
+                var data = File.ReadAllBytes(p);
                 var bmp = new BitmapImage();
-                bmp.BeginInit(); bmp.UriSource = new Uri(p);
-                bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
+                bmp.BeginInit();
+                bmp.StreamSource = new MemoryStream(data);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                bmp.Freeze();
                 CharAvatarImage.Source = bmp;
                 CharAvatarPlaceholder.Visibility = Visibility.Collapsed; return;
             }
@@ -297,22 +288,51 @@ public partial class CharacterPage : UserControl
         if (dlg.ShowDialog() != true) return;
         try
         {
-            var cw = new CropWindow(dlg.FileName)
-            { Owner = Window.GetWindow(this) };
-            if (cw.ShowDialog() == true && cw.CroppedImage != null)
+            var cw = new CropWindow(dlg.FileName) { Owner = Window.GetWindow(this) };
+            cw.Cropped += img =>
             {
                 var dir = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, _currentCharacter.Id);
                 FileService.EnsureDirectory(dir);
                 var ap = FileService.CharacterAvatarFile(App.WorkRoot, _currentNovel.Id, _currentCharacter.Id);
-                if (File.Exists(ap)) FileService.DeleteFile(ap);
                 var enc = new PngBitmapEncoder();
-                enc.Frames.Add(BitmapFrame.Create(cw.CroppedImage));
-                using var fs = new FileStream(ap, FileMode.Create);
+                enc.Frames.Add(BitmapFrame.Create(img));
+                using var fs = new FileStream(ap, FileMode.Create, FileAccess.Write, FileShare.Read);
                 enc.Save(fs);
-                RefreshCharacterAvatar(); RefreshCharacterList();
-            }
+                fs.Flush(true);
+                var frozen = img.Clone();
+                frozen.Freeze();
+                CharAvatarImage.Source = frozen;
+                CharAvatarPlaceholder.Visibility = Visibility.Collapsed;
+                UpdateCharacterCardAvatar(_currentCharacter.Id, frozen);
+            };
+            cw.Show();
         }
         catch { }
+    }
+
+    private static void ApplyCardClip(Border card)
+    {
+        if (card.ActualWidth > 0 && card.ActualHeight > 0)
+            card.Clip = new RectangleGeometry(
+                new Rect(0, 0, card.ActualWidth, card.ActualHeight), 6, 6);
+    }
+
+    /// <summary>更新人物列表中指定角色的头像（不重建整个列表）</summary>
+    private void UpdateCharacterCardAvatar(string charId, BitmapSource source)
+    {
+        foreach (Border card in CharacterPanel.Children)
+        {
+            if (card.Tag is CharacterInfo ci && ci.Id == charId)
+            {
+                if (card.Child is Grid g && g.Children.Count > 0 && g.Children[0] is Border av)
+                {
+                    av.Child = new Image { Source = source, Stretch = Stretch.UniformToFill };
+                    av.Background = Brushes.Transparent;
+                    av.ClipToBounds = true;
+                }
+                break;
+            }
+        }
     }
 
     // ===== 重命名 =====
@@ -321,8 +341,10 @@ public partial class CharacterPage : UserControl
         if (_currentNovel == null || _currentCharacter == null) return;
         var dlg = new InputDialog("重命名角色", "新名称：", _currentCharacter.Name)
         { Owner = Window.GetWindow(this) };
-        if (dlg.ShowDialog() != true || string.IsNullOrWhiteSpace(dlg.InputText)) return;
-        var nn = dlg.InputText.Trim();
+        dlg.Confirmed += name =>
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+        var nn = name.Trim();
         var oldCharId = _currentCharacter.Id;
         var sid = Sanitize(nn);
         var old = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, oldCharId);
@@ -356,6 +378,8 @@ public partial class CharacterPage : UserControl
 
         RefreshCharacterList(); SelectCharacter(_currentCharacter);
         Toast("✓ 重命名成功");
+        };
+        dlg.Show();
     }
 
     private static string Sanitize(string n)
@@ -460,9 +484,11 @@ public partial class CharacterPage : UserControl
                 var card = new Border
                 {
                     Width = 170, Margin = new Thickness(4),
-                    CornerRadius = new CornerRadius(4),
+                    CornerRadius = new CornerRadius(6),
                     ClipToBounds = true, Background = Brushes.Transparent
                 };
+                card.Loaded += (_, _) => ViewHelpers.ApplyRoundedClip(card);
+                card.SizeChanged += (_, _) => ViewHelpers.ApplyRoundedClip(card);
                 var cs = new StackPanel();
                 var ia = new Grid();
                 ia.Children.Add(new Image { Source = bmp, Stretch = Stretch.Uniform, MaxHeight = 150 });
@@ -475,16 +501,30 @@ public partial class CharacterPage : UserControl
                     Margin = new Thickness(0, 0, 0, 4), Opacity = 0
                 };
                 tb.Children.Add(ImgBtn("复制", () =>
-                { Clipboard.SetImage(bmp); Toast("✓ 已复制"); }));
+                {
+                    try
+                    {
+                        var data = File.ReadAllBytes(ip);
+                        var full = new BitmapImage();
+                        full.BeginInit();
+                        full.StreamSource = new MemoryStream(data);
+                        full.CacheOption = BitmapCacheOption.OnLoad;
+                        full.EndInit();
+                        Clipboard.SetImage(full);
+                        Toast("✓ 已复制");
+                    }
+                    catch { Toast("✗ 复制失败"); }
+                }));
                 tb.Children.Add(ImgBtn("改名", () =>
                 {
                     var d = new InputDialog("重命名", "名称（不含扩展名）：",
                         Path.GetFileNameWithoutExtension(ip))
                     { Owner = Window.GetWindow(this) };
-                    if (d.ShowDialog() == true && !string.IsNullOrWhiteSpace(d.InputText))
+                    d.Confirmed += name =>
                     {
+                        if (string.IsNullOrWhiteSpace(name)) return;
                         var np2 = Path.Combine(Path.GetDirectoryName(ip)!,
-                            d.InputText.Trim() + Path.GetExtension(ip));
+                            name.Trim() + Path.GetExtension(ip));
                         if (!string.Equals(ip, np2, StringComparison.OrdinalIgnoreCase))
                         {
                             if (File.Exists(np2)) FileService.DeleteFile(np2);
@@ -492,7 +532,8 @@ public partial class CharacterPage : UserControl
                             RefreshCharacterImages();
                             Toast("✓ 已改名");
                         }
-                    }
+                    };
+                    d.Show();
                 }));
                 tb.Children.Add(ImgBtn("删除", () =>
                 {
@@ -512,7 +553,7 @@ public partial class CharacterPage : UserControl
                 card.Child = cs;
                 card.MouseEnter += (_, _) => tb.Opacity = 1;
                 card.MouseLeave += (_, _) => tb.Opacity = 0;
-                card.MouseLeftButtonDown += (_, _) => ShowImageFullScreen(ip);
+                card.MouseLeftButtonDown += (_, _) => ViewHelpers.ShowImageViewer(ip, Window.GetWindow(this));
                 CharImagePanel.Children.Add(card);
             }
             catch { }

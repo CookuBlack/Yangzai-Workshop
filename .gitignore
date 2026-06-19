@@ -1,7 +1,7 @@
 # .NET Build artifacts
 bin/
 obj/
-# Installer/
+Installer/
 *.user
 *.suo
 *.cache

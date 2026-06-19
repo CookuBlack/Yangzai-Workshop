@@ -82,7 +82,7 @@
                                     <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets"
                                                FontSize="14" Foreground="{DynamicResource PrimaryBrush}"
                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <TextBlock Text="小说原内容" FontSize="13" FontWeight="Bold"
+                                    <TextBlock Text="小说内容" FontSize="13" FontWeight="Bold"
                                                Foreground="{DynamicResource TextPrimaryBrush}"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
@@ -104,8 +104,8 @@
                                      Foreground="{DynamicResource TextPrimaryBrush}"
                                      VerticalScrollBarVisibility="Auto"
                                      FontSize="14" FontFamily="Microsoft YaHei"
-                                     IsDocumentEnabled="True"
-                                     AllowDrop="False">
+                                     AllowDrop="False"
+                                     LostFocus="OriginalTextBox_LostFocus">
                             <RichTextBox.Resources>
                                 <Style TargetType="Paragraph">
                                     <Setter Property="LineHeight" Value="26"/>
@@ -258,9 +258,14 @@
                     <WrapPanel x:Name="NovelListPanel"/>
                 </ScrollViewer>
 
-                <Button Grid.Row="2" Content="+ 导入小说" Style="{StaticResource PrimaryButtonStyle}"
-                        FontSize="12" Padding="8,6" Margin="0,8,0,0"
-                        Click="ImportNovel_Click"/>
+                <StackPanel Grid.Row="2" Margin="0,8,0,0">
+                    <Button Content="+ 导入小说" Style="{StaticResource PrimaryButtonStyle}"
+                            FontSize="12" Padding="8,6" Margin="0,0,0,4"
+                            Click="ImportNovel_Click"/>
+                    <Button Content="+ 新建小说" Style="{StaticResource SecondaryButtonStyle}"
+                            FontSize="12" Padding="8,6"
+                            Click="CreateNovel_Click"/>
+                </StackPanel>
             </Grid>
         </Border>
 

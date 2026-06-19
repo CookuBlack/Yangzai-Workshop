@@ -39,8 +39,15 @@ public partial class ScriptPage : UserControl
         OriginalTextBox.FontSize = fontSize;
     }
 
+    /// <summary>文件还原后刷新当前章节的图像网格</summary>
+    public void RefreshContent() => RefreshImageGrid();
+
+    private bool _loaded;
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_loaded) return;
+        _loaded = true;
         try
         {
             RefreshNovelList();
@@ -59,6 +66,47 @@ public partial class ScriptPage : UserControl
         _savedOriginalWidth = 300;
         _savedScriptWidth = 300;
         _savedImageWidth = 300;
+
+        FixRichTextBoxCarets();
+    }
+
+    /// <summary>修复暗色模式下 RichTextBox 光标不可见问题（WPF RichTextBox 无 CaretBrush 属性）</summary>
+    public void FixRichTextBoxCarets()
+    {
+        FixCaret(OriginalTextBox);
+        FixCaret(ScriptTextBox);
+    }
+
+    private static void FixCaret(RichTextBox rtb)
+    {
+        rtb.GotFocus += (_, _) =>
+        {
+            rtb.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded, () =>
+            {
+                try
+                {
+                    // 在键盘焦点进入后，将光标颜色设为当前前景色
+                    var brush = rtb.Foreground;
+                    // 通过视觉树查找 CaretElement 并设 Background
+                    SetCaretBackground(rtb, brush);
+                }
+                catch { }
+            });
+        };
+    }
+
+    private static void SetCaretBackground(DependencyObject parent, Brush brush)
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, i);
+            if (child.GetType().Name == "CaretElement" && child is Control caret)
+            {
+                caret.Background = brush;
+                return;
+            }
+            SetCaretBackground(child, brush);
+        }
     }
 
     // ===== 小说列表 =====
@@ -101,23 +149,23 @@ public partial class ScriptPage : UserControl
         {
             try
             {
-                var img = new Image { Stretch = Stretch.UniformToFill };
+                var data = File.ReadAllBytes(FileService.NovelCoverFile(App.WorkRoot, novel.Id));
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
-                bmp.UriSource = new Uri(FileService.NovelCoverFile(App.WorkRoot, novel.Id));
+                bmp.StreamSource = new MemoryStream(data);
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.EndInit();
-                img.Source = bmp;
-                coverBorder.Child = img;
+                bmp.Freeze();
+                coverBorder.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
             }
             catch
             {
-                coverBorder.Background = ParseColorBrush(novel.CoverColor);
+                coverBorder.Background = ViewHelpers.ParseColor(novel.CoverColor);
             }
         }
         else
         {
-            coverBorder.Background = ParseColorBrush(novel.CoverColor);
+            coverBorder.Background = ViewHelpers.ParseColor(novel.CoverColor);
             coverBorder.Child = new TextBlock
             {
                 Text = novel.Name.Length > 0 ? novel.Name[..Math.Min(2, novel.Name.Length)] : "书",
@@ -163,16 +211,17 @@ public partial class ScriptPage : UserControl
     {
         var dialog = new InputDialog("重命名小说", "请输入新的小说名称：", novel.Name);
         dialog.Owner = Window.GetWindow(this);
-        if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.InputText))
+        dialog.Confirmed += name =>
         {
+            if (string.IsNullOrWhiteSpace(name)) return;
             var oldFolder = novel.MediaFolder;
-            novel.Name = dialog.InputText.Trim();
-            novel.MediaFolder = FileService.SanitizeFolderName(novel.Name);
+            novel.Name = EnsureUniqueNovelName(name.Trim(), novel.Id);
+            novel.MediaFolder = FileService.GenerateUniqueMediaFolder(App.WorkRoot, novel.Name, novel.Id);
             FileService.SaveNovelInfo(App.WorkRoot, novel);
-            // 移动 Image/小说、Image/人物素材、Video 下的文件夹
             FileService.MoveNovelMediaFolders(App.WorkRoot, oldFolder, novel.MediaFolder, novel.Id);
             RefreshNovelList();
-        }
+        };
+        dialog.Show();
     }
 
     private void DeleteNovel(NovelInfo novel)
@@ -208,21 +257,27 @@ public partial class ScriptPage : UserControl
         if (dlg.ShowDialog() != true) return;
         try
         {
-            var novelDir = FileService.NovelPath(App.WorkRoot, novel.Id);
-            FileService.EnsureDirectory(novelDir);
-            var destPath = FileService.NovelCoverFile(App.WorkRoot, novel.Id);
-            // 删除旧封面
-            if (File.Exists(destPath)) FileService.DeleteFile(destPath);
-            // 复制新封面
-            File.Copy(dlg.FileName, destPath, overwrite: true);
-            novel.HasCoverImage = true;
-            FileService.SaveNovelInfo(App.WorkRoot, novel);
-            RefreshNovelList();
-            if (_currentNovel?.Id == novel.Id)
+            var cw = new CropWindow(dlg.FileName, square: false)
+            { Owner = Window.GetWindow(this), Title = "裁剪封面" };
+            cw.Cropped += img =>
             {
-                _currentNovel.HasCoverImage = true;
-                SelectNovel(novel);
-            }
+                var novelDir = FileService.NovelPath(App.WorkRoot, novel.Id);
+                FileService.EnsureDirectory(novelDir);
+                var destPath = FileService.NovelCoverFile(App.WorkRoot, novel.Id);
+                var enc = new PngBitmapEncoder();
+                enc.Frames.Add(BitmapFrame.Create(img));
+                using var fs = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+                enc.Save(fs);
+                fs.Flush(true);
+                novel.HasCoverImage = true;
+                FileService.SaveNovelInfo(App.WorkRoot, novel);
+                var frozen = img.Clone();
+                frozen.Freeze();
+                UpdateNovelCardCover(novel.Id, frozen);
+                if (_currentNovel?.Id == novel.Id)
+                    _currentNovel.HasCoverImage = true;
+            };
+            cw.Show();
         }
         catch (Exception ex)
         {
@@ -230,9 +285,29 @@ public partial class ScriptPage : UserControl
         }
     }
 
+    /// <summary>直接更新小说列表中指定小说的封面（不重建列表）</summary>
+    private void UpdateNovelCardCover(string novelId, BitmapSource source)
+    {
+        foreach (Border card in NovelListPanel.Children)
+        {
+            if (card.Tag is NovelInfo ni && ni.Id == novelId)
+            {
+                // 卡片结构：Border > StackPanel > [0] Border(cover)
+                if (card.Child is StackPanel sp && sp.Children.Count > 0 &&
+                    sp.Children[0] is Border cover)
+                {
+                    cover.Background = null;
+                    cover.Child = new Image { Source = source, Stretch = Stretch.UniformToFill };
+                }
+                break;
+            }
+        }
+    }
+
     private void SelectNovel(NovelInfo novel)
     {
         _currentNovel = novel;
+        _currentChapter = null;
         foreach (Border child in NovelListPanel.Children)
         {
             if (child.Tag is NovelInfo ni)
@@ -254,12 +329,28 @@ public partial class ScriptPage : UserControl
             FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
         }
         RefreshChapterTabs();
-        if (_chapters.Count > 0) SelectChapter(_chapters[0]);
+        if (_chapters.Count > 0)
+        {
+            SelectChapter(_chapters[0]);
+        }
         else
         {
+            _currentChapter = null;
             try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
             try { ScriptTextBox.Document.Blocks.Clear(); } catch { }
-            RefreshImageGrid();
+            ImageGrid.Children.Clear();
+            ImageGrid.RowDefinitions.Clear();
+            ImageGrid.ColumnDefinitions.Clear();
+            ImageGrid.RowDefinitions.Add(new RowDefinition());
+            ImageGrid.ColumnDefinitions.Add(new ColumnDefinition());
+            ImageGrid.Children.Add(new TextBlock
+            {
+                Text = "暂无章节\n请先导入小说或新建章节",
+                Foreground = (Brush)FindResource("TextSecondaryBrush"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 12, TextAlignment = TextAlignment.Center
+            });
         }
     }
 
@@ -378,6 +469,9 @@ public partial class ScriptPage : UserControl
                 var item = new MenuItem { Header = header };
                 item.Click += (_, _) => ToggleChapterComplete(ch);
                 menu.Items.Add(item);
+                var delItem = new MenuItem { Header = "删除章节", Foreground = (Brush)FindResource("DangerBrush") };
+                delItem.Click += (_, _) => DeleteChapter(ch);
+                menu.Items.Add(delItem);
                 menu.IsOpen = true;
             };
             ChapterTabsPanel.Children.Add(btn);
@@ -387,7 +481,8 @@ public partial class ScriptPage : UserControl
         {
             Content = "+",
             Style = (Style)FindResource("SecondaryButtonStyle"),
-            Width = 32, Margin = new Thickness(4, 0, 0, 0), FontSize = 16
+            Width = 36, Height = 30, Margin = new Thickness(4, 0, 0, 0),
+            FontSize = 18, FontWeight = FontWeights.Bold, Padding = new Thickness(0)
         };
         addBtn.Click += AddChapter_Click;
         ChapterTabsPanel.Children.Add(addBtn);
@@ -493,6 +588,9 @@ public partial class ScriptPage : UserControl
 
         if (images.Count == 0)
         {
+            // 恢复一行一列以便占位文字居中显示
+            ImageGrid.RowDefinitions.Add(new RowDefinition());
+            ImageGrid.ColumnDefinitions.Add(new ColumnDefinition());
             ImageGrid.Children.Add(new TextBlock
             {
                 Text = "暂无素材\n拖拽图片或点击「添加」导入",
@@ -511,17 +609,19 @@ public partial class ScriptPage : UserControl
         for (int i = 0; i < images.Count; i++)
         {
             ImageGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            // ★ 关键：捕获到局部变量，避免 for 循环闭包问题
             string imgPath = images[i];
             string imgName = Path.GetFileName(imgPath);
             try
             {
+                // 使用 MemoryStream 加载，避免 Uri 路径编码问题
+                var data = File.ReadAllBytes(imgPath);
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
-                bmp.UriSource = new Uri(imgPath);
+                bmp.StreamSource = new MemoryStream(data);
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.DecodePixelWidth = 240;
                 bmp.EndInit();
+                bmp.Freeze();
 
                 var img = new Image
                 {
@@ -533,16 +633,19 @@ public partial class ScriptPage : UserControl
                 var card = new Border
                 {
                     Margin = new Thickness(4),
-                    CornerRadius = new CornerRadius(4),
+                    CornerRadius = new CornerRadius(6),
                     ClipToBounds = true,
                     Background = Brushes.Transparent,
                     Tag = imgPath
                 };
+                card.Loaded += (s, _) => ViewHelpers.ApplyRoundedClip(card);
+                card.SizeChanged += (s, _) => ViewHelpers.ApplyRoundedClip(card);
 
                 var cardStack = new StackPanel();
 
-                // 图片区域（带悬停工具栏）
-                var imageArea = new Grid();
+                // 图片区域（带悬停工具栏 + 圆角裁剪）
+                var imageArea = new Grid { ClipToBounds = true };
+                img.ClipToBounds = true;
                 imageArea.Children.Add(img);
 
                 var toolbar = new StackPanel
@@ -574,14 +677,13 @@ public partial class ScriptPage : UserControl
                 card.Child = cardStack;
                 card.MouseEnter += (_, _) => toolbar.Opacity = 1;
                 card.MouseLeave += (_, _) => toolbar.Opacity = 0;
-                // 单击查看大图
-                card.MouseLeftButtonDown += (_, _) => ShowImageFullScreen(imgPath);
+                card.MouseLeftButtonDown += (_, _) => ViewHelpers.ShowImageViewer(imgPath, Window.GetWindow(this));
 
                 Grid.SetRow(card, i / cols);
                 Grid.SetColumn(card, i % cols);
                 ImageGrid.Children.Add(card);
             }
-            catch { }
+            catch { /* 单张加载失败不影响其他 */ }
         }
     }
 
@@ -612,10 +714,12 @@ public partial class ScriptPage : UserControl
     {
         try
         {
+            // 不压缩像素，保留原始尺寸
             var bmp = new BitmapImage();
             bmp.BeginInit();
             bmp.UriSource = new Uri(path);
             bmp.CacheOption = BitmapCacheOption.OnLoad;
+            // 不设置 DecodePixelWidth，保持原始分辨率
             bmp.EndInit();
             Clipboard.SetImage(bmp);
             ShowCopyToast("✓ 图像已复制到剪贴板");
@@ -628,13 +732,14 @@ public partial class ScriptPage : UserControl
         var currentName = Path.GetFileNameWithoutExtension(path);
         var dialog = new InputDialog("重命名素材", "请输入新的名称（不含扩展名）：", currentName);
         dialog.Owner = Window.GetWindow(this);
-        if (dialog.ShowDialog() == true && !string.IsNullOrWhiteSpace(dialog.InputText))
+        dialog.Confirmed += name =>
         {
+            if (string.IsNullOrWhiteSpace(name)) return;
             try
             {
                 var dir = Path.GetDirectoryName(path)!;
                 var ext = Path.GetExtension(path);
-                var newPath = Path.Combine(dir, dialog.InputText.Trim() + ext);
+                var newPath = Path.Combine(dir, name.Trim() + ext);
                 if (!string.Equals(path, newPath, StringComparison.OrdinalIgnoreCase))
                 {
                     if (File.Exists(newPath)) FileService.DeleteFile(newPath);
@@ -643,7 +748,8 @@ public partial class ScriptPage : UserControl
                 }
             }
             catch { }
-        }
+        };
+        dialog.Show();
     }
 
     private void DeleteImageFile(string path)
@@ -662,23 +768,74 @@ public partial class ScriptPage : UserControl
     {
         try
         {
+            var workArea = SystemParameters.WorkArea;
+            var winW = Math.Min(workArea.Width * 0.85, 1400);
+            var winH = Math.Min(workArea.Height * 0.85, 900);
             var win = new Window
             {
                 Title = Path.GetFileName(path),
-                WindowState = WindowState.Maximized,
+                Width = winW, Height = winH,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = Window.GetWindow(this),
-                Background = Brushes.Black
+                Background = Brushes.Black,
+                ResizeMode = ResizeMode.CanResizeWithGrip
             };
             var bmp = new BitmapImage(); bmp.BeginInit();
             bmp.UriSource = new Uri(path);
             bmp.CacheOption = BitmapCacheOption.OnLoad;
             bmp.EndInit();
-            var img = new Image { Source = bmp, Stretch = Stretch.Uniform };
-            win.Content = img;
+            var img = new Image { Source = bmp, Stretch = Stretch.Uniform, Margin = new Thickness(12) };
+            RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+
+            var zoomXform = new ScaleTransform(1, 1);
+            var panXform = new TranslateTransform(0, 0);
+            var group = new TransformGroup();
+            group.Children.Add(zoomXform);
+            group.Children.Add(panXform);
+            img.RenderTransform = group;
+            img.RenderTransformOrigin = new Point(0.5, 0.5);
+
+            var outer = new Border();
+            outer.SizeChanged += (s, e) =>
+            {
+                if (outer.ActualWidth > 0 && outer.ActualHeight > 0)
+                    outer.Clip = new RectangleGeometry(
+                        new Rect(0, 0, outer.ActualWidth, outer.ActualHeight), 12, 12);
+            };
+            outer.Child = img;
+            win.Content = outer;
+
+            // 滚轮缩放
+            outer.MouseWheel += (_, e) =>
+            {
+                double factor = e.Delta > 0 ? 1.15 : 1 / 1.15;
+                double ns = Math.Max(0.2, Math.Min(8, zoomXform.ScaleX * factor));
+                zoomXform.ScaleX = ns;
+                zoomXform.ScaleY = ns;
+            };
+
+            // 左键拖动平移
+            Point? panStart = null;
+            double startTx = 0, startTy = 0;
+            img.MouseLeftButtonDown += (_, e) =>
+            {
+                if (e.ClickCount == 1)
+                { panStart = e.GetPosition(outer); startTx = panXform.X; startTy = panXform.Y; img.CaptureMouse(); }
+                else { win.Close(); }
+            };
+            img.MouseMove += (_, e) =>
+            {
+                if (panStart.HasValue && e.LeftButton == MouseButtonState.Pressed)
+                {
+                    var cur = e.GetPosition(outer);
+                    panXform.X = startTx + (cur.X - panStart.Value.X);
+                    panXform.Y = startTy + (cur.Y - panStart.Value.Y);
+                }
+            };
+            img.MouseLeftButtonUp += (_, _) => { panStart = null; img.ReleaseMouseCapture(); };
+
             win.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) win.Close(); };
-            img.MouseLeftButtonDown += (_, _) => win.Close();
-            win.ShowDialog();
+            win.Show();
         }
         catch { }
     }
@@ -858,6 +1015,8 @@ public partial class ScriptPage : UserControl
         try
         {
             var fileName = Path.GetFileNameWithoutExtension(dlg.FileName);
+            // 防重名：如有同名小说，追加序号
+            fileName = EnsureUniqueNovelName(fileName);
             var novelId = Guid.NewGuid().ToString();
             FileService.EnsureDirectory(FileService.NovelPath(App.WorkRoot, novelId));
             var novelInfo = new NovelInfo { Id = novelId, Name = fileName, Description = $"导入时间: {DateTime.Now:yyyy-MM-dd HH:mm}" };
@@ -875,14 +1034,78 @@ public partial class ScriptPage : UserControl
         { MessageBox.Show($"导入失败：{ex.Message}", "导入错误", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
 
+    // ===== 新建空白小说 =====
+    private void CreateNovel_Click(object sender, RoutedEventArgs e)
+    {
+        var defaultName = EnsureUniqueNovelName("新小说");
+        var dialog = new InputDialog("新建小说", "请输入小说名称：", defaultName);
+        dialog.Owner = Window.GetWindow(this);
+        dialog.Confirmed += name =>
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            name = EnsureUniqueNovelName(name.Trim());
+        var novelId = Guid.NewGuid().ToString();
+        FileService.EnsureDirectory(FileService.NovelPath(App.WorkRoot, novelId));
+        var novelInfo = new NovelInfo { Id = novelId, Name = name, Description = $"创建时间: {DateTime.Now:yyyy-MM-dd HH:mm}" };
+        FileService.SaveNovelInfo(App.WorkRoot, novelInfo);
+        FileService.WriteText(FileService.NovelOriginalFile(App.WorkRoot, novelId), string.Empty);
+        var firstChapter = new Chapter { Index = 1, Title = "第一章", OriginalContent = string.Empty, ScriptContent = string.Empty };
+        var chapters = new List<Chapter> { firstChapter };
+        FileService.SaveChapters(App.WorkRoot, novelId, chapters);
+        RefreshNovelList();
+        SelectNovel(novelInfo);
+        };
+        dialog.Show();
+    }
+
+    /// <summary>确保小说名称唯一：如已存在则追加序号 (2), (3)...</summary>
+    private string EnsureUniqueNovelName(string baseName, string? excludeId = null)
+    {
+        var existingNames = new HashSet<string>(
+            _novels.Where(n => n.Id != excludeId).Select(n => n.Name),
+            StringComparer.OrdinalIgnoreCase);
+        if (!existingNames.Contains(baseName)) return baseName;
+
+        for (int i = 2; ; i++)
+        {
+            var candidate = $"{baseName} ({i})";
+            if (!existingNames.Contains(candidate)) return candidate;
+        }
+    }
+
     private void AddChapter_Click(object sender, RoutedEventArgs e)
     {
         if (_currentNovel == null) return;
-        var newChapter = new Chapter { Index = _chapters.Count + 1, Title = "新章节", OriginalContent = string.Empty };
+        var idx = _chapters.Count > 0 ? _chapters.Max(c => c.Index) + 1 : 1;
+        var newChapter = new Chapter { Index = idx, Title = $"第{idx}章", OriginalContent = string.Empty };
         _chapters.Add(newChapter);
         FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
         RefreshChapterTabs();
         SelectChapter(newChapter);
+    }
+
+    private void DeleteChapter(Chapter chapter)
+    {
+        if (_currentNovel == null) return;
+        _chapters.Remove(chapter);
+        FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
+        if (_currentChapter == chapter)
+        {
+            _currentChapter = _chapters.FirstOrDefault();
+            if (_currentChapter != null)
+            {
+                RefreshChapterTabs();
+                SelectChapter(_currentChapter);
+            }
+            else
+            {
+                ChapterTabsPanel.Children.Clear();
+                try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
+                try { ScriptTextBox.Document.Blocks.Clear(); } catch { }
+                ImageGrid.Children.Clear();
+            }
+        }
+        else { RefreshChapterTabs(); }
     }
 
     /// <summary>
@@ -928,6 +1151,16 @@ public partial class ScriptPage : UserControl
         FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
     }
 
+    private void OriginalTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentChapter == null) return;
+        var config = FileService.LoadConfig(App.WorkRoot);
+        if (!config.AutoSaveScript) return;
+        var range = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
+        _currentChapter.OriginalContent = range.Text;
+        FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
+    }
+
     private void ImageGrid_Drop(object sender, DragEventArgs e)
     {
         if (_currentNovel == null || _currentChapter == null) return;
@@ -951,9 +1184,4 @@ public partial class ScriptPage : UserControl
         e.Handled = true;
     }
 
-    private static SolidColorBrush ParseColorBrush(string hex)
-    {
-        try { return new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)); }
-        catch { return new SolidColorBrush(Colors.SteelBlue); }
-    }
 }

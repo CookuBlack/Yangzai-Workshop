@@ -22,13 +22,13 @@
                     <!-- 头像（点击裁剪） -->
                     <Grid Grid.Column="0" Margin="0,0,20,0" Cursor="Hand"
                           MouseLeftButtonDown="Avatar_Click">
-                        <Ellipse Width="70" Height="70" Fill="{DynamicResource PrimaryBrush}"/>
-                        <Ellipse Width="70" Height="70">
+                        <Ellipse Width="90" Height="90" Fill="{DynamicResource PrimaryBrush}"/>
+                        <Ellipse Width="90" Height="90">
                             <Ellipse.Fill>
                                 <ImageBrush x:Name="AvatarBrush" Stretch="UniformToFill"/>
                             </Ellipse.Fill>
                         </Ellipse>
-                        <TextBlock x:Name="AvatarPlaceholder" Text="+" FontSize="38" FontWeight="Light"
+                        <TextBlock x:Name="AvatarPlaceholder" Text="+" FontSize="48" FontWeight="Light"
                                    FontFamily="Microsoft YaHei" Foreground="White"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Grid>

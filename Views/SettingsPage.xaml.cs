@@ -26,8 +26,12 @@ public partial class SettingsPage : UserControl
         Unloaded += OnUnloaded;
     }
 
+    private bool _loaded;
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_loaded) return;
+        _loaded = true;
         _isLoading = true;
         _config = FileService.LoadConfig(App.WorkRoot);
         RefreshSettings();

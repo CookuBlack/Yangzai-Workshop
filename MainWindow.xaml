@@ -5,21 +5,27 @@
         Width="1280" Height="800"
         MinWidth="1024" MinHeight="640"
         WindowStyle="None"
-        AllowsTransparency="False"
+        AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen">
 
     <WindowChrome.WindowChrome>
-        <WindowChrome CaptionHeight="40"
+        <WindowChrome CaptionHeight="0"
                       CornerRadius="12"
                       GlassFrameThickness="0"
-                      ResizeBorderThickness="6"/>
+                      ResizeBorderThickness="8"/>
     </WindowChrome.WindowChrome>
 
-    <Border x:Name="MainBorder" CornerRadius="12" Background="{DynamicResource WindowBackgroundBrush}">
+    <!-- 悬浮效果：外层透明窗口 + 大圆角 Border + 深度投影 -->
+    <Border x:Name="MainBorder" CornerRadius="12"
+            Background="{DynamicResource WindowBackgroundBrush}"
+            BorderBrush="{DynamicResource BorderBrush}"
+            BorderThickness="1">
         <Border.Effect>
-            <DropShadowEffect ShadowDepth="0" BlurRadius="12" Opacity="0.3"/>
+            <DropShadowEffect ShadowDepth="3" BlurRadius="25"
+                              Opacity="0.35" Direction="315"
+                              Color="#35000000"/>
         </Border.Effect>
 
         <Grid>
@@ -41,12 +47,13 @@
                     <StackPanel Grid.Column="0" Orientation="Horizontal"
                                 MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
                                 Background="Transparent">
-                        <Ellipse Width="26" Height="26"
-                                 VerticalAlignment="Center" Margin="16,0,8,0">
-                            <Ellipse.Fill>
+                        <Border Width="26" Height="26" CornerRadius="6"
+                                VerticalAlignment="Center" Margin="16,0,8,0"
+                                ClipToBounds="True">
+                            <Border.Background>
                                 <ImageBrush x:Name="LogoBrush" Stretch="UniformToFill"/>
-                            </Ellipse.Fill>
-                        </Ellipse>
+                            </Border.Background>
+                        </Border>
                         <TextBlock Text="Yangzai Workshop" FontFamily="Microsoft YaHei"
                                    FontSize="13" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
@@ -92,11 +99,11 @@
             <!-- ===== 主体区域 ===== -->
             <Grid Grid.Row="1">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="80"/>
+                    <ColumnDefinition Width="84"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- 左侧导航栏：功能按钮顶部对齐，个人资料+设置底部对齐 -->
+                <!-- 左侧导航栏：ListBox 驱动动画 -->
                 <Border Grid.Column="0" Background="{DynamicResource SidebarBackgroundBrush}"
                         CornerRadius="0,0,0,12" Padding="4,0">
 
@@ -106,91 +113,100 @@
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <!-- 顶部：功能导航 -->
-                        <StackPanel Grid.Row="0" VerticalAlignment="Top" Margin="0,4,0,0">
+                        <ListBox x:Name="NavList" Grid.Row="0"
+                                 Background="Transparent" BorderThickness="0"
+                                 SelectionChanged="NavList_SelectionChanged"
+                                 Margin="0,4,0,0">
 
-                            <Button x:Name="NavHome" Tag="&#xE80F;" Content="首页"
-                                    Style="{StaticResource SideNavButtonStyle}"
-                                    Click="NavButton_Click" Margin="0,0,0,4"/>
+                            <ListBoxItem Tag="Home" Style="{StaticResource NavItemStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="&#xE80F;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="20" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="首页" FontSize="11" HorizontalAlignment="Center"
+                                               Margin="0,5,0,0"/>
+                                </StackPanel>
+                            </ListBoxItem>
 
-                            <Button x:Name="NavScript" Tag="&#xE8A5;" Content="剧本管理"
-                                    Style="{StaticResource SideNavButtonStyle}"
-                                    Click="NavButton_Click" Margin="0,0,0,4"/>
+                            <ListBoxItem Tag="Script" Style="{StaticResource NavItemStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="20" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="剧本管理" FontSize="11" HorizontalAlignment="Center"
+                                               Margin="0,5,0,0"/>
+                                </StackPanel>
+                            </ListBoxItem>
 
-                            <Button x:Name="NavCharacter" Tag="&#xE13D;" Content="人物素材"
-                                    Style="{StaticResource SideNavButtonStyle}"
-                                    Click="NavButton_Click" Margin="0,0,0,4"/>
+                            <ListBoxItem Tag="Character" Style="{StaticResource NavItemStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="&#xE13D;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="20" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="人物素材" FontSize="11" HorizontalAlignment="Center"
+                                               Margin="0,5,0,0"/>
+                                </StackPanel>
+                            </ListBoxItem>
 
-                            <Button x:Name="NavVideo" Tag="&#xE714;" Content="视频文件"
-                                    Style="{StaticResource SideNavButtonStyle}"
-                                    Click="NavButton_Click" Margin="0,0,0,4"/>
+                            <ListBoxItem Tag="Video" Style="{StaticResource NavItemStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="&#xE714;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="20" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="视频文件" FontSize="11" HorizontalAlignment="Center"
+                                               Margin="0,5,0,0"/>
+                                </StackPanel>
+                            </ListBoxItem>
 
-                            <Button x:Name="NavStats" Tag="&#xE9D2;" Content="平台指标"
-                                    Style="{StaticResource SideNavButtonStyle}"
-                                    Click="NavButton_Click" Margin="0,0,0,4"/>
+                            <ListBoxItem Tag="Stats" Style="{StaticResource NavItemStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="&#xE9D2;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="20" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="平台指标" FontSize="11" HorizontalAlignment="Center"
+                                               Margin="0,5,0,0"/>
+                                </StackPanel>
+                            </ListBoxItem>
 
-                            <Button x:Name="NavToolbox" Tag="&#xE771;" Content="工具箱"
-                                    Style="{StaticResource SideNavButtonStyle}"
-                                    Click="NavButton_Click"/>
-                        </StackPanel>
+                            <ListBoxItem Tag="Toolbox" Style="{StaticResource NavItemStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="&#xE771;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="20" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="工具箱" FontSize="11" HorizontalAlignment="Center"
+                                               Margin="0,5,0,0"/>
+                                </StackPanel>
+                            </ListBoxItem>
+                        </ListBox>
 
-                        <!-- 底部：个人资料 + 设置 -->
-                        <StackPanel Grid.Row="1" VerticalAlignment="Bottom" Margin="0,0,0,4">
+                        <!-- 底部：个人资料 / 设置（与主导航统一动画） -->
+                        <ListBox x:Name="BottomNavList" Grid.Row="1"
+                                 Background="Transparent" BorderThickness="0"
+                                 SelectionChanged="BottomNavList_SelectionChanged"
+                                 VerticalAlignment="Bottom" Margin="0,0,0,4">
 
-                            <!-- 个人资料按钮：样式和悬停效果匹配设置按钮 -->
-                            <Button x:Name="NavProfile"
-                                    Background="Transparent" BorderThickness="0"
-                                    Width="64" Height="56" Cursor="Hand"
-                                    Foreground="{DynamicResource TextSecondaryBrush}"
-                                    FontFamily="Microsoft YaHei" FontSize="10"
-                                    Click="NavButton_Click" Margin="0,0,0,4"
-                                    WindowChrome.IsHitTestVisibleInChrome="True">
-                                <Button.Resources>
-                                    <Style TargetType="Border">
-                                        <Setter Property="CornerRadius" Value="6"/>
-                                    </Style>
-                                </Button.Resources>
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border x:Name="bd" CornerRadius="6"
-                                                Background="{TemplateBinding Background}"
-                                                Padding="4,6">
-                                            <StackPanel>
-                                                <Ellipse Width="18" Height="18"
-                                                         HorizontalAlignment="Center">
-                                                    <Ellipse.Fill>
-                                                        <ImageBrush x:Name="NavAvatarBrush"
-                                                                    Stretch="UniformToFill"/>
-                                                    </Ellipse.Fill>
-                                                </Ellipse>
-                                                <TextBlock Text="个人资料" FontSize="10"
-                                                           FontFamily="Microsoft YaHei"
-                                                           Foreground="{TemplateBinding Foreground}"
-                                                           HorizontalAlignment="Center"
-                                                           Margin="0,2,0,0"/>
-                                            </StackPanel>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="bd"
-                                                        Property="Background"
-                                                        Value="{DynamicResource HoverBrush}"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Button.Template>
-                            </Button>
+                            <ListBoxItem Tag="Profile" Style="{StaticResource NavItemStyle}">
+                                <StackPanel>
+                                    <Ellipse x:Name="ProfileAvatarEllipse" Width="24" Height="24"
+                                             HorizontalAlignment="Center">
+                                        <Ellipse.Fill>
+                                            <ImageBrush Stretch="UniformToFill"/>
+                                        </Ellipse.Fill>
+                                    </Ellipse>
+                                    <TextBlock Text="个人资料" FontSize="11" HorizontalAlignment="Center"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </ListBoxItem>
 
-                            <Button x:Name="NavSettings" Tag="&#xE713;" Content="设置"
-                                    Style="{StaticResource SideNavButtonStyle}"
-                                    Click="NavButton_Click"/>
-                        </StackPanel>
+                            <ListBoxItem Tag="Settings" Style="{StaticResource NavItemStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="&#xE713;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="20" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="设置" FontSize="11" HorizontalAlignment="Center"
+                                               Margin="0,5,0,0"/>
+                                </StackPanel>
+                            </ListBoxItem>
+                        </ListBox>
                     </Grid>
                 </Border>
 
                 <!-- 主内容区 -->
                 <Border Grid.Column="1" Background="{DynamicResource WindowBackgroundBrush}"
-                        CornerRadius="0,0,12,12">
+                        CornerRadius="0,0,12,12" UseLayoutRounding="True" SnapsToDevicePixels="True">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="*"/>
@@ -208,19 +224,11 @@
                                 <TextBlock x:Name="VersionText" Text="v1.0.0" FontSize="11"
                                            Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,16,0"/>
                                 <TextBlock x:Name="UpdateDateText" Text="2025-01-01" FontSize="11"
-                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,16,0"/>
-                                <StackPanel Orientation="Horizontal" Cursor="Hand"
-                                            MouseLeftButtonDown="GitHubLink_MouseLeftButtonDown"
-                                            ToolTip="https://github.com/CookuBlack/Yangzai-Workshop">
-                                    <TextBlock Text="&#xE735;" FontFamily="Segoe MDL2 Assets" FontSize="11"
-                                               Foreground="{DynamicResource AccentBrush}" Margin="0,0,4,0"/>
-                                    <TextBlock Text="GitHub " FontSize="11"
-                                               Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                    <TextBlock x:Name="GitHubStarsText" Text="0" FontSize="11"
-                                               Foreground="{DynamicResource AccentBrush}" FontWeight="Bold"/>
-                                    <TextBlock Text=" Stars" FontSize="11"
-                                               Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                </StackPanel>
+                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,12,0"/>
+                                <TextBlock Text="&#xE735;" FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           Cursor="Hand" ToolTip="GitHub"
+                                           MouseLeftButtonDown="GitHubLink_MouseLeftButtonDown"/>
                             </StackPanel>
                         </Border>
                     </Grid>

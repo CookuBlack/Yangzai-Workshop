@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
+
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -24,8 +24,12 @@ public partial class ProfilePage : UserControl
         Loaded += OnLoaded;
     }
 
+    private bool _loaded;
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_loaded) return;
+        _loaded = true;
         _config = FileService.LoadConfig(App.WorkRoot);
         RefreshProfile();
         RefreshAchievements();
@@ -38,11 +42,23 @@ public partial class ProfilePage : UserControl
         UserNameEdit.Text = _config.UserName;
         SignatureEdit.Text = _config.UserSignature;
 
-        var bmp = FileService.LoadImage(FileService.GetEffectiveAvatarPath());
-        if (bmp != null)
+        var path = FileService.GetEffectiveAvatarPath();
+        if (File.Exists(path))
         {
-            AvatarBrush.ImageSource = bmp;
-            AvatarPlaceholder.Visibility = Visibility.Collapsed;
+            try
+            {
+                var data = File.ReadAllBytes(path);
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.StreamSource = new MemoryStream(data);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.EndInit();
+                bmp.Freeze();
+                AvatarBrush.ImageSource = null;
+                AvatarBrush.ImageSource = bmp;
+                AvatarPlaceholder.Visibility = Visibility.Collapsed;
+            }
+            catch { /* 加载失败静默忽略 */ }
         }
         else
         {
@@ -92,20 +108,22 @@ public partial class ProfilePage : UserControl
         };
         if (dlg.ShowDialog() != true) return;
 
-            // 用裁切窗口
-            var cw = new CropWindow(dlg.FileName);
-            cw.Owner = Window.GetWindow(this);
-        if (cw.ShowDialog() == true && cw.CroppedImage != null)
+        var cw = new CropWindow(dlg.FileName) { Owner = Window.GetWindow(this) };
+        cw.Cropped += img =>
         {
             var avatarDir = FileService.AssetsAvatarPath;
             FileService.EnsureDirectory(avatarDir);
-
             var targetPath = FileService.CustomAvatarFile;
             if (File.Exists(targetPath)) FileService.DeleteFile(targetPath);
-            using var fs = new FileStream(targetPath, FileMode.Create);
-            var enc = new PngBitmapEncoder();
-            enc.Frames.Add(BitmapFrame.Create(cw.CroppedImage));
-            enc.Save(fs);
+
+            // 保存头像并立即刷新到磁盘
+            using (var fs = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+            {
+                var enc = new PngBitmapEncoder();
+                enc.Frames.Add(BitmapFrame.Create(img));
+                enc.Save(fs);
+                fs.Flush(true);
+            }
 
             var miniDir = FileService.AssetsAvatarMiniPath;
             FileService.EnsureDirectory(miniDir);
@@ -113,9 +131,17 @@ public partial class ProfilePage : UserControl
             if (File.Exists(miniFile)) FileService.DeleteFile(miniFile);
             File.Copy(targetPath, miniFile, overwrite: true);
 
-            RefreshProfile();
+            // 更新大头像
+            var frozen = img.Clone();
+            frozen.Freeze();
+            AvatarBrush.ImageSource = null;
+            AvatarBrush.ImageSource = frozen;
+            AvatarPlaceholder.Visibility = Visibility.Collapsed;
+
+            // 更新导航栏小头像（文件已写入完毕）
             if (Window.GetWindow(this) is MainWindow mw) mw.LoadNavAvatar();
-        }
+        };
+        cw.Show();
     }
 
     // ===== 个人成就 =====
@@ -350,7 +376,7 @@ public partial class ProfilePage : UserControl
         panel.Children.Add(saveBtn);
 
         dialog.Content = panel;
-        dialog.ShowDialog();
+        dialog.Show();
     }
 
     private void AddField(StackPanel panel, string label, string value, Action<string> setter)

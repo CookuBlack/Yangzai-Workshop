@@ -2,19 +2,19 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- 颜色定义 -->
-    <Color x:Key="WindowBackgroundColor">#F0F2F5</Color>
-    <Color x:Key="SidebarBackgroundColor">#FFFFFF</Color>
-    <Color x:Key="CardBackgroundColor">#FFFFFF</Color>
+    <Color x:Key="WindowBackgroundColor">#F5EFE6</Color>
+    <Color x:Key="SidebarBackgroundColor">#FBF4EA</Color>
+    <Color x:Key="CardBackgroundColor">#FCF9F4</Color>
     <Color x:Key="TextPrimaryColor">#1A1A1A</Color>
     <Color x:Key="TextSecondaryColor">#666666</Color>
-    <Color x:Key="PrimaryColor">#1976D2</Color>
-    <Color x:Key="PrimaryLightColor">#42A5F5</Color>
-    <Color x:Key="BorderColor">#E0E0E0</Color>
+    <Color x:Key="PrimaryColor">#C07040</Color>
+    <Color x:Key="PrimaryLightColor">#D49464</Color>
+    <Color x:Key="BorderColor">#D6CBBE</Color>
     <Color x:Key="DangerColor">#D32F2F</Color>
     <Color x:Key="AccentColor">#FF7043</Color>
     <Color x:Key="SuccessColor">#388E3C</Color>
-    <Color x:Key="HoverColor">#E3F2FD</Color>
-    <Color x:Key="ShadowColor">#20000000</Color>
+    <Color x:Key="HoverColor">#F0E3D0</Color>
+    <Color x:Key="ShadowColor">#35000000</Color>
 
     <!-- 画刷定义 -->
     <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{StaticResource WindowBackgroundColor}"/>
@@ -29,6 +29,6 @@
     <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}"/>
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource SuccessColor}"/>
     <SolidColorBrush x:Key="HoverBrush" Color="{StaticResource HoverColor}"/>
-    <SolidColorBrush x:Key="PrimaryLowBrush" Color="#141976D2"/>
+    <SolidColorBrush x:Key="PrimaryLowBrush" Color="#14C07040"/>
 
 </ResourceDictionary>

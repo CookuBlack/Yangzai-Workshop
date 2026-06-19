@@ -25,7 +25,17 @@ public partial class VideoPage : UserControl
         Loaded += OnLoaded;
     }
 
-    private void OnLoaded(object sender, RoutedEventArgs e) => RefreshNovels();
+    /// <summary>文件还原后刷新当前章节的视频网格</summary>
+    public void RefreshContent() => RefreshVideoGrid();
+
+    private bool _loaded;
+
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        if (_loaded) return;
+        _loaded = true;
+        RefreshNovels();
+    }
 
     // ===== 小说选择（封面横条）=====
     private void RefreshNovels()
@@ -104,6 +114,7 @@ public partial class VideoPage : UserControl
     private void SelectNovel(NovelInfo novel)
     {
         _currentNovel = novel;
+        _currentChapter = null;
         foreach (Border c in NovelCardPanel.Children)
         {
             if (c.Tag is NovelInfo ni)
@@ -111,6 +122,7 @@ public partial class VideoPage : UserControl
                 bool a = ni.Id == novel.Id;
                 c.Opacity = a ? 1.0 : 0.65;
                 c.BorderThickness = a ? new Thickness(1.5) : new Thickness(1);
+                c.BorderBrush = a ? (Brush)FindResource("PrimaryBrush") : (Brush)FindResource("BorderBrush");
             }
         }
         LoadChapterTabs();
@@ -146,7 +158,28 @@ public partial class VideoPage : UserControl
             btn.Click += (s, e) => SelectChapter(ch);
             ChapterTabsPanel.Children.Add(btn);
         }
-        if (_chapters.Count > 0) SelectChapter(_chapters[0]);
+
+        if (_chapters.Count > 0)
+        {
+            SelectChapter(_chapters[0]);
+        }
+        else
+        {
+            _currentChapter = null;
+            VideoGrid.Children.Clear();
+            VideoGrid.RowDefinitions.Clear();
+            VideoGrid.ColumnDefinitions.Clear();
+            VideoGrid.RowDefinitions.Add(new RowDefinition());
+            VideoGrid.ColumnDefinitions.Add(new ColumnDefinition());
+            VideoGrid.Children.Add(new TextBlock
+            {
+                Text = "暂无章节\n请先选择有章节的小说",
+                Foreground = (Brush)FindResource("TextSecondaryBrush"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 13, TextAlignment = TextAlignment.Center
+            });
+        }
     }
 
     private void SelectChapter(Chapter chapter)
@@ -229,6 +262,8 @@ public partial class VideoPage : UserControl
 
         if (videos.Count == 0)
         {
+            VideoGrid.RowDefinitions.Add(new RowDefinition());
+            VideoGrid.ColumnDefinitions.Add(new ColumnDefinition());
             VideoGrid.Children.Add(new TextBlock
             {
                 Text = "暂无视频素材\n拖拽视频文件或点击下方按钮导入",
@@ -262,9 +297,14 @@ public partial class VideoPage : UserControl
         var card = new Border
         {
             Style = (Style)FindResource("CardStyle"),
+            CornerRadius = new CornerRadius(6),
             Margin = new Thickness(4), Padding = new Thickness(6),
-            Cursor = Cursors.Hand, Tag = vp
+            Cursor = Cursors.Hand, Tag = vp, ClipToBounds = true,
+            MaxWidth = 320,
+            HorizontalAlignment = HorizontalAlignment.Center
         };
+        card.Loaded += (s, e) => ViewHelpers.ApplyRoundedClip(card);
+        card.SizeChanged += (s, e) => ViewHelpers.ApplyRoundedClip(card);
 
         var stack = new StackPanel();
 
@@ -533,11 +573,12 @@ public partial class VideoPage : UserControl
     {
         var dlg = new InputDialog("重命名视频", "名称（不含扩展名）：",
             Path.GetFileNameWithoutExtension(path)) { Owner = Window.GetWindow(this) };
-        if (dlg.ShowDialog() == true && !string.IsNullOrWhiteSpace(dlg.InputText))
+        dlg.Confirmed += name =>
         {
+            if (string.IsNullOrWhiteSpace(name)) return;
             var dir = Path.GetDirectoryName(path)!;
             var ext = Path.GetExtension(path);
-            var np = Path.Combine(dir, dlg.InputText.Trim() + ext);
+            var np = Path.Combine(dir, name.Trim() + ext);
             if (!string.Equals(path, np, StringComparison.OrdinalIgnoreCase))
             {
                 try
@@ -546,10 +587,11 @@ public partial class VideoPage : UserControl
                     File.Move(path, np);
                     Toast("✓ 已改名");
                 }
-                catch { Toast("✗ 改名失败"); }
+                        catch { Toast("✗ 改名失败"); }
             }
             RefreshVideoGrid();
-        }
+        };
+        dlg.Show();
     }
 
     private void DeleteVideo(string path)
@@ -663,7 +705,9 @@ public partial class VideoPage : UserControl
 
         win.Content = rootGrid;
 
-        bool isPlaying = true;
+        bool isPlaying = false;
+        bool isAtEnd = false;
+        bool started = false;
         bool wasPlayingBeforeDrag = true;
         bool sliderDragging = false;
         var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
@@ -671,21 +715,62 @@ public partial class VideoPage : UserControl
         // 播放/暂停
         ppBtn.Click += (_, _) =>
         {
-            if (isPlaying) { me.Pause(); ppBtn.Content = "\uE769"; }
-            else { me.Play(); ppBtn.Content = "\uE768"; }
+            if (isAtEnd)
+            {
+                me.Position = TimeSpan.Zero;
+                isAtEnd = false;
+            }
+            if (isPlaying) { me.Pause(); ppBtn.Content = "\uE768"; }
+            else { me.Play(); ppBtn.Content = "\uE769"; }
             isPlaying = !isPlaying;
         };
 
-        // 视频打开后获取总时长
+        // 视频打开后自动播放
         me.MediaOpened += (_, _) =>
         {
-            if (me.NaturalDuration.HasTimeSpan)
+            started = true;
+            Dispatcher.BeginInvoke(() =>
             {
-                slider.Maximum = me.NaturalDuration.TimeSpan.TotalSeconds;
-                durLabel.Text = FormatTime(me.NaturalDuration.TimeSpan);
-            }
-            me.Play();
-            timer.Start();
+                if (me.NaturalDuration.HasTimeSpan)
+                {
+                    slider.Maximum = me.NaturalDuration.TimeSpan.TotalSeconds;
+                    durLabel.Text = FormatTime(me.NaturalDuration.TimeSpan);
+                }
+                me.Play();
+                ppBtn.Content = "\uE769";
+                isPlaying = true;
+                if (!timer.IsEnabled) timer.Start();
+            });
+        };
+
+        // 兜底：窗口加载后如果还没播放则自动播放
+        win.Loaded += (_, _) =>
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (started) return;
+                if (me.NaturalDuration.HasTimeSpan)
+                {
+                    slider.Maximum = me.NaturalDuration.TimeSpan.TotalSeconds;
+                    durLabel.Text = FormatTime(me.NaturalDuration.TimeSpan);
+                }
+                me.Play();
+                ppBtn.Content = "\uE769";
+                isPlaying = true;
+                if (!timer.IsEnabled) timer.Start();
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        };
+
+        // 播放完毕：停在最后一帧
+        me.MediaEnded += (_, _) =>
+        {
+            isAtEnd = true;
+            isPlaying = false;
+            ppBtn.Content = "\uE768";
+            me.Pause();
+            timer.Stop();
+            slider.Value = slider.Maximum;
+            curLabel.Text = durLabel.Text;
         };
 
         // 定时更新进度（拖动时不更新滑块值，防止冲突）
@@ -717,12 +802,17 @@ public partial class VideoPage : UserControl
                 curLabel.Text = FormatTime(TimeSpan.FromSeconds(slider.Value));
         };
 
-        // 双击全屏，单击播放/暂停
+        // 双击全屏（使用 WorkArea 避免覆盖任务栏）
         me.MouseLeftButtonDown += (_, e) =>
         {
             if (e.ClickCount == 2)
-                win.WindowState = win.WindowState == WindowState.Maximized
-                    ? WindowState.Normal : WindowState.Maximized;
+            {
+                win.WindowStyle = WindowStyle.None;
+                var wa = SystemParameters.WorkArea;
+                win.Left = wa.Left; win.Top = wa.Top;
+                win.Width = wa.Width; win.Height = wa.Height;
+                win.ResizeMode = ResizeMode.NoResize;
+            }
             else
                 ppBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         };
@@ -737,7 +827,7 @@ public partial class VideoPage : UserControl
         // 关闭时清理
         win.Closed += (_, _) => { timer.Stop(); me.Stop(); me.Close(); };
 
-        win.ShowDialog();
+        win.Show();
     }
 
     private static string FormatTime(TimeSpan t)

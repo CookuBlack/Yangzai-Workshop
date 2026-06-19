@@ -12,6 +12,9 @@
            UpgradeCode="E8F7A3B2-1C5D-4E89-9A2F-3D6B0C4A7E15"
            Compressed="yes">
 
+    <!-- 强制 CAB 嵌入 MSI 内部，不产生外部 cab 文件 -->
+    <MediaTemplate EmbedCab="yes" />
+
     <SummaryInformation
         Description="小说漫剧创作桌面工作台"
         Keywords="小说;漫剧;WPF;创作"

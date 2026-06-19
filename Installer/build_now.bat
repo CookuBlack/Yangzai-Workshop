@@ -28,7 +28,7 @@ xcopy "..\Assets\*" "..\publish\Assets\" /E /Y /I /Q
 
 REM Step 4: Build MSI
 echo [4/4] Building MSI...
-wix build -acceptEula wix7 -ext WixToolset.UI.wixext Product.wxs -o "output\YangzaiManager.msi"
+wix build -acceptEula wix7 -ext WixToolset.UI.wixext Product.wxs -o "output\YangzaiWorkshop.msi"
 if %ERRORLEVEL% neq 0 (
     echo [FAIL] MSI build failed
     pause
@@ -38,6 +38,6 @@ if %ERRORLEVEL% neq 0 (
 echo.
 echo ==================================
 echo   SUCCESS!
-echo   MSI: %~dp0output\YangzaiManager.msi
+echo   MSI: %~dp0output\YangzaiWorkshop.msi
 echo ==================================
 pause

@@ -46,11 +46,16 @@ public static class ChapterParserService
         }
     }
 
-    // ===== 章节匹配正则（三种模式并行，取并集） =====
+    // ===== 章节匹配正则（四种模式并行，取并集） =====
 
-    /// <summary>模式1：第X章/回/卷/节 — 覆盖95%+的中文小说</summary>
+    /// <summary>模式0（优先）：第X部/卷/篇 第Y章 — 组合章节格式，如"第一部 第1章 标题"</summary>
+    private static readonly Regex PartChapterRegex = new(
+        @"^\s*第\s*([一二三四五六七八九十百千零两\d]+)\s*[部卷篇册][\s:：]*第\s*([一二三四五六七八九十百千零两\d]+)\s*[章节回]\s*[:：\s]*(.*?)\s*$",
+        RegexOptions.Multiline | RegexOptions.Compiled);
+
+    /// <summary>模式1：第X章/回/卷/集/部/篇 — 覆盖95%+的中文小说</summary>
     private static readonly Regex StandardRegex = new(
-        @"^\s*第\s*([一二三四五六七八九十百千零两\d]+)\s*[章节回卷集]\s*[:：\s]*(.*?)\s*$",
+        @"^\s*第\s*([一二三四五六七八九十百千零两\d]+)\s*[章节回卷集部篇册]\s*[:：\s]*(.*?)\s*$",
         RegexOptions.Multiline | RegexOptions.Compiled);
 
     /// <summary>模式2：序章/楔子/尾声/番外 等特殊章节名</summary>
@@ -233,12 +238,12 @@ public static class ChapterParserService
     {
         var dict = new Dictionary<int, ChapterMarker>(); // 按位置去重
 
-        // 模式1：标准章节
-        foreach (Match m in StandardRegex.Matches(content))
+        // 模式0（优先）：组合章节 — "第X部 第Y章 标题"
+        foreach (Match m in PartChapterRegex.Matches(content))
         {
-            int num = ChineseNumberToInt(m.Groups[1].Value);
+            int num = ChineseNumberToInt(m.Groups[2].Value); // 章序号
             if (num <= 0) num = dict.Count + 1;
-            string title = m.Groups[2].Value.Trim();
+            string title = m.Groups[3].Value.Trim();
 
             if (!dict.ContainsKey(m.Index))
             {
@@ -252,11 +257,29 @@ public static class ChapterParserService
             }
         }
 
+        // 模式1：标准章节 — "第X章/回/部 标题"
+        foreach (Match m in StandardRegex.Matches(content))
+        {
+            if (dict.ContainsKey(m.Index)) continue; // 已被组合格式覆盖
+
+            int num = ChineseNumberToInt(m.Groups[1].Value);
+            if (num <= 0) num = dict.Count + 1;
+            string title = m.Groups[2].Value.Trim();
+
+            dict[m.Index] = new ChapterMarker
+            {
+                Position = m.Index,
+                Number = num,
+                Title = title,
+                IsSpecial = false
+            };
+        }
+
         // 模式2：特殊章节（序章/番外等）
         int specialIdx = 0;
         foreach (Match m in SpecialRegex.Matches(content))
         {
-            if (dict.ContainsKey(m.Index)) continue; // 避免重复（可能被模式1覆盖）
+            if (dict.ContainsKey(m.Index)) continue;
 
             specialIdx++;
             string specialName = m.Groups[1].Value;
@@ -265,13 +288,13 @@ public static class ChapterParserService
             dict[m.Index] = new ChapterMarker
             {
                 Position = m.Index,
-                Number = -specialIdx, // 负数确保按位置排序时不会被后续 OrderBy 打乱
+                Number = -specialIdx,
                 Title = string.IsNullOrWhiteSpace(title) ? specialName : $"{specialName}：{title}",
                 IsSpecial = true
             };
         }
 
-        // 模式3：英文章节
+        // 模式3：英文章节 — "Chapter X: Title"
         foreach (Match m in EnglishRegex.Matches(content))
         {
             if (dict.ContainsKey(m.Index)) continue;

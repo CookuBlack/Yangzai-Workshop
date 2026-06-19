@@ -7,30 +7,30 @@ namespace YangzaiWorkshop.Services;
 public static class ThemeService
 {
     public static string CurrentTheme { get; private set; } = "Light";
+    public static event Action? ThemeChanged;
 
     private const string ThemeBasePath = "Resources/Themes/";
 
     public static void ApplyTheme(string themeName, string workRoot)
     {
+        // 先换字典，确保后续所有 DynamicResource 引用都拿到新值
+        SwapThemeDictionaries(themeName);
+        CurrentTheme = themeName;
+
         var mainWindow = Application.Current.MainWindow;
         if (mainWindow != null)
         {
             var fadeOut = new DoubleAnimation(1, 0.7, TimeSpan.FromSeconds(0.12));
             fadeOut.Completed += (s, e) =>
             {
-                SwapThemeDictionaries(themeName);
                 var fadeIn = new DoubleAnimation(0.7, 1, TimeSpan.FromSeconds(0.12));
                 mainWindow.BeginAnimation(UIElement.OpacityProperty, fadeIn);
             };
             mainWindow.BeginAnimation(UIElement.OpacityProperty, fadeOut);
         }
-        else
-        {
-            SwapThemeDictionaries(themeName);
-        }
 
-        CurrentTheme = themeName;
         FileService.SaveAppSetting(workRoot, "Theme", themeName);
+        ThemeChanged?.Invoke();
     }
 
     private static void SwapThemeDictionaries(string themeName)

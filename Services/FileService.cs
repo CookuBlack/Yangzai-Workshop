@@ -314,19 +314,31 @@ public static class FileService
         var info = System.Text.Json.JsonSerializer.Deserialize<TrashMeta>(
             File.ReadAllText(infoPath));
         if (info == null) return;
+
+        // 还原所有文件（不止第一个）
+        var targetDir = Path.GetDirectoryName(info.OriginalPath)!;
+        if (!Directory.Exists(targetDir))
+            Directory.CreateDirectory(targetDir);
         foreach (var f in Directory.GetFiles(itemDir))
         {
             if (Path.GetFileName(f) == ".info") continue;
-            var targetDir = Path.GetDirectoryName(info.OriginalPath)!;
-            if (!Directory.Exists(targetDir))
-                Directory.CreateDirectory(targetDir);
             var dest = Path.Combine(targetDir, Path.GetFileName(f));
             if (File.Exists(dest)) File.Delete(dest);
             File.Move(f, dest);
-            try { Directory.Delete(itemDir, true); } catch { }
-            break;
         }
+        // 清理临时目录（重试防止文件句柄未释放）
+        for (int retry = 0; retry < 5; retry++)
+        {
+            try { Directory.Delete(itemDir, true); break; }
+            catch { System.Threading.Thread.Sleep(100); }
+        }
+
+        // 通知相关页面刷新已还原的文件
+        FileRestored?.Invoke(info.OriginalPath);
     }
+
+    /// <summary>文件还原事件，通知各页面刷新内容</summary>
+    public static event Action<string>? FileRestored;
 
     public static void EmptyTrash(string workRoot)
     {
@@ -381,11 +393,24 @@ public static class FileService
         return novels;
     }
 
+    /// <summary>根据小说名生成不会与其他小说碰撞的媒体文件夹名</summary>
+    public static string GenerateUniqueMediaFolder(string workRoot, string novelName, string novelId)
+    {
+        var baseName = SanitizeFolderName(novelName);
+        var others = LoadAllNovels(workRoot)
+            .Where(n => n.Id != novelId)
+            .Select(n => n.MediaFolder)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return others.Contains(baseName)
+            ? $"{baseName}_{novelId.Substring(0, 4)}"
+            : baseName;
+    }
+
     public static void SaveNovelInfo(string workRoot, NovelInfo info)
     {
-        // 首次保存时自动生成 MediaFolder
+        // 首次保存时自动生成唯一 MediaFolder
         if (string.IsNullOrWhiteSpace(info.MediaFolder) && !string.IsNullOrWhiteSpace(info.Name))
-            info.MediaFolder = SanitizeFolderName(info.Name);
+            info.MediaFolder = GenerateUniqueMediaFolder(workRoot, info.Name, info.Id);
         WriteJson(NovelInfoFile(workRoot, info.Id), info);
     }
 

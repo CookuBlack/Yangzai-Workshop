@@ -4,19 +4,21 @@
              Background="{DynamicResource WindowBackgroundBrush}"
              UseLayoutRounding="True"
              SnapsToDevicePixels="True">
-    <Grid Margin="24">
+    <Grid Margin="24,12,24,24">
         <Grid.RowDefinitions>
             <!-- 轮播区 : 下半区 ≈ 5 : 3，随窗口等比缩放 -->
             <RowDefinition Height="5*"/>
             <RowDefinition Height="3*"/>
         </Grid.RowDefinitions>
 
-        <!-- ===== 轮播视频（全宽，自适应高度） ===== -->
+        <!-- ===== 轮播视频（RectangleGeometry 强裁圆角） ===== -->
         <Border x:Name="BannerWrapper" Grid.Row="0"
                 Style="{StaticResource CardStyle}"
-                Padding="0" CornerRadius="16" ClipToBounds="True"
+                Padding="0" CornerRadius="12"
                 MouseRightButtonDown="Banner_MouseRightButtonDown">
-            <Grid>
+            <Grid x:Name="BannerGrid"
+                  SizeChanged="BannerGrid_SizeChanged"
+                  Loaded="BannerGrid_Loaded">
                 <MediaElement x:Name="BannerVideo2" LoadedBehavior="Manual"
                               UnloadedBehavior="Stop" Opacity="0"
                               Stretch="UniformToFill" ScrubbingEnabled="True"

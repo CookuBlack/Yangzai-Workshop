@@ -22,23 +22,36 @@ public partial class HomePage : UserControl
         Unloaded += OnUnloaded;
     }
 
+    private bool _loaded;
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // 轮播视频每次回页必须重载（MediaElement 离树后会 Stop）
         LoadBanners();
+        RestartAutoPlay();
+
+        if (_loaded) return;
+        _loaded = true;
         LoadNotice();
         LoadNovelCount();
+    }
 
+    private void RestartAutoPlay()
+    {
+        _autoPlayTimer?.Stop();
         var config = FileService.LoadConfig(App.WorkRoot);
         if (config.AutoPlayBanner && _bannerVideos.Count > 1)
         {
             _autoPlayTimer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(config.BannerIntervalSeconds)
-            };
+            { Interval = TimeSpan.FromSeconds(config.BannerIntervalSeconds) };
             _autoPlayTimer.Tick += (s, a) => NextBanner();
             _autoPlayTimer.Start();
         }
     }
+
+    /// <summary>强制 Banner 视频圆角裁切（RectangleGeometry 对 MediaElement 必用）</summary>
+    private void BannerGrid_Loaded(object sender, RoutedEventArgs e) => ViewHelpers.ApplyRoundedClip(BannerGrid, 12);
+    private void BannerGrid_SizeChanged(object sender, SizeChangedEventArgs e) => ViewHelpers.ApplyRoundedClip(BannerGrid, 12);
 
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {

@@ -22,14 +22,17 @@ public partial class ToolboxPage : UserControl
 
     private void TrashCard_Click(object sender, MouseButtonEventArgs e) => OpenTrashWindow();
 
+    private Window? _trashWindow;
+
     private void OpenTrashWindow()
     {
-        var win = new Window
+        _trashWindow = new Window
         {
             Title = "回收站",
             Width = 520, Height = 500,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = Window.GetWindow(this),
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            ShowInTaskbar = false,
+            Topmost = true,
             Background = (Brush)FindResource("WindowBackgroundBrush")
         };
 
@@ -88,9 +91,10 @@ public partial class ToolboxPage : UserControl
             if (res == MessageBoxResult.Yes) { FileService.EmptyTrash(App.WorkRoot); LoadTrashList(trashList, countText); }
         };
 
-        win.Content = root;
+        _trashWindow.Content = root;
+        _trashWindow.Closed += (_, _) => _trashWindow = null;
         LoadTrashList(trashList, countText);
-        win.ShowDialog();
+        _trashWindow.Show();
     }
 
     private void LoadTrashList(ItemsControl list, TextBlock countText)
@@ -125,7 +129,7 @@ public partial class ToolboxPage : UserControl
                 Cursor = Cursors.Hand,
                 Tag = item.FilePath
             };
-            nameBlock.MouseLeftButtonDown += (_, _) => ViewTrashItem(item);
+            nameBlock.MouseLeftButtonDown += (_, _) => ViewTrashItem(item, _trashWindow!);
             Grid.SetColumn(nameBlock, 0);
             grid.Children.Add(nameBlock);
 
@@ -168,7 +172,7 @@ public partial class ToolboxPage : UserControl
         }
     }
 
-    private void ViewTrashItem(TrashItem item)
+    private void ViewTrashItem(TrashItem item, Window ownerWindow)
     {
         var ext = Path.GetExtension(item.FileName).ToLower();
         if (ext is ".png" or ".jpg" or ".jpeg" or ".webp")
@@ -178,18 +182,54 @@ public partial class ToolboxPage : UserControl
                 var win = new Window
                 {
                     Title = item.FileName,
-                    WindowState = WindowState.Maximized,
                     WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                    Owner = Window.GetWindow(this),
-                    Background = Brushes.Black
+                    Owner = ownerWindow,
+                    Background = Brushes.Black,
+                    SizeToContent = SizeToContent.WidthAndHeight
                 };
+                var data = File.ReadAllBytes(item.FilePath);
                 var bmp = new BitmapImage(); bmp.BeginInit();
-                bmp.UriSource = new System.Uri(item.FilePath);
-                bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
-                var img = new Image { Source = bmp, Stretch = Stretch.Uniform };
+                bmp.StreamSource = new MemoryStream(data);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 800;
+                bmp.EndInit();
+                var img = new Image { Source = bmp, Stretch = Stretch.Uniform, MaxWidth = 800, MaxHeight = 600 };
                 win.Content = img;
                 win.KeyDown += (_, e) => { if (e.Key == Key.Escape) win.Close(); };
-                img.MouseLeftButtonDown += (_, _) => win.Close();
+                img.MouseLeftButtonDown += (_, _) => { win.Close(); };
+                win.Loaded += (_, _) => win.Activate();
+                win.ShowDialog();
+            }
+            catch { }
+        }
+        else if (ext is ".mp4" or ".mkv" or ".avi" or ".mov" or ".wmv")
+        {
+            try
+            {
+                var win = new Window
+                {
+                    Title = item.FileName,
+                    Width = 700, Height = 450,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Owner = ownerWindow,
+                    Background = Brushes.Black,
+                    ResizeMode = ResizeMode.CanResizeWithGrip
+                };
+                var me = new MediaElement
+                {
+                    Source = new Uri(item.FilePath, UriKind.Absolute),
+                    LoadedBehavior = MediaState.Play,
+                    Stretch = Stretch.Uniform,
+                    Volume = 1
+                };
+                me.MediaEnded += (_, _) => { me.Position = TimeSpan.Zero; me.Pause(); };
+                me.MouseLeftButtonDown += (_, e) =>
+                {
+                    if (e.ClickCount == 2) return;
+                    me.Position = TimeSpan.Zero;
+                };
+                win.Content = me;
+                win.KeyDown += (_, e) => { if (e.Key == Key.Escape) win.Close(); };
                 win.ShowDialog();
             }
             catch { }
@@ -550,7 +590,7 @@ public partial class ToolboxPage : UserControl
 
         win.Content = root;
         RefreshList();
-        win.ShowDialog();
+        win.Show();
     }
 
     private void NovelCard_Click(object sender, MouseButtonEventArgs e)

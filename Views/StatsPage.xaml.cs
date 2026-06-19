@@ -23,6 +23,7 @@ public partial class StatsPage : UserControl
     private string _dataFilePath => Path.Combine(App.WorkRoot, "platform_stats.json");
 
     private bool _panelExpanded = true;
+    private bool _initialized;
 
     public StatsPage()
     {
@@ -32,6 +33,8 @@ public partial class StatsPage : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        if (_initialized) return;
+        _initialized = true;
         _platformData["抖音"] = new List<DailyStats>();
         _platformData["快手"] = new List<DailyStats>();
         _platformData["Bilibili"] = new List<DailyStats>();
@@ -93,41 +96,36 @@ public partial class StatsPage : UserControl
             return;
         }
         var sorted = data.OrderBy(d => d.Date).ToList();
-        // 用 DateTime 轴显示完整日期
         DateTime[] dates = sorted.Select(d => d.Date).ToArray();
+        double[] plays = sorted.Select(d => (double)d.Plays).ToArray();
+        double[] likes = sorted.Select(d => (double)d.Likes).ToArray();
+        double[] comments = sorted.Select(d => (double)d.Comments).ToArray();
 
-        PlotChart(PlayChart, dates, sorted.Select(d => (double)d.Plays).ToArray(), WpfColors.DodgerBlue);
-        PlotChart(LikeChart, dates, sorted.Select(d => (double)d.Likes).ToArray(), WpfColors.Orange);
-        PlotChart(CommentChart, dates, sorted.Select(d => (double)d.Comments).ToArray(), WpfColors.MediumSeaGreen);
+        QuickPlot(PlayChart, dates, plays, WpfColors.DodgerBlue);
+        QuickPlot(LikeChart, dates, likes, WpfColors.Orange);
+        QuickPlot(CommentChart, dates, comments, WpfColors.MediumSeaGreen);
     }
 
-    private void PlotChart(WpfPlot chart, DateTime[] dates, double[] y, WpfColor lineColor)
+    private void QuickPlot(WpfPlot chart, DateTime[] dates, double[] y, WpfColor lineColor)
     {
-        chart.Plot.Clear();
+        var plt = chart.Plot;
+        plt.Clear();
         double[] xs = dates.Select(d => d.ToOADate()).ToArray();
-        var line = chart.Plot.Add.ScatterLine(xs, y);
+        var line = plt.Add.ScatterLine(xs, y);
         line.Color = new ScottPlot.Color(lineColor.R, lineColor.G, lineColor.B);
         line.MarkerSize = 4;
         line.LineWidth = 2;
-
-        // 美化：网格线
-        chart.Plot.Grid.MajorLineColor = ScottPlot.Colors.Gray.WithAlpha(0.2);
-        chart.Plot.Grid.MajorLineWidth = 0.5f;
-        chart.Plot.Axes.DateTimeTicksBottom();
-        chart.Plot.Axes.AutoScale();
+        plt.Axes.DateTimeTicksBottom();
+        plt.Axes.AutoScale();
         chart.Refresh();
     }
 
     private void ClearChart(WpfPlot chart)
     {
         chart.Plot.Clear();
-        chart.Plot.Grid.MajorLineColor = ScottPlot.Colors.Gray.WithAlpha(0.2);
-        chart.Plot.Grid.MajorLineWidth = 0.5f;
-        chart.Plot.Axes.AutoScale();
         chart.Refresh();
     }
 
-    // ===== 数据列表（支持拖拽排序） =====
     private void RefreshDataList()
     {
         DataList.Items.Clear();
@@ -136,8 +134,7 @@ public partial class StatsPage : UserControl
         int idx = 0;
         foreach (var d in sorted)
         {
-            var item = CreateDataListItem(d, idx++);
-            DataList.Items.Add(item);
+            DataList.Items.Add(CreateDataListItem(d, idx++));
         }
     }
 
@@ -158,12 +155,11 @@ public partial class StatsPage : UserControl
 
         var info = new TextBlock
         {
-            Text = $"{d.Date:yyyy-MM-dd}  |  ▸{FormatNum(d.Plays)}  ♥{FormatNum(d.Likes)}  ✎{FormatNum(d.Comments)}",
+            Text = $"{d.Date:yyyy-MM-dd}  |  {FormatNum(d.Plays)}  {FormatNum(d.Likes)}  {FormatNum(d.Comments)}",
             FontSize = 10, FontFamily = new FontFamily("Microsoft YaHei"),
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             VerticalAlignment = System.Windows.VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Tag = index
         };
         Grid.SetColumn(info, 0);
         grid.Children.Add(info);
@@ -188,13 +184,10 @@ public partial class StatsPage : UserControl
         grid.Children.Add(delBtn);
 
         item.Child = grid;
-
-        // 拖拽排序
         item.PreviewMouseLeftButtonDown += DataItem_MouseDown;
         item.PreviewMouseMove += DataItem_MouseMove;
         item.PreviewMouseLeftButtonUp += DataItem_MouseUp;
         item.Tag = d;
-
         return item;
     }
 
@@ -204,22 +197,15 @@ public partial class StatsPage : UserControl
 
     private void DataItem_MouseDown(object sender, MouseButtonEventArgs e)
     {
-        if (sender is Border b)
-        {
-            _dragSource = b;
-            _dragStart = e.GetPosition(null);
-            _isDragging = false;
-        }
+        if (sender is Border b) { _dragSource = b; _dragStart = e.GetPosition(null); _isDragging = false; }
     }
 
     private void DataItem_MouseMove(object sender, MouseEventArgs e)
     {
         if (_dragSource == null || _isDragging) return;
-        var diff = e.GetPosition(null) - _dragStart;
-        if (Math.Abs(diff.Y) > 6)
+        if (Math.Abs((e.GetPosition(null) - _dragStart).Y) > 6)
         {
-            _isDragging = true;
-            _dragSource.Opacity = 0.5;
+            _isDragging = true; _dragSource.Opacity = 0.5;
             Mouse.Capture(_dragSource, CaptureMode.Element);
         }
     }
@@ -227,38 +213,31 @@ public partial class StatsPage : UserControl
     private void DataItem_MouseUp(object sender, MouseButtonEventArgs e)
     {
         if (!_isDragging || _dragSource == null) { _dragSource = null; return; }
-        _dragSource.Opacity = 1;
-        Mouse.Capture(null);
+        _dragSource.Opacity = 1; Mouse.Capture(null);
 
-        // 找到释放位置
         var pos = e.GetPosition(DataList);
         var items = DataList.Items.OfType<FrameworkElement>().ToList();
-        int targetIdx = -1;
-        double bestDist = double.MaxValue;
+        int targetIdx = -1; double bestDist = double.MaxValue;
         for (int i = 0; i < items.Count; i++)
         {
             var itemPos = items[i].TransformToAncestor(DataList).Transform(new Point(0, 0));
-            double midY = itemPos.Y + items[i].ActualHeight / 2;
-            double dist = Math.Abs(pos.Y - midY);
+            double dist = Math.Abs(pos.Y - (itemPos.Y + items[i].ActualHeight / 2));
             if (dist < bestDist) { bestDist = dist; targetIdx = i; }
         }
 
-        if (targetIdx >= 0 && _dragSource.Tag is DailyStats src && src != null)
+        if (targetIdx >= 0 && _dragSource.Tag is DailyStats src)
         {
             var list = _platformData[_currentPlatform];
             int srcIdx = list.IndexOf(src);
             if (srcIdx >= 0 && targetIdx != srcIdx)
             {
                 list.RemoveAt(srcIdx);
-                // 调整索引
-                int insertIdx = targetIdx > srcIdx ? targetIdx - 1 : targetIdx;
-                insertIdx = Math.Clamp(insertIdx, 0, list.Count);
+                int insertIdx = Math.Clamp(targetIdx > srcIdx ? targetIdx - 1 : targetIdx, 0, list.Count);
                 list.Insert(insertIdx, src);
                 SaveData(); RefreshAll();
             }
         }
-        _dragSource = null;
-        _isDragging = false;
+        _dragSource = null; _isDragging = false;
     }
 
     private static string FormatNum(long n)
@@ -268,48 +247,42 @@ public partial class StatsPage : UserControl
         return n.ToString();
     }
 
-    // ===== 添加数据 =====
     private void AddData_Click(object sender, RoutedEventArgs e)
     {
-        try
+        string dateStr = DateInput.Text.Trim();
+        if (!string.IsNullOrEmpty(dateStr))
         {
-            string dateStr = DateInput.Text.Trim();
-            DateTime date = string.IsNullOrEmpty(dateStr) ? DateTime.Today : DateTime.Parse(dateStr);
-            if (!long.TryParse(PlaysInput.Text.Trim(), out var plays)) plays = 0;
-            if (!long.TryParse(LikesInput.Text.Trim(), out var likes)) likes = 0;
-            if (!long.TryParse(CommentsInput.Text.Trim(), out var comments)) comments = 0;
-
-            var list = _platformData[_currentPlatform];
-            var existing = list.FirstOrDefault(d => d.Date.Date == date.Date);
-            if (existing != null) { existing.Plays = plays; existing.Likes = likes; existing.Comments = comments; }
-            else list.Add(new DailyStats { Date = date, Plays = plays, Likes = likes, Comments = comments });
-
-            SaveData(); RefreshAll();
-            DateInput.Text = ""; PlaysInput.Text = ""; LikesInput.Text = ""; CommentsInput.Text = "";
+            if (!DateTime.TryParseExact(dateStr, new[] { "yyyy-MM-dd", "yyyy/MM/dd", "yyyy.MM.dd", "yyyyMMdd" },
+                     CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+            { MessageBox.Show("日期格式不正确！"); return; }
+            if (dt.Date > DateTime.Today) { MessageBox.Show("日期不能是未来日期！"); return; }
         }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"数据格式错误：{ex.Message}", "提示", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+        var date = string.IsNullOrEmpty(dateStr) ? DateTime.Today
+            : DateTime.ParseExact(dateStr, new[] { "yyyy-MM-dd", "yyyy/MM/dd" }, CultureInfo.InvariantCulture, DateTimeStyles.None);
+
+        if (!long.TryParse(PlaysInput.Text.Trim(), out var plays) || plays < 0)
+        { MessageBox.Show("播放量必须是非负整数！"); return; }
+        if (!long.TryParse(LikesInput.Text.Trim(), out var likes) || likes < 0)
+        { MessageBox.Show("点赞量必须是非负整数！"); return; }
+        if (!long.TryParse(CommentsInput.Text.Trim(), out var comments) || comments < 0)
+        { MessageBox.Show("评论量必须是非负整数！"); return; }
+
+        var list = _platformData[_currentPlatform];
+        var existing = list.FirstOrDefault(d => d.Date.Date == date.Date);
+        if (existing != null) { existing.Plays = plays; existing.Likes = likes; existing.Comments = comments; }
+        else list.Add(new DailyStats { Date = date, Plays = plays, Likes = likes, Comments = comments });
+
+        SaveData(); RefreshAll();
+        DateInput.Text = PlaysInput.Text = LikesInput.Text = CommentsInput.Text = "";
     }
 
-    // ===== 面板收起/展开 =====
     private void TogglePanel_Click(object sender, RoutedEventArgs e)
     {
-        if (_panelExpanded)
-        {
-            RightPanel.Visibility = Visibility.Collapsed;
-            RightPanelCol.Width = GridLength.Auto;
-        }
-        else
-        {
-            RightPanel.Visibility = Visibility.Visible;
-            RightPanelCol.Width = new GridLength(240, GridUnitType.Pixel);
-        }
+        if (_panelExpanded) { RightPanel.Visibility = Visibility.Collapsed; RightPanelCol.Width = GridLength.Auto; }
+        else { RightPanel.Visibility = Visibility.Visible; RightPanelCol.Width = new GridLength(240); }
         _panelExpanded = !_panelExpanded;
     }
 
-    // ===== 平台切换 =====
     private void DouyinBtn_Click(object sender, RoutedEventArgs e) => SwitchPlatform("抖音");
     private void KuaishouBtn_Click(object sender, RoutedEventArgs e) => SwitchPlatform("快手");
     private void BilibiliBtn_Click(object sender, RoutedEventArgs e) => SwitchPlatform("Bilibili");
