@@ -150,6 +150,7 @@ public static class FileService
     public static string BannerPath(string workRoot) => Path.Combine(ConfigPath(workRoot), "banners");
     public static string NoticeFile(string workRoot) => Path.Combine(ConfigPath(workRoot), "notice.txt");
     public static string SettingsFile(string workRoot) => Path.Combine(ConfigPath(workRoot), "appsettings.json");
+    public static string ProfileWorksFile(string workRoot) => Path.Combine(ConfigPath(workRoot), "profile_works.json");
     public static string ProfileImageFile(string _) => CustomAvatarFile;
     public static string MemosPath(string workRoot) => Path.Combine(ConfigPath(workRoot), "Memos");
     public static string MemoFile(string workRoot, string memoId) => Path.Combine(MemosPath(workRoot), $"{memoId}.json");
@@ -412,6 +413,17 @@ public static class FileService
         if (string.IsNullOrWhiteSpace(info.MediaFolder) && !string.IsNullOrWhiteSpace(info.Name))
             info.MediaFolder = GenerateUniqueMediaFolder(workRoot, info.Name, info.Id);
         WriteJson(NovelInfoFile(workRoot, info.Id), info);
+    }
+
+    /// <summary>个人资料作品（独立于剧本章节小说，存储在 Config/profile_works.json）</summary>
+    public static List<NovelInfo> LoadProfileWorks(string workRoot)
+    {
+        return ReadJson<List<NovelInfo>>(ProfileWorksFile(workRoot)) ?? new List<NovelInfo>();
+    }
+
+    public static void SaveProfileWorks(string workRoot, List<NovelInfo> works)
+    {
+        WriteJson(ProfileWorksFile(workRoot), works);
     }
 
     /// <summary>重命名小说时移动所有媒体文件夹（图片 + 视频）</summary>

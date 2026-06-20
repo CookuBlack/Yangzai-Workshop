@@ -40,7 +40,14 @@ public partial class ScriptPage : UserControl
     }
 
     /// <summary>文件还原后刷新当前章节的图像网格</summary>
-    public void RefreshContent() => RefreshImageGrid();
+    public void RefreshContent()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_currentNovel != null && _currentChapter != null)
+                RefreshImageGrid();
+        }, System.Windows.Threading.DispatcherPriority.Render);
+    }
 
     private bool _loaded;
 
@@ -226,10 +233,8 @@ public partial class ScriptPage : UserControl
 
     private void DeleteNovel(NovelInfo novel)
     {
-        var result = MessageBox.Show(
-            $"确定要删除《{novel.Name}》吗？\n\n此操作会删除该小说的所有数据，无法恢复。",
-            "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (result != MessageBoxResult.Yes) return;
+        if (!MessageDialog.Confirm("确认删除",
+            $"确定要删除《{novel.Name}》吗？\n\n此操作会删除该小说的所有数据，无法恢复。")) return;
         try
         {
             FileService.DeleteDirectory(FileService.NovelPath(App.WorkRoot, novel.Id));
@@ -243,8 +248,17 @@ public partial class ScriptPage : UserControl
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"删除失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show("错误", $"删除失败：{ex.Message}");
+            return;
         }
+        NotifyNovelsChanged();
+    }
+
+    /// <summary>通知其他页面小说列表已变更（人物素材、视频文件需刷新）</summary>
+    private static void NotifyNovelsChanged()
+    {
+        NavigationService.Instance.ClearPage("Character");
+        NavigationService.Instance.ClearPage("Video");
     }
 
     private void ChangeNovelCover(NovelInfo novel)
@@ -281,7 +295,7 @@ public partial class ScriptPage : UserControl
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"设置封皮失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show("错误", $"设置封皮失败：{ex.Message}");
         }
     }
 
@@ -1028,10 +1042,10 @@ public partial class ScriptPage : UserControl
             FileService.SaveChapters(App.WorkRoot, novelId, chapters);
             RefreshNovelList();
             SelectNovel(novelInfo);
-            MessageBox.Show($"导入成功！\n\n小说：《{fileName}》\n自动识别 {chapters.Count} 个章节\n编码：{encoding.EncodingName}", "导入完成", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageDialog.Show("导入完成", $"导入成功！\n\n小说：《{fileName}》\n自动识别 {chapters.Count} 个章节\n编码：{encoding.EncodingName}");
         }
         catch (Exception ex)
-        { MessageBox.Show($"导入失败：{ex.Message}", "导入错误", MessageBoxButton.OK, MessageBoxImage.Error); }
+        { MessageDialog.Show("导入错误", $"导入失败：{ex.Message}"); }
     }
 
     // ===== 新建空白小说 =====
@@ -1054,6 +1068,7 @@ public partial class ScriptPage : UserControl
         FileService.SaveChapters(App.WorkRoot, novelId, chapters);
         RefreshNovelList();
         SelectNovel(novelInfo);
+        NotifyNovelsChanged();
         };
         dialog.Show();
     }

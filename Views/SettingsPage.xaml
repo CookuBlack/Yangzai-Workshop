@@ -300,7 +300,7 @@
                         <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
                             <TextBlock Text="Yangzai Workshop" FontSize="16" FontWeight="Bold"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <TextBlock x:Name="VersionSubText" Text="版本 v1.0.0" FontSize="12"
+                            <TextBlock x:Name="VersionSubText" Text="版本 v2.0.0" FontSize="12"
                                        Foreground="{DynamicResource TextSecondaryBrush}"/>
                         </StackPanel>
                     </StackPanel>
@@ -313,7 +313,7 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="版本号" FontSize="12"
                                    Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        <TextBlock Grid.Column="1" x:Name="VersionLabel" Text="v1.0.0" FontSize="12"
+                        <TextBlock Grid.Column="1" x:Name="VersionLabel" Text="v2.0.0" FontSize="12"
                                    Foreground="{DynamicResource PrimaryBrush}" FontWeight="SemiBold"/>
                     </Grid>
                     <Grid Margin="0,0,0,4">

@@ -395,8 +395,7 @@ public partial class CharacterPage : UserControl
     private void ConfirmDeleteCharacter(CharacterInfo ch)
     {
         if (_currentNovel == null) return;
-        if (MessageBox.Show($"确定删除「{ch.Name}」？", "确认",
-            MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+        if (!MessageDialog.Confirm("确认删除", $"确定删除「{ch.Name}」？")) return;
         try
         {
             var p = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, ch.Id);

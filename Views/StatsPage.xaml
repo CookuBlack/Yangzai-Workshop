@@ -178,10 +178,85 @@
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="日期" FontSize="11"
                                    VerticalAlignment="Center" HorizontalAlignment="Right"
                                    Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,6,4"/>
-                        <TextBox x:Name="DateInput" Grid.Row="0" Grid.Column="1" FontSize="12"
-                                 FontFamily="Microsoft YaHei" Padding="6,3" Margin="0,0,0,4"
-                                 Foreground="{DynamicResource TextPrimaryBrush}"
-                                 Style="{StaticResource ModernTextBoxStyle}"/>
+                        <Grid Grid.Row="0" Grid.Column="1" Margin="0,0,0,4">
+                            <ToggleButton x:Name="DateBtn" Cursor="Hand"
+                                          IsChecked="{Binding IsOpen, ElementName=DatePopup, Mode=TwoWay}"
+                                          Style="{StaticResource DatePickerToggleStyle}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="&#xE787;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="13" Foreground="{DynamicResource TextSecondaryBrush}"
+                                               VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                    <TextBlock x:Name="DateBtnText" Text="2026/6/20"
+                                               FontSize="12" FontFamily="Microsoft YaHei"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </ToggleButton>
+                            <Popup x:Name="DatePopup" StaysOpen="False"
+                                   AllowsTransparency="True" Opened="DatePopup_Opened"
+                                   PlacementTarget="{Binding ElementName=DateBtn}"
+                                   Placement="Bottom">
+                                <Border Background="{DynamicResource CardBackgroundBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="6" Padding="8"
+                                        MinWidth="210">
+                                    <StackPanel>
+                                        <!-- 月/年标题 + 翻页按钮 -->
+                                        <Grid Margin="0,0,0,4">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Button Grid.Column="0" Content="&lt;" FontSize="13"
+                                                    FontWeight="Bold"
+                                                    Style="{StaticResource DateCalNavButton}"
+                                                    Click="CalPrevMonth_Click"/>
+                                            <TextBlock x:Name="CalMonthLabel" Grid.Column="1"
+                                                       Text="2026年6月" FontSize="13" FontWeight="Bold"
+                                                       FontFamily="Microsoft YaHei"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <Button Grid.Column="2" Content="&gt;" FontSize="13"
+                                                    FontWeight="Bold"
+                                                    Style="{StaticResource DateCalNavButton}"
+                                                    Click="CalNextMonth_Click"/>
+                                        </Grid>
+                                        <!-- 星期头 -->
+                                        <Grid Margin="0,0,0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition/><ColumnDefinition/><ColumnDefinition/>
+                                                <ColumnDefinition/><ColumnDefinition/><ColumnDefinition/>
+                                                <ColumnDefinition/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="日" FontSize="10"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       HorizontalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="一" FontSize="10"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       HorizontalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="二" FontSize="10"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       HorizontalAlignment="Center"/>
+                                            <TextBlock Grid.Column="3" Text="三" FontSize="10"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       HorizontalAlignment="Center"/>
+                                            <TextBlock Grid.Column="4" Text="四" FontSize="10"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       HorizontalAlignment="Center"/>
+                                            <TextBlock Grid.Column="5" Text="五" FontSize="10"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       HorizontalAlignment="Center"/>
+                                            <TextBlock Grid.Column="6" Text="六" FontSize="10"
+                                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                                       HorizontalAlignment="Center"/>
+                                        </Grid>
+                                        <!-- 日期网格（42个格子：6行×7列） -->
+                                        <Grid x:Name="CalDayGrid"/>
+                                    </StackPanel>
+                                </Border>
+                            </Popup>
+                        </Grid>
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="播放量" FontSize="11"
                                    VerticalAlignment="Center" HorizontalAlignment="Right"
@@ -207,8 +282,10 @@
                                  Foreground="{DynamicResource TextPrimaryBrush}"
                                  Style="{StaticResource ModernTextBoxStyle}"/>
 
-                        <Button Grid.Row="4" Grid.Column="1" Content="添加数据" FontSize="12" Padding="8,5"
-                                HorizontalAlignment="Right"
+                        <Button Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2"
+                                Content="添加数据" FontSize="12"
+                                Padding="12,6"
+                                HorizontalAlignment="Stretch"
                                 Style="{StaticResource PrimaryButtonStyle}"
                                 Click="AddData_Click"/>
                     </Grid>

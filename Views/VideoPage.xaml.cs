@@ -26,7 +26,14 @@ public partial class VideoPage : UserControl
     }
 
     /// <summary>文件还原后刷新当前章节的视频网格</summary>
-    public void RefreshContent() => RefreshVideoGrid();
+    public void RefreshContent()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            if (_currentNovel != null && _currentChapter != null)
+                RefreshVideoGrid();
+        }, System.Windows.Threading.DispatcherPriority.Render);
+    }
 
     private bool _loaded;
 

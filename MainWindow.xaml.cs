@@ -27,20 +27,36 @@ public partial class MainWindow : Window
         // 回收站还原文件后，清除相关页面缓存强制下次访问重新加载
         FileService.FileRestored += restoredPath =>
         {
-            Dispatcher.Invoke(() =>
-            {
-                // 根据路径判断还原的是图片还是视频，清除对应页面缓存
-                var path = restoredPath.Replace('\\', '/');
-                if (path.Contains("/Image/")) NavigationService.Instance.ClearPage("Script");
-                else if (path.Contains("/Video/")) NavigationService.Instance.ClearPage("Video");
+            var path = restoredPath.Replace('\\', '/');
+            var current = NavigationService.Instance.CurrentPageName;
 
-                // 如果当前正在该页面，立即刷新
-                var current = NavigationService.Instance.CurrentPageName;
-                if (current == "Script" && NavigationService.Instance.CurrentPage is Views.ScriptPage sp)
-                    NavigationService.Instance.NavigateTo("Script");
-                else if (current == "Video" && NavigationService.Instance.CurrentPage is Views.VideoPage vp)
-                    NavigationService.Instance.NavigateTo("Video");
-            });
+            if (path.Contains("/Image/"))
+            {
+                if (path.Contains("/Image/人物素材/"))
+                {
+                    // 还原的是人物素材图片
+                    NavigationService.Instance.ClearPage("Character");
+                }
+                else
+                {
+                    // 还原的是剧本章节配图
+                    NavigationService.Instance.ClearPage("Script");
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (current == "Script" && NavigationService.Instance.CurrentPage is Views.ScriptPage sp)
+                            sp.RefreshContent();
+                    }), System.Windows.Threading.DispatcherPriority.Loaded);
+                }
+            }
+            else if (path.Contains("/Video/"))
+            {
+                NavigationService.Instance.ClearPage("Video");
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (current == "Video" && NavigationService.Instance.CurrentPage is Views.VideoPage vp)
+                        vp.RefreshContent();
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
         };
 
         ThemeService.ThemeChanged += () =>
@@ -158,7 +174,8 @@ public partial class MainWindow : Window
 
     private void OnPageChanged()
     {
-        // NavigateToPage 已处理内容切换，此处仅同步导航选中状态
+        ContentArea.Content = NavigationService.Instance.CurrentPage;
+        ContentArea.Opacity = 1;
         SelectNavItem(NavigationService.Instance.CurrentPageName);
     }
 

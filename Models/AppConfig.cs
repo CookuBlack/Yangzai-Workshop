@@ -15,6 +15,6 @@ public class AppConfig
     public bool AutoPlayBanner { get; set; } = true;
     public int BannerIntervalSeconds { get; set; } = 5;
     public string LastUpdateDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
-    public string Version { get; set; } = "1.0.0";
+    public string Version { get; set; } = "2.0.0";
     public int GitHubStars { get; set; } = 128;
 }

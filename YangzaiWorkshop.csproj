@@ -9,8 +9,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>YangzaiWorkshop</AssemblyName>
     <ApplicationIcon>Assets\Icon\Yangzai.ico</ApplicationIcon>
-    <AssemblyVersion>1.0.0</AssemblyVersion>
-    <FileVersion>1.0.0</FileVersion>
+    <AssemblyVersion>2.0.0</AssemblyVersion>
+    <FileVersion>2.0.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>

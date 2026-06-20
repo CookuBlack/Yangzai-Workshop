@@ -24,6 +24,7 @@ public partial class StatsPage : UserControl
 
     private bool _panelExpanded = true;
     private bool _initialized;
+    private DateTime _selectedDate = DateTime.Today;
 
     public StatsPage()
     {
@@ -40,6 +41,93 @@ public partial class StatsPage : UserControl
         _platformData["Bilibili"] = new List<DailyStats>();
         LoadData();
         SwitchPlatform("抖音");
+        DateBtnText.Text = _selectedDate.ToString("yyyy/MM/dd");
+    }
+
+    private int _calYear, _calMonth;
+
+    private void DatePopup_Opened(object? sender, EventArgs e)
+    {
+        _calYear = _selectedDate.Year;
+        _calMonth = _selectedDate.Month;
+        RefreshCalendar();
+    }
+
+    private void RefreshCalendar()
+    {
+        CalMonthLabel.Text = $"{_calYear}年{_calMonth}月";
+        CalDayGrid.Children.Clear();
+        CalDayGrid.ColumnDefinitions.Clear();
+        CalDayGrid.RowDefinitions.Clear();
+
+        for (int c = 0; c < 7; c++)
+            CalDayGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        for (int r = 0; r < 6; r++)
+            CalDayGrid.RowDefinitions.Add(new RowDefinition());
+
+        var firstDay = new DateTime(_calYear, _calMonth, 1);
+        int startDow = (int)firstDay.DayOfWeek; // 0=Sun
+        var today = DateTime.Today;
+
+        for (int day = 1; day <= DateTime.DaysInMonth(_calYear, _calMonth); day++)
+        {
+            var date = new DateTime(_calYear, _calMonth, day);
+            int pos = startDow + day - 1;
+            int r = pos / 7, c = pos % 7;
+
+            bool isSelected = date == _selectedDate.Date;
+            bool isToday = date == today;
+
+            var btn = new Button
+            {
+                Content = day.ToString(),
+                Tag = date,
+                FontSize = 12,
+                FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei"),
+                Background = isSelected
+                    ? (Brush)FindResource("PrimaryBrush")
+                    : Brushes.Transparent,
+                Foreground = isSelected
+                    ? Brushes.White
+                    : isToday
+                        ? (Brush)FindResource("AccentBrush")
+                        : (Brush)FindResource("TextPrimaryBrush"),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(2),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Margin = new Thickness(1)
+            };
+
+            btn.Click += DayBtn_Click;
+            Grid.SetRow(btn, r);
+            Grid.SetColumn(btn, c);
+            CalDayGrid.Children.Add(btn);
+        }
+    }
+
+    private void DayBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is DateTime dt)
+        {
+            _selectedDate = dt;
+            DateBtnText.Text = _selectedDate.ToString("yyyy/MM/dd");
+            DatePopup.IsOpen = false;
+            DateBtn.IsChecked = false;
+        }
+    }
+
+    private void CalPrevMonth_Click(object sender, RoutedEventArgs e)
+    {
+        if (_calMonth == 1) { _calMonth = 12; _calYear--; }
+        else _calMonth--;
+        RefreshCalendar();
+    }
+
+    private void CalNextMonth_Click(object sender, RoutedEventArgs e)
+    {
+        if (_calMonth == 12) { _calMonth = 1; _calYear++; }
+        else _calMonth++;
+        RefreshCalendar();
     }
 
     private void LoadData()
@@ -249,31 +337,24 @@ public partial class StatsPage : UserControl
 
     private void AddData_Click(object sender, RoutedEventArgs e)
     {
-        string dateStr = DateInput.Text.Trim();
-        if (!string.IsNullOrEmpty(dateStr))
-        {
-            if (!DateTime.TryParseExact(dateStr, new[] { "yyyy-MM-dd", "yyyy/MM/dd", "yyyy.MM.dd", "yyyyMMdd" },
-                     CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
-            { MessageBox.Show("日期格式不正确！"); return; }
-            if (dt.Date > DateTime.Today) { MessageBox.Show("日期不能是未来日期！"); return; }
-        }
-        var date = string.IsNullOrEmpty(dateStr) ? DateTime.Today
-            : DateTime.ParseExact(dateStr, new[] { "yyyy-MM-dd", "yyyy/MM/dd" }, CultureInfo.InvariantCulture, DateTimeStyles.None);
+        if (_selectedDate == default) { MessageDialog.Show("提示", "请选择日期！"); return; }
+        if (_selectedDate.Date > DateTime.Today) { MessageDialog.Show("提示", "日期不能是未来日期！"); return; }
 
         if (!long.TryParse(PlaysInput.Text.Trim(), out var plays) || plays < 0)
-        { MessageBox.Show("播放量必须是非负整数！"); return; }
+        { MessageDialog.Show("提示", "播放量必须是非负整数！"); return; }
         if (!long.TryParse(LikesInput.Text.Trim(), out var likes) || likes < 0)
-        { MessageBox.Show("点赞量必须是非负整数！"); return; }
+        { MessageDialog.Show("提示", "点赞量必须是非负整数！"); return; }
         if (!long.TryParse(CommentsInput.Text.Trim(), out var comments) || comments < 0)
-        { MessageBox.Show("评论量必须是非负整数！"); return; }
+        { MessageDialog.Show("提示", "评论量必须是非负整数！"); return; }
 
         var list = _platformData[_currentPlatform];
-        var existing = list.FirstOrDefault(d => d.Date.Date == date.Date);
+        var existing = list.FirstOrDefault(d => d.Date.Date == _selectedDate.Date);
         if (existing != null) { existing.Plays = plays; existing.Likes = likes; existing.Comments = comments; }
-        else list.Add(new DailyStats { Date = date, Plays = plays, Likes = likes, Comments = comments });
+        else list.Add(new DailyStats { Date = _selectedDate, Plays = plays, Likes = likes, Comments = comments });
 
         SaveData(); RefreshAll();
-        DateInput.Text = PlaysInput.Text = LikesInput.Text = CommentsInput.Text = "";
+        _selectedDate = DateTime.Today; DateBtnText.Text = _selectedDate.ToString("yyyy/MM/dd");
+        PlaysInput.Text = LikesInput.Text = CommentsInput.Text = "";
     }
 
     private void TogglePanel_Click(object sender, RoutedEventArgs e)

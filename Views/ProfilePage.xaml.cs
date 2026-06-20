@@ -144,10 +144,10 @@ public partial class ProfilePage : UserControl
         cw.Show();
     }
 
-    // ===== 个人成就 =====
+    // ===== 个人成就（独立存储，与剧本章节小说隔离） =====
     private void RefreshAchievements()
     {
-        _novels = FileService.LoadAllNovels(App.WorkRoot);
+        _novels = FileService.LoadProfileWorks(App.WorkRoot);
         AchievementPanel.Children.Clear();
 
         if (_novels.Count == 0)
@@ -272,13 +272,10 @@ public partial class ProfilePage : UserControl
         };
         delBtn.Click += (_, _) =>
         {
-            var res = MessageBox.Show($"确定删除「{novel.Name}」？\n此操作不可恢复。", "确认删除",
-                MessageBoxButton.YesNo, MessageBoxImage.Warning);
-            if (res == MessageBoxResult.Yes)
-            {
-                FileService.DeleteDirectory(FileService.NovelPath(App.WorkRoot, novel.Id));
-                RefreshAchievements();
-            }
+            if (!MessageDialog.Confirm("确认删除", $"确定删除「{novel.Name}」？\n此操作不可恢复。")) return;
+            _novels.Remove(novel);
+            FileService.SaveProfileWorks(App.WorkRoot, _novels);
+            RefreshAchievements();
         };
         delBtn.MouseEnter += (s, _) => ((Button)s).Background = (Brush)FindResource("HoverBrush");
         delBtn.MouseLeave += (s, _) => ((Button)s).Background = Brushes.Transparent;
@@ -369,7 +366,7 @@ public partial class ProfilePage : UserControl
         saveBtn.Click += (_, _) =>
         {
             novel.Description = descBox.Text;
-            FileService.SaveNovelInfo(App.WorkRoot, novel);
+            FileService.SaveProfileWorks(App.WorkRoot, _novels);
             RefreshAchievements();
             dialog.Close();
         };
@@ -400,16 +397,15 @@ public partial class ProfilePage : UserControl
 
     private void AddNovel_Click(object sender, RoutedEventArgs e)
     {
-        var novelId = Guid.NewGuid().ToString();
-        var novelDir = FileService.NovelPath(App.WorkRoot, novelId);
-        FileService.EnsureDirectory(novelDir);
         var novel = new NovelInfo
         {
-            Id = novelId, Name = "新作品",
+            Id = Guid.NewGuid().ToString(),
+            Name = "新作品",
             Description = "点击编辑作品信息",
             CoverColor = "#4A90E2"
         };
-        FileService.SaveNovelInfo(App.WorkRoot, novel);
+        _novels.Add(novel);
+        FileService.SaveProfileWorks(App.WorkRoot, _novels);
         RefreshAchievements();
         EditNovelStats(novel);
     }

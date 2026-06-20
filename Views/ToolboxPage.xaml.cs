@@ -86,9 +86,8 @@ public partial class ToolboxPage : UserControl
         // 绑定清空按钮事件
         emptyBtn.Click += (_, _) =>
         {
-            var res = MessageBox.Show("确定清空回收站？此操作不可撤销。", "确认",
-                MessageBoxButton.YesNo, MessageBoxImage.Warning);
-            if (res == MessageBoxResult.Yes) { FileService.EmptyTrash(App.WorkRoot); LoadTrashList(trashList, countText); }
+            if (MessageDialog.Confirm("确认", "确定清空回收站？此操作不可撤销。"))
+            { FileService.EmptyTrash(App.WorkRoot); LoadTrashList(trashList, countText); }
         };
 
         _trashWindow.Content = root;
@@ -570,10 +569,7 @@ public partial class ToolboxPage : UserControl
         delBtn.Click += (_, _) =>
         {
             if (selectedMemo == null) return;
-            var result = MessageBox.Show(
-                $"确定删除备忘录「{selectedMemo.Title}」？此操作不可撤销。",
-                "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-            if (result != MessageBoxResult.Yes) return;
+            if (!MessageDialog.Confirm("确认删除", $"确定删除备忘录「{selectedMemo.Title}」？此操作不可撤销。")) return;
             autoSaveTimer?.Stop();
             FileService.DeleteMemo(App.WorkRoot, selectedMemo.Id);
             selectedMemo = null;

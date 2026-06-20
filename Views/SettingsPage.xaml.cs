@@ -286,14 +286,12 @@ public partial class SettingsPage : UserControl
             {
                 FileService.BackupData(App.WorkRoot, dlg.FileName);
                 var size = new FileInfo(dlg.FileName).Length;
-                MessageBox.Show(
-                    $"备份成功！\n\n保存位置：{dlg.FileName}\n文件大小：{FormatFileSize(size)}",
-                    "备份完成", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageDialog.Show("备份完成",
+                    $"备份成功！\n\n保存位置：{dlg.FileName}\n文件大小：{FormatFileSize(size)}");
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"备份失败：{ex.Message}", "错误",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageDialog.Show("错误", $"备份失败：{ex.Message}");
             }
         }
     }
@@ -310,16 +308,11 @@ public partial class SettingsPage : UserControl
 
         if (!IsValidBackup(dlg.FileName))
         {
-            MessageBox.Show("所选文件不是有效的 Yangzai Workshop 备份文件。", "无效备份",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageDialog.Show("无效备份", "所选文件不是有效的 Yangzai Workshop 备份文件。");
             return;
         }
 
-        var result = MessageBox.Show(
-            "⚠ 恢复数据将覆盖当前所有数据！\n\n确定要继续吗？",
-            "⚠ 确认恢复数据", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-
-        if (result != MessageBoxResult.Yes) return;
+        if (!MessageDialog.Confirm("确认恢复数据", "恢复数据将覆盖当前所有数据！\n\n确定要继续吗？")) return;
 
         try
         {
@@ -337,13 +330,11 @@ public partial class SettingsPage : UserControl
             if (_config.FollowSystemTheme)
                 SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
 
-            MessageBox.Show("数据恢复成功！", "恢复完成",
-                MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageDialog.Show("恢复完成", "数据恢复成功！");
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"恢复失败：{ex.Message}\n\n已自动备份恢复前的数据。",
-                "恢复失败", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageDialog.Show("恢复失败", $"恢复失败：{ex.Message}\n\n已自动备份恢复前的数据。");
         }
     }
 

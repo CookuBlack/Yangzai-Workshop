@@ -164,7 +164,7 @@ public partial class CropWindow : Window
             Cropped?.Invoke(CroppedImage);
             Close();
         }
-        catch { MessageBox.Show("裁剪失败", "错误", MessageBoxButton.OK, MessageBoxImage.Error); }
+        catch { MessageDialog.Show("错误", "裁剪失败"); }
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e) => Close();
