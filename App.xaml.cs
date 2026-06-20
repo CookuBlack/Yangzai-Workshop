@@ -16,7 +16,7 @@ public partial class App : Application
     public static string AvatarDir => FileService.AssetsAvatarPath;
 
     private const string GitHubRepo = "CookuBlack/Yangzai-Workshop";
-    private const string CurrentVersion = "2.1.1";
+    private const string CurrentVersion = "2.1.0";
     public static string AppVersion => CurrentVersion;
 
     // 缓存：避免频繁启动时耗尽 API 速率
@@ -193,8 +193,8 @@ public partial class App : Application
 
     private static async Task DownloadAndInstallAsync(string downloadUrl, string newTag)
     {
-        var tempFile = Path.Combine(Path.GetTempPath(),
-            $"YangzaiWorkshop_{newTag}.msi");
+        var tempFile = Path.Combine(FileService.AppBasePath,
+            $"YangzaiWorkshop_Update_{newTag}.msi");
         try
         {
             TryDeleteFile(tempFile);
@@ -208,10 +208,11 @@ public partial class App : Application
 
             await Current.Dispatcher.InvokeAsync(() =>
             {
+                var installDir = FileService.AppBasePath;
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = "msiexec.exe",
-                    Arguments = $"/i \"{tempFile}\" /qn /norestart",
+                    Arguments = $"/i \"{tempFile}\" INSTALL_FOLDER=\"{installDir}\" /qn /norestart",
                     UseShellExecute = true,
                     Verb = "runas"
                 });
