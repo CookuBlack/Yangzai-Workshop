@@ -497,7 +497,7 @@ public static class FileService
     }
 
     // ===== 初始化 =====
-    public static void InitializeWorkData(string workRoot)
+    public static void InitializeWorkData(string workRoot, string? appVersion = null)
     {
         EnsureDirectory(ConfigPath(workRoot));
         EnsureDirectory(BannerPath(workRoot));
@@ -519,7 +519,7 @@ public static class FileService
         if (!File.Exists(NoticeFile(workRoot)))
         {
             WriteText(NoticeFile(workRoot), "欢迎使用 Yangzai Workshop 小说漫剧创作工作台！\n\n" +
-                "v1.0 版本功能：\n" +
+                $"v{appVersion ?? "1.0"} 版本功能：\n" +
                 "• 支持小说导入与智能分章\n" +
                 "• 剧本改编与素材管理\n" +
                 "• 平台数据统计与可视化\n\n" +

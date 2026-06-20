@@ -29,12 +29,31 @@ public partial class App : Application
         base.OnStartup(e);
 
         WorkRoot = FileService.DefaultWorkPath;
-        FileService.InitializeWorkData(WorkRoot);
+        FileService.InitializeWorkData(WorkRoot, CurrentVersion);
         FileService.EnsureDirectory(FileService.AssetsAvatarPath);
         ThemeService.InitTheme(WorkRoot);
 
+        // 清理上次更新残留的安装包
+        CleanupUpdateFiles();
+
         try { await CheckForUpdateAsync(); }
         catch { /* 更新检测静默失败，不影响主流程 */ }
+    }
+
+    private static void CleanupUpdateFiles()
+    {
+        try
+        {
+            var dir = FileService.AppBasePath;
+            if (!Directory.Exists(dir)) return;
+            foreach (var f in Directory.GetFiles(dir, "YangzaiWorkshop_Update_*.msi"))
+            {
+                try { File.Delete(f); } catch { }
+            }
+            var bat = Path.Combine(dir, "_update_cleanup.bat");
+            try { if (File.Exists(bat)) File.Delete(bat); } catch { }
+        }
+        catch { }
     }
 
     private static string UpdateSkipFile =>
@@ -251,15 +270,25 @@ public partial class App : Application
 
             progressWindow.Report(100, "下载完成，正在安装...");
 
+            // 创建清理脚本：安装完成后自动删除安装包
+            var cleanupBat = Path.Combine(FileService.AppBasePath,
+                "_update_cleanup.bat");
+            File.WriteAllText(cleanupBat,
+                "@echo off\r\n" +
+                $"start /wait \"\" msiexec /i \"{tempFile}\" INSTALL_FOLDER=\"{FileService.AppBasePath}\" /qn /norestart\r\n" +
+                $"del /f /q \"{tempFile}\"\r\n" +
+                "del /f /q \"%~f0\"\r\n",
+                System.Text.Encoding.ASCII);
+
             await Current.Dispatcher.InvokeAsync(() =>
             {
-                var installDir = FileService.AppBasePath;
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "msiexec.exe",
-                    Arguments = $"/i \"{tempFile}\" INSTALL_FOLDER=\"{installDir}\" /qn /norestart",
+                    FileName = "cmd.exe",
+                    Arguments = $"/c \"{cleanupBat}\"",
                     UseShellExecute = true,
-                    Verb = "runas"
+                    Verb = "runas",
+                    WindowStyle = ProcessWindowStyle.Hidden
                 });
                 Current.Shutdown();
             });
