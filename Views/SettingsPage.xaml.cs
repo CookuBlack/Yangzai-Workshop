@@ -90,14 +90,20 @@ public partial class SettingsPage : UserControl
         IntervalSlider.Value = _config.BannerIntervalSeconds;
         IntervalLabel.Text = $"{_config.BannerIntervalSeconds}秒";
 
+        // GitHub Token（显示星号掩码）
+        if (!string.IsNullOrEmpty(_config.GitHubToken))
+        {
+            GitHubTokenBox.Password = _config.GitHubToken;
+        }
+
         // 公告
         var notice = FileService.ReadText(FileService.NoticeFile(App.WorkRoot));
         NoticeEditBox.Text = notice;
 
-        // 版本信息
-        VersionLabel.Text = $"v{_config.Version}";
+        // 版本信息（统一从 App.AppVersion 读取）
+        VersionLabel.Text = $"v{App.AppVersion}";
         UpdateDateLabel.Text = _config.LastUpdateDate;
-        VersionSubText.Text = $"版本 v{_config.Version} · 更新于 {_config.LastUpdateDate}";
+        VersionSubText.Text = $"版本 v{App.AppVersion} · 更新于 {_config.LastUpdateDate}";
         GitHubLink.Text = "GitHub: https://github.com/CookuBlack/Yangzai-Workshop";
     }
 
@@ -249,6 +255,71 @@ public partial class SettingsPage : UserControl
         _config.BannerIntervalSeconds = (int)e.NewValue;
         IntervalLabel.Text = $"{_config.BannerIntervalSeconds}秒";
         SaveConfig();
+    }
+
+    // ==================== 自动更新 ====================
+    private void GitHubTokenBox_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.GitHubToken = GitHubTokenBox.Password;
+        SaveConfig();
+    }
+
+    private void GitHubTokenHelp_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(
+                "https://github.com/settings/tokens/new?description=YangzaiWorkshop&scopes=repo")
+            { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+    {
+        CheckUpdateBtn.IsEnabled = false;
+        UpdateStatusLabel.Visibility = Visibility.Visible;
+        UpdateStatusLabel.Foreground = (Brush)FindResource("TextSecondaryBrush");
+        UpdateStatusLabel.Text = "正在检查更新...";
+
+        try
+        {
+            var result = await App.CheckForUpdateAsync(forceCheck: true);
+            switch (result)
+            {
+                case App.UpdateCheckResult.NoUpdate:
+                    UpdateStatusLabel.Foreground = (Brush)FindResource("SuccessBrush");
+                    UpdateStatusLabel.Text = $"✓ 已是最新版本 (v{App.AppVersion})";
+                    break;
+                case App.UpdateCheckResult.NetworkError:
+                    UpdateStatusLabel.Foreground = (Brush)FindResource("DangerBrush");
+                    UpdateStatusLabel.Text = "✗ 网络不可用，请检查网络连接";
+                    break;
+                case App.UpdateCheckResult.RateLimited:
+                    UpdateStatusLabel.Foreground = (Brush)FindResource("WarningBrush");
+                    UpdateStatusLabel.Text = "⚠ GitHub API 速率限制，请配置 Token 或稍后重试";
+                    break;
+                case App.UpdateCheckResult.HasUpdateNoMsi:
+                case App.UpdateCheckResult.HasUpdate:
+                    // 弹窗已经在 CheckForUpdateAsync 中处理了
+                    UpdateStatusLabel.Foreground = (Brush)FindResource("SuccessBrush");
+                    UpdateStatusLabel.Text = "✓ 操作完成";
+                    break;
+            }
+        }
+        catch
+        {
+            UpdateStatusLabel.Foreground = (Brush)FindResource("DangerBrush");
+            UpdateStatusLabel.Text = "✗ 检查失败，请稍后重试";
+        }
+
+        CheckUpdateBtn.IsEnabled = true;
+
+        // 3 秒后自动隐藏状态
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        timer.Tick += (_, _) => { timer.Stop(); UpdateStatusLabel.Visibility = Visibility.Collapsed; };
+        timer.Start();
     }
 
     // ==================== 公告 ====================

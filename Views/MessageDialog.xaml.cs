@@ -6,8 +6,10 @@ namespace YangzaiWorkshop.Views;
 public partial class MessageDialog : Window
 {
     public bool Confirmed { get; private set; }
+    public bool CheckBoxChecked { get; private set; }
 
-    public MessageDialog(string title, string message, bool showCancel = false)
+    public MessageDialog(string title, string message, bool showCancel = false,
+        string? checkBoxText = null)
     {
         InitializeComponent();
         // 以最前台窗口为 Owner，确保弹窗在最前
@@ -24,6 +26,15 @@ public partial class MessageDialog : Window
         {
             CancelBtn.Visibility = Visibility.Collapsed;
             OkBtn.Margin = new Thickness(0);
+        }
+
+        // 可选勾选框
+        if (!string.IsNullOrEmpty(checkBoxText))
+        {
+            RemindCheckBox.Content = checkBoxText;
+            RemindCheckBox.Visibility = Visibility.Visible;
+            RemindCheckBox.Checked += (_, _) => CheckBoxChecked = true;
+            RemindCheckBox.Unchecked += (_, _) => CheckBoxChecked = false;
         }
 
         OkBtn.Click += (_, _) => { Confirmed = true; Close(); };
@@ -44,6 +55,24 @@ public partial class MessageDialog : Window
     {
         var dlg = new MessageDialog(title, message, showCancel: true);
         dlg.ShowDialog();
+        return dlg.Confirmed;
+    }
+
+    /// <summary>
+    /// 显示带勾选框的确认对话框
+    /// </summary>
+    /// <param name="title">标题</param>
+    /// <param name="message">提示内容</param>
+    /// <param name="checkBoxText">勾选框文案（如"7 天内不再提醒"）</param>
+    /// <param name="skipChecked">勾选框是否被勾选</param>
+    /// <returns>true=用户点了确定，false=点了取消</returns>
+    public static bool ConfirmWithCheck(string title, string message,
+        string checkBoxText, out bool skipChecked)
+    {
+        var dlg = new MessageDialog(title, message, showCancel: true,
+            checkBoxText: checkBoxText);
+        dlg.ShowDialog();
+        skipChecked = dlg.CheckBoxChecked;
         return dlg.Confirmed;
     }
 }

@@ -119,7 +119,7 @@ public partial class MainWindow : Window
     private void UpdateStatusBar()
     {
         var config = FileService.LoadConfig(App.WorkRoot);
-        VersionText.Text = $"v{config.Version}";
+        VersionText.Text = $"v{App.AppVersion}";
         UpdateDateText.Text = config.LastUpdateDate;
     }
 

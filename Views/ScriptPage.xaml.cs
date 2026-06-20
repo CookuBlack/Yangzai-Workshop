@@ -227,6 +227,7 @@ public partial class ScriptPage : UserControl
             FileService.SaveNovelInfo(App.WorkRoot, novel);
             FileService.MoveNovelMediaFolders(App.WorkRoot, oldFolder, novel.MediaFolder, novel.Id);
             RefreshNovelList();
+            NotifyNovelsChanged();
         };
         dialog.Show();
     }
@@ -1042,6 +1043,7 @@ public partial class ScriptPage : UserControl
             FileService.SaveChapters(App.WorkRoot, novelId, chapters);
             RefreshNovelList();
             SelectNovel(novelInfo);
+            NotifyNovelsChanged();
             MessageDialog.Show("导入完成", $"导入成功！\n\n小说：《{fileName}》\n自动识别 {chapters.Count} 个章节\n编码：{encoding.EncodingName}");
         }
         catch (Exception ex)

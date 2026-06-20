@@ -17,6 +17,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- 标题 -->
@@ -29,10 +30,16 @@
             <TextBlock x:Name="MessageBlock" Grid.Row="1" FontSize="13"
                        FontFamily="Microsoft YaHei"
                        Foreground="{DynamicResource TextSecondaryBrush}"
-                       TextWrapping="Wrap" Margin="0,0,0,18"/>
+                       TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+            <!-- 可选勾选框 -->
+            <CheckBox x:Name="RemindCheckBox" Grid.Row="2" FontSize="11"
+                      FontFamily="Microsoft YaHei" Margin="0,0,0,14"
+                      Foreground="{DynamicResource TextSecondaryBrush}"
+                      Visibility="Collapsed"/>
 
             <!-- 按钮 -->
-            <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button x:Name="CancelBtn" Content="取消" Width="80" Height="30"
                         FontSize="12" FontFamily="Microsoft YaHei"
                         Margin="0,0,8,0" Click="CancelBtn_Click"
