@@ -195,16 +195,61 @@ public partial class App : Application
     {
         var tempFile = Path.Combine(FileService.AppBasePath,
             $"YangzaiWorkshop_Update_{newTag}.msi");
+
+        var progressWindow = new UpdateProgressWindow("正在下载更新",
+            $"Yangzai Workshop v{newTag} 下载中...");
+
         try
         {
             TryDeleteFile(tempFile);
 
+            // 显示进度窗口
+            progressWindow.Show();
+
             using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
             client.DefaultRequestHeaders.UserAgent.ParseAdd("YangzaiWorkshop");
-            using var stream = await client.GetStreamAsync(downloadUrl);
+
+            using var response = await client.GetAsync(downloadUrl,
+                HttpCompletionOption.ResponseHeadersRead);
+            response.EnsureSuccessStatusCode();
+
+            var totalBytes = response.Content.Headers.ContentLength ?? -1;
+            using var stream = await response.Content.ReadAsStreamAsync();
             using var fs = File.Create(tempFile);
-            await stream.CopyToAsync(fs);
+
+            var buffer = new byte[8192];
+            long totalRead = 0;
+            int bytesRead;
+            int lastPercent = -1;
+
+            while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                await fs.WriteAsync(buffer, 0, bytesRead);
+                totalRead += bytesRead;
+
+                if (totalBytes > 0)
+                {
+                    var percent = (int)(totalRead * 100 / totalBytes);
+                    if (percent != lastPercent)
+                    {
+                        lastPercent = percent;
+                        var mb = totalRead / (1024.0 * 1024.0);
+                        var totalMb = totalBytes / (1024.0 * 1024.0);
+                        progressWindow.Report(percent,
+                            $"已下载 {mb:F1} MB / {totalMb:F1} MB");
+                    }
+                }
+                else
+                {
+                    // 无法获取总大小时，简单闪烁
+                    var mb = totalRead / (1024.0 * 1024.0);
+                    progressWindow.Report(0, $"已下载 {mb:F1} MB...");
+                }
+            }
+
             await fs.FlushAsync();
+
+            progressWindow.Report(100, "下载完成，正在安装...");
 
             await Current.Dispatcher.InvokeAsync(() =>
             {
@@ -222,6 +267,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             TryDeleteFile(tempFile);
+            progressWindow.Close();
             await Current.Dispatcher.InvokeAsync(() =>
             {
                 MessageDialog.Show("更新失败", $"下载或安装失败：\n{ex.Message}");
