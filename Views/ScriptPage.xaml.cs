@@ -30,6 +30,7 @@ public partial class ScriptPage : UserControl
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        ChapterPopup.Closed += (_, _) => _chapterPopupOpen = false;
     }
 
     /// <summary>从设置页面同步字体大小到编辑器</summary>
@@ -381,9 +382,11 @@ public partial class ScriptPage : UserControl
         e.Handled = true;
     }
 
+    private bool _chapterPopupOpen;
+
     private void ChapterExpandBtn_Click(object sender, RoutedEventArgs e)
     {
-        if (ChapterPopup.IsOpen)
+        if (_chapterPopupOpen)
         {
             ChapterPopup.IsOpen = false;
             return;
@@ -418,6 +421,7 @@ public partial class ScriptPage : UserControl
             };
             btn.Click += (s, _) =>
             {
+                _chapterPopupOpen = false;
                 ChapterPopup.IsOpen = false;
                 SelectChapter(ch);
                 Dispatcher.BeginInvoke(
@@ -426,6 +430,7 @@ public partial class ScriptPage : UserControl
             };
             ChapterPopupList.Children.Add(btn);
         }
+        _chapterPopupOpen = true;
         ChapterPopup.IsOpen = true;
     }
 
