@@ -19,10 +19,21 @@ public partial class App : Application
     private const string CurrentVersion = "2.2.0";
     public static string AppVersion => CurrentVersion;
 
+    /// <summary>版本信息 JSON 地址（多源，逐一尝试直到成功）</summary>
+    private static readonly string[] VersionInfoUrls = new[]
+    {
+        "https://cdn.jsdelivr.net/gh/CookuBlack/Yangzai-Workshop@main/version.json",
+        "https://raw.githubusercontent.com/CookuBlack/Yangzai-Workshop/main/version.json",
+    };
+
     // 缓存：避免频繁启动时耗尽 API 速率
     private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
     private static string CacheFile =>
         Path.Combine(FileService.ConfigPath(WorkRoot), ".update_cache");
+
+    /// <summary>最近一次更新检查失败的详细错误信息</summary>
+    public static string LastUpdateError => _lastUpdateError;
+    private static string _lastUpdateError = "";
 
     protected override async void OnStartup(StartupEventArgs e)
     {
@@ -78,6 +89,20 @@ public partial class App : Application
     /// <returns>检查结果状态</returns>
     public static async Task<UpdateCheckResult> CheckForUpdateAsync(bool forceCheck = false)
     {
+        try
+        {
+            return await CheckForUpdateCoreAsync(forceCheck);
+        }
+        catch (Exception ex)
+        {
+            _lastUpdateError = $"检查异常：{ex.Message}";
+            SaveCache(UpdateCheckResult.NetworkError, "");
+            return UpdateCheckResult.NetworkError;
+        }
+    }
+
+    private static async Task<UpdateCheckResult> CheckForUpdateCoreAsync(bool forceCheck)
+    {
             // 缓存：1 小时内复用「无更新/限速」结果，减少 API 调用
             // 有更新时不缓存，确保每次都弹窗提醒
             if (!forceCheck && TryLoadCache(out var cachedResult)
@@ -91,83 +116,64 @@ public partial class App : Application
         string tag = "";
         string htmlUrl = "";
 
-        // ---- 第一步：请求 GitHub API ----
-        try
+        // ---- 第一步：多源获取版本信息 ----
+        var errors = new System.Collections.Generic.List<string>();
+        foreach (var url in VersionInfoUrls)
         {
-            var config = FileService.LoadConfig(WorkRoot);
-            var githubToken = config?.GitHubToken?.Trim() ?? string.Empty;
-
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("YangzaiWorkshop");
-            if (!string.IsNullOrEmpty(githubToken))
+            try
             {
-                client.DefaultRequestHeaders.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", githubToken);
-            }
-            client.Timeout = TimeSpan.FromSeconds(15);
+                using var client = new HttpClient();
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("YangzaiWorkshop");
+                client.Timeout = TimeSpan.FromSeconds(10);
 
-            using var response = await client.GetAsync(
-                $"https://api.github.com/repos/{GitHubRepo}/releases?per_page=1");
+                using var response = await client.GetAsync(url);
+                if (!response.IsSuccessStatusCode) continue;
 
-            // 速率限制 → 静默跳过，缓存避免持续重试
-            if ((int)response.StatusCode == 403)
-            {
-                var hitLimit = response.Headers.TryGetValues("X-RateLimit-Remaining", out var vals)
-                    && int.TryParse(vals.FirstOrDefault(), out var rem) && rem == 0;
-                if (hitLimit)
-                {
-                    SaveCache(UpdateCheckResult.RateLimited, "");
-                    return UpdateCheckResult.RateLimited;
-                }
-            }
+                var json = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var root = doc.RootElement;
 
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
+                tag = root.TryGetProperty("latest", out var vp)
+                    ? vp.GetString()?.TrimStart('v', 'V') ?? "" : "";
+                htmlUrl = root.TryGetProperty("release_url", out var hp)
+                    ? hp.GetString() ?? "" : "";
+                msiUrl = root.TryGetProperty("msi", out var mp)
+                    ? mp.GetString() : null;
 
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-            if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() == 0)
-                return UpdateCheckResult.NoUpdate;
-
-            var latest = root[0];
-            tag = latest.GetProperty("tag_name").GetString()?.TrimStart('v', 'V') ?? "";
-            htmlUrl = latest.GetProperty("html_url").GetString() ?? "";
-
-            // 版本比较：不大于当前版本 → 无更新
-            if (CompareVersions(tag, CurrentVersion) <= 0)
-            {
-                SaveCache(UpdateCheckResult.NoUpdate, tag);
-                return UpdateCheckResult.NoUpdate;
-            }
-
-            // 非强制检查时，检查 7 天跳过提醒
-            if (!forceCheck && ShouldSkipReminder(tag))
-            {
-                SaveCache(UpdateCheckResult.NoUpdate, tag);
-                return UpdateCheckResult.NoUpdate;
-            }
-
-            // 查找 MSI 资源
-            var assets = latest.GetProperty("assets");
-            foreach (var asset in assets.EnumerateArray())
-            {
-                var name = asset.GetProperty("name").GetString() ?? "";
-                if (name.EndsWith(".msi", StringComparison.OrdinalIgnoreCase))
-                {
-                    msiUrl = asset.GetProperty("browser_download_url").GetString();
+                if (!string.IsNullOrEmpty(tag))
                     break;
-                }
             }
-
-            // API 调用成功，保存缓存
-            var result = msiUrl != null ? UpdateCheckResult.HasUpdate : UpdateCheckResult.HasUpdateNoMsi;
-            SaveCache(result, tag);
+            catch (Exception ex)
+            {
+                errors.Add($"{new Uri(url).Host}: {ex.Message}");
+            }
         }
-        catch
+
+        if (string.IsNullOrEmpty(tag))
         {
-            // API 失败时不缓存（下次启动重试）
+            _lastUpdateError = errors.Count > 0
+                ? $"版本获取失败：{string.Join(" | ", errors)}"
+                : "版本信息文件不存在（请将 version.json 推送至 GitHub）";
             return UpdateCheckResult.NetworkError;
         }
+
+        // 版本比较：不大于当前版本 → 无更新
+        if (CompareVersions(tag, CurrentVersion) <= 0)
+        {
+            SaveCache(UpdateCheckResult.NoUpdate, tag);
+            return UpdateCheckResult.NoUpdate;
+        }
+
+        // 非强制检查时，检查 7 天跳过提醒
+        if (!forceCheck && ShouldSkipReminder(tag))
+        {
+            SaveCache(UpdateCheckResult.NoUpdate, tag);
+            return UpdateCheckResult.NoUpdate;
+        }
+
+        // 保存缓存
+        var result = msiUrl != null ? UpdateCheckResult.HasUpdate : UpdateCheckResult.HasUpdateNoMsi;
+        SaveCache(result, tag);
 
         // ---- 第二步：处理结果 ----
         if (msiUrl == null)
@@ -270,27 +276,31 @@ public partial class App : Application
 
             progressWindow.Report(100, "下载完成，正在安装...");
 
-            // 创建清理脚本：安装完成后自动删除安装包
-            var cleanupBat = Path.Combine(FileService.AppBasePath,
-                "_update_cleanup.bat");
+            // 先确保 UI 关闭，再创建安装脚本
+            await Current.Dispatcher.InvokeAsync(() => Current.Shutdown());
+
+            // 等待应用完全退出
+            await Task.Delay(2000);
+
+            // 创建安装脚本：等旧进程退出 → 安装新 MSI → 清理
+            var cleanupBat = Path.Combine(FileService.AppBasePath, "_update_cleanup.bat");
             File.WriteAllText(cleanupBat,
                 "@echo off\r\n" +
-                $"start /wait \"\" msiexec /i \"{tempFile}\" INSTALL_FOLDER=\"{FileService.AppBasePath}\" /qn /norestart\r\n" +
-                $"del /f /q \"{tempFile}\"\r\n" +
-                "del /f /q \"%~f0\"\r\n",
-                System.Text.Encoding.ASCII);
+                "echo Installing Yangzai Workshop...\r\n" +
+                $"msiexec /i \"{tempFile}\" INSTALL_FOLDER=\"{FileService.AppBasePath}\" /qb!- /norestart\r\n" +
+                "if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Yangzai Workshop\\Yangzai Workshop.lnk\" (\r\n" +
+                "    start \"\" \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Yangzai Workshop\\Yangzai Workshop.lnk\"\r\n" +
+                ")\r\n" +
+                $"del /f /q \"{tempFile}\" 2>nul\r\n" +
+                $"del /f /q \"%~f0\" 2>nul\r\n",
+                System.Text.Encoding.GetEncoding(936)); // GBK 编码兼容中文路径
 
-            await Current.Dispatcher.InvokeAsync(() =>
+            Process.Start(new ProcessStartInfo
             {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c \"{cleanupBat}\"",
-                    UseShellExecute = true,
-                    Verb = "runas",
-                    WindowStyle = ProcessWindowStyle.Hidden
-                });
-                Current.Shutdown();
+                FileName = "cmd.exe",
+                Arguments = $"/c \"{cleanupBat}\"",
+                UseShellExecute = true,
+                WindowStyle = ProcessWindowStyle.Normal
             });
         }
         catch (Exception ex)

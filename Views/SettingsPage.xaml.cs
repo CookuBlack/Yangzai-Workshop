@@ -89,13 +89,7 @@ public partial class SettingsPage : UserControl
         IntervalSlider.Value = _config.BannerIntervalSeconds;
         IntervalLabel.Text = $"{_config.BannerIntervalSeconds}秒";
 
-        // GitHub Token（显示星号掩码）
-        if (!string.IsNullOrEmpty(_config.GitHubToken))
-        {
-            GitHubTokenBox.Password = _config.GitHubToken;
-        }
-
-        // 版本信息（统一从 App.AppVersion 读取）
+        // 通用设置
         VersionLabel.Text = $"v{App.AppVersion}";
         UpdateDateLabel.Text = _config.LastUpdateDate;
         VersionSubText.Text = $"版本 v{App.AppVersion} · 更新于 {_config.LastUpdateDate}";
@@ -253,24 +247,6 @@ public partial class SettingsPage : UserControl
     }
 
     // ==================== 自动更新 ====================
-    private void GitHubTokenBox_PasswordChanged(object sender, RoutedEventArgs e)
-    {
-        if (_isLoading || !IsLoaded) return;
-        _config.GitHubToken = GitHubTokenBox.Password;
-        SaveConfig();
-    }
-
-    private void GitHubTokenHelp_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo(
-                "https://github.com/settings/tokens/new?description=YangzaiWorkshop&scopes=repo")
-            { UseShellExecute = true });
-        }
-        catch { }
-    }
-
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
     {
         CheckUpdateBtn.IsEnabled = false;
@@ -289,11 +265,15 @@ public partial class SettingsPage : UserControl
                     break;
                 case App.UpdateCheckResult.NetworkError:
                     UpdateStatusLabel.Foreground = (Brush)FindResource("DangerBrush");
-                    UpdateStatusLabel.Text = "✗ 网络不可用，请检查网络连接";
+                    UpdateStatusLabel.Text = string.IsNullOrEmpty(App.LastUpdateError)
+                        ? "✗ 网络不可用，请检查网络连接"
+                        : $"✗ {App.LastUpdateError}";
                     break;
                 case App.UpdateCheckResult.RateLimited:
                     UpdateStatusLabel.Foreground = (Brush)FindResource("WarningBrush");
-                    UpdateStatusLabel.Text = "⚠ GitHub API 速率限制，请配置 Token 或稍后重试";
+                    UpdateStatusLabel.Text = string.IsNullOrEmpty(App.LastUpdateError)
+                        ? "⚠ GitHub API 请求频繁，请稍后重试"
+                        : $"⚠ {App.LastUpdateError}";
                     break;
                 case App.UpdateCheckResult.HasUpdateNoMsi:
                 case App.UpdateCheckResult.HasUpdate:
@@ -306,7 +286,9 @@ public partial class SettingsPage : UserControl
         catch
         {
             UpdateStatusLabel.Foreground = (Brush)FindResource("DangerBrush");
-            UpdateStatusLabel.Text = "✗ 检查失败，请稍后重试";
+            UpdateStatusLabel.Text = string.IsNullOrEmpty(App.LastUpdateError)
+                ? "✗ 检查失败，请稍后重试"
+                : $"✗ {App.LastUpdateError}";
         }
 
         CheckUpdateBtn.IsEnabled = true;

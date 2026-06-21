@@ -221,30 +221,7 @@
                     <TextBlock Text="从 GitHub 自动检测并下载最新版本" FontSize="11"
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,12"/>
 
-                    <TextBlock FontSize="12" Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,6">
-                        <Run Text="GitHub Token（可选）"/>
-                    </TextBlock>
-                    <TextBlock Text="提供 Token 可提高 API 速率限制至 5000 次/小时，避免频繁使用时报错。"
-                               FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"
-                               TextWrapping="Wrap" Margin="0,0,0,8"/>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <PasswordBox x:Name="GitHubTokenBox" Grid.Column="0"
-                                     Style="{StaticResource ModernPasswordBoxStyle}"
-                                     FontSize="12" Margin="0,0,8,0"
-                                     PasswordChanged="GitHubTokenBox_PasswordChanged"/>
-                        <Button Grid.Column="1" Style="{StaticResource SecondaryButtonStyle}"
-                                FontSize="11" Padding="12,6" Click="GitHubTokenHelp_Click">
-                            <TextBlock>
-                                <Run Text="&#xE897;" FontFamily="Segoe MDL2 Assets"/>
-                                <Run Text=" 如何获取"/>
-                            </TextBlock>
-                        </Button>
-                    </Grid>
-                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
                         <Button x:Name="CheckUpdateBtn" Style="{StaticResource PrimaryButtonStyle}"
                                 FontSize="12" Padding="16,8" Click="CheckUpdate_Click">
                             <TextBlock>
