@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using Microsoft.Win32;
 using YangzaiWorkshop.Models;
 using ScottPlot;
 using ScottPlot.WPF;
@@ -362,6 +363,67 @@ public partial class StatsPage : UserControl
         if (_panelExpanded) { RightPanel.Visibility = Visibility.Collapsed; RightPanelCol.Width = GridLength.Auto; }
         else { RightPanel.Visibility = Visibility.Visible; RightPanelCol.Width = new GridLength(240); }
         _panelExpanded = !_panelExpanded;
+    }
+
+    // ===== 数据导出/导入 =====
+    private void ExportData_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new SaveFileDialog
+        {
+            Filter = "JSON文件|*.json",
+            FileName = $"PlatformStats_Export_{DateTime.Now:yyyyMMdd_HHmmss}.json",
+            Title = "导出平台数据"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var json = JsonSerializer.Serialize(_platformData, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(dlg.FileName, json);
+            MessageDialog.Show("导出完成", $"数据已导出到：\n{dlg.FileName}");
+        }
+        catch (Exception ex)
+        {
+            MessageDialog.Show("错误", $"导出失败：{ex.Message}");
+        }
+    }
+
+    private void ImportData_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "JSON文件|*.json",
+            Title = "导入平台数据"
+        };
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var json = File.ReadAllText(dlg.FileName);
+            var imported = JsonSerializer.Deserialize<Dictionary<string, List<DailyStats>>>(json);
+            if (imported == null || imported.Count == 0)
+            {
+                MessageDialog.Show("无效数据", "所选文件不包含有效的平台数据。");
+                return;
+            }
+
+            if (!MessageDialog.Confirm("确认导入", "导入将覆盖当前所有平台数据！\n\n确定要继续吗？")) return;
+
+            // 合并导入数据
+            foreach (var kv in imported)
+            {
+                if (!_platformData.ContainsKey(kv.Key))
+                    _platformData[kv.Key] = new List<DailyStats>();
+                _platformData[kv.Key] = kv.Value.OrderBy(d => d.Date).ToList();
+            }
+            SaveData();
+            SwitchPlatform(_currentPlatform);
+            MessageDialog.Show("导入完成", $"成功导入 {imported.Sum(kv => kv.Value.Count)} 条数据！");
+        }
+        catch (Exception ex)
+        {
+            MessageDialog.Show("错误", $"导入失败：{ex.Message}");
+        }
     }
 
     private void DouyinBtn_Click(object sender, RoutedEventArgs e) => SwitchPlatform("抖音");

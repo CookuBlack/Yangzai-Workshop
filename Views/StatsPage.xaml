@@ -37,13 +37,22 @@
                                 Style="{StaticResource SecondaryButtonStyle}"
                                 Click="BilibiliBtn_Click"/>
                     </StackPanel>
-                    <!-- 展开/收起按钮（与平台按钮同行） -->
-                    <Button Grid.Column="1"
-                            Content=">"
-                            FontSize="13" FontWeight="Bold" FontFamily="Microsoft YaHei"
-                            Width="28" Height="28" Padding="0"
-                            Style="{StaticResource SecondaryButtonStyle}"
-                            Click="TogglePanel_Click" ToolTip="收起面板"/>
+                    <!-- 导出/导入 + 展开/收起按钮 -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Button Content="导出" FontSize="11" FontFamily="Microsoft YaHei"
+                                Padding="8,3" Margin="0,0,4,0"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="ExportData_Click" ToolTip="导出数据"/>
+                        <Button Content="导入" FontSize="11" FontFamily="Microsoft YaHei"
+                                Padding="8,3" Margin="0,0,4,0"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="ImportData_Click" ToolTip="导入数据"/>
+                        <Button Content=">"
+                                FontSize="13" FontWeight="Bold" FontFamily="Microsoft YaHei"
+                                Width="28" Height="28" Padding="0"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="TogglePanel_Click" ToolTip="收起面板"/>
+                    </StackPanel>
                 </Grid>
             </Border>
 
