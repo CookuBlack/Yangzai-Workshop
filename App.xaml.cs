@@ -16,14 +16,14 @@ public partial class App : Application
     public static string AvatarDir => FileService.AssetsAvatarPath;
 
     private const string GitHubRepo = "CookuBlack/Yangzai-Workshop";
-    private const string CurrentVersion = "2.2.0";
+    private const string CurrentVersion = "2.2.1";
     public static string AppVersion => CurrentVersion;
 
-    /// <summary>版本信息 JSON 地址（多源，逐一尝试直到成功）</summary>
+    /// <summary>版本信息 JSON 地址（GitHub 直连优先，CDN 备用）</summary>
     private static readonly string[] VersionInfoUrls = new[]
     {
-        "https://cdn.jsdelivr.net/gh/CookuBlack/Yangzai-Workshop@main/version.json",
         "https://raw.githubusercontent.com/CookuBlack/Yangzai-Workshop/main/version.json",
+        "https://cdn.jsdelivr.net/gh/CookuBlack/Yangzai-Workshop@main/version.json",
     };
 
     // 缓存：避免频繁启动时耗尽 API 速率
