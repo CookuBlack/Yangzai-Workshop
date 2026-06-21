@@ -191,9 +191,10 @@ public partial class ProfilePage : UserControl
         {
             try
             {
+                var data = File.ReadAllBytes(FileService.NovelCoverFile(App.WorkRoot, novel.Id));
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
-                bmp.UriSource = new Uri(FileService.NovelCoverFile(App.WorkRoot, novel.Id));
+                bmp.StreamSource = new MemoryStream(data);
                 bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
                 coverBorder.Child = new Border
                 {

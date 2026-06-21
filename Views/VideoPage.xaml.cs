@@ -75,8 +75,9 @@ public partial class VideoPage : UserControl
             {
                 try
                 {
+                    var data = File.ReadAllBytes(coverPath);
                     var bmp = new BitmapImage(); bmp.BeginInit();
-                    bmp.UriSource = new Uri(coverPath);
+                    bmp.StreamSource = new MemoryStream(data);
                     bmp.CacheOption = BitmapCacheOption.OnLoad;
                     bmp.DecodePixelWidth = 140; bmp.EndInit();
                     coverBorder.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
