@@ -30,9 +30,11 @@ public partial class ToolboxPage : UserControl
         {
             Title = "回收站",
             Width = 520, Height = 500,
+            MinWidth = 360, MinHeight = 300,
             WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            ShowInTaskbar = false,
+            ShowInTaskbar = true,
             Topmost = true,
+            Owner = Application.Current.MainWindow,
             Background = (Brush)Application.Current.FindResource("WindowBackgroundBrush")
         };
 

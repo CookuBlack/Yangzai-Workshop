@@ -234,11 +234,11 @@ public partial class ScriptPage : UserControl
 
     private void DeleteNovel(NovelInfo novel)
     {
-        if (!MessageDialog.Confirm("确认删除",
-            $"确定要删除《{novel.Name}》吗？\n\n此操作会删除该小说的所有数据，无法恢复。")) return;
+        if (!MessageDialog.Confirm("删除小说",
+            $"确定要删除《{novel.Name}》吗？\n\n小说将移至回收站，可在回收站中恢复。")) return;
         try
         {
-            FileService.DeleteDirectory(FileService.NovelPath(App.WorkRoot, novel.Id));
+            FileService.MoveToTrash(FileService.NovelPath(App.WorkRoot, novel.Id));
             if (_currentNovel?.Id == novel.Id)
             { _currentNovel = null; _currentChapter = null; _chapters.Clear(); }
             RefreshNovelList();

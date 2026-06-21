@@ -285,7 +285,8 @@ public static class FileService
                     try { Directory.Delete(d, true); } catch { }
                     continue;
                 }
-                // 找到实际文件
+                // 找到实际文件或目录
+                var found = false;
                 foreach (var f in Directory.GetFiles(d))
                 {
                     if (Path.GetFileName(f) == ".info") continue;
@@ -297,7 +298,24 @@ public static class FileService
                         OriginalPath = info.OriginalPath,
                         DeletedAt = info.DeletedAt
                     });
+                    found = true;
                     break;
+                }
+                if (!found)
+                {
+                    foreach (var dir in Directory.GetDirectories(d))
+                    {
+                        result.Add(new TrashItem
+                        {
+                            Id = Path.GetFileName(d),
+                            FileName = Path.GetFileName(dir),
+                            FilePath = dir,
+                            OriginalPath = info.OriginalPath,
+                            DeletedAt = info.DeletedAt
+                        });
+                        found = true;
+                        break;
+                    }
                 }
             }
             catch { }
@@ -316,16 +334,24 @@ public static class FileService
             File.ReadAllText(infoPath));
         if (info == null) return;
 
-        // 还原所有文件（不止第一个）
+        // 还原所有文件和目录
         var targetDir = Path.GetDirectoryName(info.OriginalPath)!;
         if (!Directory.Exists(targetDir))
             Directory.CreateDirectory(targetDir);
+        // 还原文件
         foreach (var f in Directory.GetFiles(itemDir))
         {
             if (Path.GetFileName(f) == ".info") continue;
             var dest = Path.Combine(targetDir, Path.GetFileName(f));
             if (File.Exists(dest)) File.Delete(dest);
             File.Move(f, dest);
+        }
+        // 还原目录
+        foreach (var d in Directory.GetDirectories(itemDir))
+        {
+            var dest = Path.Combine(targetDir, Path.GetFileName(d));
+            if (Directory.Exists(dest)) Directory.Delete(dest, true);
+            Directory.Move(d, dest);
         }
         // 清理临时目录（重试防止文件句柄未释放）
         for (int retry = 0; retry < 5; retry++)

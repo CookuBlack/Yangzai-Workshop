@@ -31,16 +31,21 @@ public partial class MainWindow : Window
             var path = restoredPath.Replace('\\', '/');
             var current = NavigationService.Instance.CurrentPageName;
 
-            if (path.Contains("/Image/"))
+            if (path.Contains("/Novels/"))
+            {
+                // 还原的是整本小说
+                NavigationService.Instance.ClearPage("Script");
+                NavigationService.Instance.ClearPage("Character");
+                NavigationService.Instance.ClearPage("Video");
+            }
+            else if (path.Contains("/Image/"))
             {
                 if (path.Contains("/Image/人物素材/"))
                 {
-                    // 还原的是人物素材图片
                     NavigationService.Instance.ClearPage("Character");
                 }
                 else
                 {
-                    // 还原的是剧本章节配图
                     NavigationService.Instance.ClearPage("Script");
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
