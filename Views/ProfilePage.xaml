@@ -29,7 +29,7 @@
                             </Ellipse.Fill>
                         </Ellipse>
                         <TextBlock x:Name="AvatarPlaceholder" Text="+" FontSize="48" FontWeight="Light"
-                                   FontFamily="Microsoft YaHei" Foreground="White"
+                                   FontFamily="Microsoft YaHei UI" Foreground="White"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Grid>
 
@@ -38,20 +38,20 @@
                         <!-- 查看模式 -->
                         <StackPanel x:Name="ViewPanel">
                             <TextBlock x:Name="UserNameDisplay" Text="创作者" FontSize="20" FontWeight="Bold"
-                                       FontFamily="Microsoft YaHei"
+                                       FontFamily="Microsoft YaHei UI"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
                             <TextBlock x:Name="SignatureDisplay" Text="用漫剧讲述精彩故事" FontSize="13"
-                                       FontFamily="Microsoft YaHei"
+                                       FontFamily="Microsoft YaHei UI"
                                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,0,0"/>
                         </StackPanel>
                         <!-- 编辑模式 -->
                         <StackPanel x:Name="EditPanel" Visibility="Collapsed">
                             <TextBox x:Name="UserNameEdit" FontSize="20" FontWeight="Bold"
-                                     FontFamily="Microsoft YaHei"
+                                     FontFamily="Microsoft YaHei UI"
                                      Foreground="{DynamicResource TextPrimaryBrush}"
                                      Background="Transparent" BorderBrush="{DynamicResource PrimaryBrush}"
                                      BorderThickness="0,0,0,1" Padding="0,0,0,4"/>
-                            <TextBox x:Name="SignatureEdit" FontSize="13" FontFamily="Microsoft YaHei"
+                            <TextBox x:Name="SignatureEdit" FontSize="13" FontFamily="Microsoft YaHei UI"
                                      Foreground="{DynamicResource TextSecondaryBrush}"
                                      Background="Transparent" BorderBrush="{DynamicResource PrimaryBrush}"
                                      BorderThickness="0,0,0,1" Padding="0,0,0,4"
@@ -65,7 +65,7 @@
                                 Width="32" Height="32" Padding="0"
                                 Style="{StaticResource SecondaryButtonStyle}"
                                 Click="EditButton_Click" ToolTip="编辑">
-                            <TextBlock Text="✎" FontSize="16" FontFamily="Microsoft YaHei"
+                            <TextBlock Text="✎" FontSize="16" FontFamily="Microsoft YaHei UI"
                                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Button>
                     </StackPanel>
@@ -81,7 +81,7 @@
                     </Grid.RowDefinitions>
                     <Grid Grid.Row="0" Margin="0,0,0,12">
                         <TextBlock Text="个人成就" FontSize="16" FontWeight="Bold"
-                                   FontFamily="Microsoft YaHei"
+                                   FontFamily="Microsoft YaHei UI"
                                    Foreground="{DynamicResource TextPrimaryBrush}"/>
                         <Button Content="+ 新建作品" Style="{StaticResource PrimaryButtonStyle}"
                                 FontSize="12" Padding="10,4" HorizontalAlignment="Right"

@@ -9,6 +9,33 @@
                 <ResourceDictionary Source="Resources/Styles/CommonStyles.xaml"/>
                 <ResourceDictionary Source="Resources/Styles/CardStyles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- 全局文本渲染优化：修复字体模糊 -->
+            <Style TargetType="TextBlock">
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+                <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
+            </Style>
+            <Style TargetType="TextBox">
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+                <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
+            </Style>
+            <Style TargetType="Label">
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+                <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
+            </Style>
+            <Style TargetType="Button">
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+                <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
+            </Style>
+            <Style TargetType="RichTextBox">
+                <Setter Property="TextOptions.TextFormattingMode" Value="Display"/>
+                <Setter Property="TextOptions.TextRenderingMode" Value="ClearType"/>
+                <Setter Property="RenderOptions.ClearTypeHint" Value="Enabled"/>
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

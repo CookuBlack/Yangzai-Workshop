@@ -104,7 +104,7 @@
                                      Background="Transparent" Padding="10"
                                      Foreground="{DynamicResource TextPrimaryBrush}"
                                      VerticalScrollBarVisibility="Auto"
-                                     FontSize="14" FontFamily="Microsoft YaHei"
+                                     FontSize="14" FontFamily="Microsoft YaHei UI"
                                      AllowDrop="False"
                                      LostFocus="OriginalTextBox_LostFocus">
                             <RichTextBox.Resources>
@@ -181,7 +181,7 @@
                                      Background="Transparent" Padding="10"
                                      Foreground="{DynamicResource TextPrimaryBrush}"
                                      VerticalScrollBarVisibility="Auto"
-                                     FontSize="14" FontFamily="Microsoft YaHei"
+                                     FontSize="14" FontFamily="Microsoft YaHei UI"
                                      LostFocus="ScriptTextBox_LostFocus"
                                      PreviewMouseDoubleClick="ScriptTextBox_DoubleClick">
                             <RichTextBox.Resources>
@@ -197,7 +197,7 @@
                                      Background="Transparent" Padding="10"
                                      Foreground="{DynamicResource TextPrimaryBrush}"
                                      VerticalScrollBarVisibility="Auto"
-                                     FontSize="14" FontFamily="Microsoft YaHei"
+                                     FontSize="14" FontFamily="Microsoft YaHei UI"
                                      Visibility="Collapsed"
                                      LostFocus="PromptTextBox_LostFocus"
                                      PreviewMouseDoubleClick="ScriptTextBox_DoubleClick">
@@ -241,7 +241,7 @@
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                                    <Button Content="+ 添加" FontFamily="Microsoft YaHei"
+                                    <Button Content="+ 添加" FontFamily="Microsoft YaHei UI"
                                             FontSize="11" Padding="6,3" Margin="0,0,6,0"
                                             Style="{StaticResource SecondaryButtonStyle}"
                                             Click="AddImage_Click" ToolTip="添加图像素材"/>
@@ -278,7 +278,7 @@
                     <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets" FontSize="14"
                                Foreground="{DynamicResource PrimaryBrush}" VerticalAlignment="Center" Margin="0,0,4,0"/>
                     <TextBlock Text="书籍列表" FontSize="12" FontWeight="Bold"
-                               FontFamily="Microsoft YaHei"
+                               FontFamily="Microsoft YaHei UI"
                                Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center"/>
                 </StackPanel>
 

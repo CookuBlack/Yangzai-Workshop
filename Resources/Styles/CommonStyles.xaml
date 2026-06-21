@@ -9,7 +9,7 @@
         <Setter Property="Padding" Value="16,8"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="FontSize" Value="14"/>
-        <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
@@ -43,7 +43,7 @@
         <Setter Property="Padding" Value="12,6"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="FontSize" Value="13"/>
-        <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
@@ -78,7 +78,7 @@
 
     <!-- 文本框样式 -->
     <Style x:Key="ModernTextBoxStyle" TargetType="TextBox">
-        <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="Padding" Value="10,8"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
@@ -106,7 +106,7 @@
 
     <!-- 密码框样式 -->
     <Style x:Key="ModernPasswordBoxStyle" TargetType="PasswordBox">
-        <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="Padding" Value="10,8"/>
         <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
@@ -159,7 +159,7 @@
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Padding" Value="4,2"/>
         <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
     </Style>
 
     <!-- 滚动条样式（细窄） -->
@@ -196,7 +196,7 @@
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
         <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
         <Setter Property="FontSize" Value="10"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="VerticalAlignment" Value="Center"/>
@@ -253,7 +253,7 @@
         <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
         <Setter Property="FontSize" Value="11"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
@@ -294,7 +294,7 @@
         <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="FontFamily" Value="Microsoft YaHei"/>
+        <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
         <Setter Property="FontSize" Value="11"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="HorizontalContentAlignment" Value="Center"/>

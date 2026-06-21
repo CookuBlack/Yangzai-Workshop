@@ -141,7 +141,7 @@
                             <TextBlock x:Name="PersonalityDisplay" Grid.Row="1"
                                        TextWrapping="Wrap" FontSize="14"
                                        Foreground="{DynamicResource TextPrimaryBrush}"
-                                       FontFamily="Microsoft YaHei" LineHeight="24"
+                                       FontFamily="Microsoft YaHei UI" LineHeight="24"
                                        Margin="0,0,0,8"/>
 
                             <Grid x:Name="PersonalityEditArea" Grid.Row="1"
@@ -154,7 +154,7 @@
                                          TextWrapping="Wrap" AcceptsReturn="True"
                                          MinHeight="100"
                                          Foreground="{DynamicResource TextPrimaryBrush}"
-                                         FontSize="14" FontFamily="Microsoft YaHei"
+                                         FontSize="14" FontFamily="Microsoft YaHei UI"
                                          Padding="8" Margin="0,0,0,6"
                                          Style="{StaticResource ModernTextBoxStyle}"/>
                                 <StackPanel Grid.Row="1" Orientation="Horizontal"

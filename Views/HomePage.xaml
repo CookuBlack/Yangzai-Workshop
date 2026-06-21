@@ -28,7 +28,7 @@
                               Stretch="UniformToFill" ScrubbingEnabled="True"
                               RenderOptions.BitmapScalingMode="HighQuality"/>
                 <TextBlock x:Name="BannerPlaceholder" Text="&#xE714; 暂无轮播视频"
-                           FontFamily="Microsoft YaHei" FontSize="16"
+                           FontFamily="Microsoft YaHei UI" FontSize="16"
                            Foreground="{DynamicResource BorderBrush}"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 <Button x:Name="PrevButton" Content="&#xE76B;"
@@ -207,7 +207,7 @@
                         <Button Grid.Column="1" Click="StartButton_Click"
                                 Background="{DynamicResource AccentBrush}"
                                 Foreground="White" BorderThickness="0"
-                                FontSize="15" FontFamily="Microsoft YaHei"
+                                FontSize="15" FontFamily="Microsoft YaHei UI"
                                 Cursor="Hand" Padding="28,14">
                             <Button.Resources>
                                 <Style TargetType="Button">

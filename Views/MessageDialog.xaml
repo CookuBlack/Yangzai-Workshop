@@ -26,30 +26,30 @@
 
             <!-- 标题 -->
             <TextBlock x:Name="TitleBlock" Grid.Row="0" FontSize="15" FontWeight="Bold"
-                       FontFamily="Microsoft YaHei"
+                       FontFamily="Microsoft YaHei UI"
                        Foreground="{DynamicResource TextPrimaryBrush}"
                        Margin="0,0,0,12"/>
 
             <!-- 内容 -->
             <TextBlock x:Name="MessageBlock" Grid.Row="1" FontSize="13"
-                       FontFamily="Microsoft YaHei"
+                       FontFamily="Microsoft YaHei UI"
                        Foreground="{DynamicResource TextSecondaryBrush}"
                        TextWrapping="Wrap" Margin="0,0,0,12"/>
 
             <!-- 可选勾选框 -->
             <CheckBox x:Name="RemindCheckBox" Grid.Row="2" FontSize="11"
-                      FontFamily="Microsoft YaHei" Margin="0,0,0,14"
+                      FontFamily="Microsoft YaHei UI" Margin="0,0,0,14"
                       Foreground="{DynamicResource TextSecondaryBrush}"
                       Visibility="Collapsed"/>
 
             <!-- 按钮 -->
             <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button x:Name="CancelBtn" Content="取消" Width="80" Height="30"
-                        FontSize="12" FontFamily="Microsoft YaHei"
+                        FontSize="12" FontFamily="Microsoft YaHei UI"
                         Margin="0,0,8,0" Click="CancelBtn_Click"
                         Style="{StaticResource SecondaryButtonStyle}"/>
                 <Button x:Name="OkBtn" Content="确定" Width="80" Height="30"
-                        FontSize="12" FontFamily="Microsoft YaHei"
+                        FontSize="12" FontFamily="Microsoft YaHei UI"
                         Click="OkBtn_Click"
                         Style="{StaticResource PrimaryButtonStyle}"/>
             </StackPanel>

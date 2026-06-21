@@ -13,16 +13,16 @@
         </Border.Effect>
         <StackPanel>
             <TextBlock x:Name="TitleText" FontSize="14" FontWeight="Bold"
-                       FontFamily="Microsoft YaHei" Margin="0,0,0,6"
+                       FontFamily="Microsoft YaHei UI" Margin="0,0,0,6"
                        Foreground="{DynamicResource TextPrimaryBrush}"/>
-            <TextBlock x:Name="StatusText" FontSize="11" FontFamily="Microsoft YaHei"
+            <TextBlock x:Name="StatusText" FontSize="11" FontFamily="Microsoft YaHei UI"
                        Foreground="{DynamicResource TextSecondaryBrush}"
                        TextWrapping="Wrap" Margin="0,0,0,12"/>
             <ProgressBar x:Name="ProgressBar" Height="6" Minimum="0" Maximum="100"
                          Value="0" Foreground="{DynamicResource PrimaryBrush}"
                          Background="{DynamicResource HoverBrush}"
                          BorderThickness="0" Margin="0,0,0,8"/>
-            <TextBlock x:Name="PercentText" FontSize="10" FontFamily="Microsoft YaHei"
+            <TextBlock x:Name="PercentText" FontSize="10" FontFamily="Microsoft YaHei UI"
                        Foreground="{DynamicResource TextSecondaryBrush}"
                        HorizontalAlignment="Right" Text="0%"/>
         </StackPanel>

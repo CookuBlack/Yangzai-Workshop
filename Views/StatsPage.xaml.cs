@@ -84,7 +84,7 @@ public partial class StatsPage : UserControl
                 Content = day.ToString(),
                 Tag = date,
                 FontSize = 12,
-                FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei"),
+                FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
                 Background = isSelected
                     ? (Brush)FindResource("PrimaryBrush")
                     : Brushes.Transparent,
@@ -245,7 +245,7 @@ public partial class StatsPage : UserControl
         var info = new TextBlock
         {
             Text = $"{d.Date:yyyy-MM-dd}  |  {FormatNum(d.Plays)}  {FormatNum(d.Likes)}  {FormatNum(d.Comments)}",
-            FontSize = 10, FontFamily = new FontFamily("Microsoft YaHei"),
+            FontSize = 10, FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             VerticalAlignment = System.Windows.VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,

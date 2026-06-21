@@ -47,7 +47,7 @@ public partial class ToolboxPage : UserControl
         var title = new TextBlock
         {
             Text = "回收站", FontSize = 18, FontWeight = FontWeights.Bold,
-            FontFamily = new FontFamily("Microsoft YaHei"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
             Margin = new Thickness(0, 0, 0, 8)
         };
@@ -62,7 +62,7 @@ public partial class ToolboxPage : UserControl
         var countText = new TextBlock
         {
             Text = "已删除文件（30天自动清理）", FontSize = 12,
-            FontFamily = new FontFamily("Microsoft YaHei"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -123,7 +123,7 @@ public partial class ToolboxPage : UserControl
             var nameBlock = new TextBlock
             {
                 Text = item.FileName,
-                FontSize = 11, FontFamily = new FontFamily("Microsoft YaHei"),
+                FontSize = 11, FontFamily = new FontFamily("Microsoft YaHei UI"),
                 Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
@@ -276,7 +276,7 @@ public partial class ToolboxPage : UserControl
         var headerText = new TextBlock
         {
             Text = $"全部备忘录 ({memos.Count})", FontSize = 13, FontWeight = FontWeights.Bold,
-            FontFamily = new FontFamily("Microsoft YaHei"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         };
@@ -319,7 +319,7 @@ public partial class ToolboxPage : UserControl
         var titleBox = new TextBox
         {
             FontSize = 18, FontWeight = FontWeights.Bold,
-            FontFamily = new FontFamily("Microsoft YaHei"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
             Background = Brushes.Transparent,
             BorderBrush = Brushes.Transparent,
@@ -337,7 +337,7 @@ public partial class ToolboxPage : UserControl
             TextWrapping = TextWrapping.Wrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             FontSize = 13,
-            FontFamily = new FontFamily("Microsoft YaHei"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
             Background = (Brush)Application.Current.FindResource("CardBackgroundBrush"),
             BorderBrush = (Brush)Application.Current.FindResource("BorderBrush"),
@@ -354,7 +354,7 @@ public partial class ToolboxPage : UserControl
 
         var dateText = new TextBlock
         {
-            FontSize = 11, FontFamily = new FontFamily("Microsoft YaHei"),
+            FontSize = 11, FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
             TextTrimming = TextTrimming.CharacterEllipsis,
@@ -378,7 +378,7 @@ public partial class ToolboxPage : UserControl
         var saveHint = new TextBlock
         {
             Text = "Ctrl+S 即刻保存 | 失焦自动保存", FontSize = 11,
-            FontFamily = new FontFamily("Microsoft YaHei"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 4, 0, 0)
@@ -395,7 +395,7 @@ public partial class ToolboxPage : UserControl
         var emptyHint = new TextBlock
         {
             Text = "← 点击「+ 新建」创建第一条备忘录",
-            FontSize = 13, FontFamily = new FontFamily("Microsoft YaHei"),
+            FontSize = 13, FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
@@ -465,14 +465,14 @@ public partial class ToolboxPage : UserControl
                 {
                     Text = m.Title.Length > 0 ? m.Title : "无标题",
                     FontSize = 12, FontWeight = FontWeights.SemiBold,
-                    FontFamily = new FontFamily("Microsoft YaHei"),
+                    FontFamily = new FontFamily("Microsoft YaHei UI"),
                     Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
                     TextTrimming = TextTrimming.CharacterEllipsis
                 });
                 textStack.Children.Add(new TextBlock
                 {
                     Text = m.UpdatedAt.ToString("MM-dd HH:mm"),
-                    FontSize = 10, FontFamily = new FontFamily("Microsoft YaHei"),
+                    FontSize = 10, FontFamily = new FontFamily("Microsoft YaHei UI"),
                     Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush"),
                     Margin = new Thickness(0, 2, 0, 0)
                 });

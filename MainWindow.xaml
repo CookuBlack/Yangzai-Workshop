@@ -8,7 +8,9 @@
         AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="CanResize"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
 
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="0"
@@ -54,7 +56,7 @@
                                 <ImageBrush x:Name="LogoBrush" Stretch="UniformToFill"/>
                             </Border.Background>
                         </Border>
-                        <TextBlock Text="Yangzai Workshop" FontFamily="Microsoft YaHei"
+                        <TextBlock Text="Yangzai Workshop" FontFamily="Microsoft YaHei UI"
                                    FontSize="13" FontWeight="SemiBold"
                                    Foreground="{DynamicResource TextSecondaryBrush}"
                                    VerticalAlignment="Center"/>

@@ -210,13 +210,13 @@ public partial class ProfilePage : UserControl
         info.Children.Add(new TextBlock
         {
             Text = novel.Name, FontSize = 14, FontWeight = FontWeights.Bold,
-            FontFamily = new FontFamily("Microsoft YaHei"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)FindResource("TextPrimaryBrush")
         });
         info.Children.Add(new TextBlock
         {
             Text = string.IsNullOrEmpty(novel.Description) ? "暂无简介" : novel.Description,
-            FontSize = 11, FontFamily = new FontFamily("Microsoft YaHei"),
+            FontSize = 11, FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)FindResource("TextSecondaryBrush"),
             Margin = new Thickness(0, 3, 0, 6),
             TextTrimming = TextTrimming.CharacterEllipsis
@@ -237,7 +237,7 @@ public partial class ProfilePage : UserControl
         statsWrap.Children.Add(new TextBlock
         {
             Text = $"¥{novel.TotalIncome:N0}",
-            FontSize = 11, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Microsoft YaHei"),
+            FontSize = 11, FontWeight = FontWeights.Bold, FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = new SolidColorBrush(Color.FromRgb(0xE5, 0x39, 0x35)),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 12, 0)
@@ -250,7 +250,7 @@ public partial class ProfilePage : UserControl
         // 编辑按钮
         var editBtn = new Button
         {
-            Content = "编辑", FontSize = 10, FontFamily = new FontFamily("Microsoft YaHei"),
+            Content = "编辑", FontSize = 10, FontFamily = new FontFamily("Microsoft YaHei UI"),
             Padding = new Thickness(6, 3, 6, 3),
             Margin = new Thickness(8, 0, 4, 0),
             Style = (Style)FindResource("SecondaryButtonStyle"),
@@ -291,14 +291,14 @@ public partial class ProfilePage : UserControl
         var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 12, 2) };
         sp.Children.Add(new TextBlock
         {
-            Text = $"{label} ", FontSize = 10, FontFamily = new FontFamily("Microsoft YaHei"),
+            Text = $"{label} ", FontSize = 10, FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)FindResource("TextSecondaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         });
         sp.Children.Add(new TextBlock
         {
             Text = FormatNum(value), FontSize = 11, FontWeight = FontWeights.SemiBold,
-            FontFamily = new FontFamily("Microsoft YaHei"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         });
@@ -316,7 +316,7 @@ public partial class ProfilePage : UserControl
     {
         Text = name.Length > 0 ? name[..Math.Min(2, name.Length)] : "书",
         Foreground = Brushes.White, FontSize = 18, FontWeight = FontWeights.Bold,
-        FontFamily = new FontFamily("Microsoft YaHei"),
+        FontFamily = new FontFamily("Microsoft YaHei UI"),
         HorizontalAlignment = HorizontalAlignment.Center,
         VerticalAlignment = VerticalAlignment.Center
     };
@@ -337,7 +337,7 @@ public partial class ProfilePage : UserControl
         panel.Children.Add(new TextBlock
         {
             Text = novel.Name, FontSize = 18, FontWeight = FontWeights.Bold,
-            FontFamily = new FontFamily("Microsoft YaHei"), Margin = new Thickness(0, 0, 0, 12),
+            FontFamily = new FontFamily("Microsoft YaHei UI"), Margin = new Thickness(0, 0, 0, 12),
             Foreground = (Brush)FindResource("TextPrimaryBrush")
         });
 
@@ -380,7 +380,7 @@ public partial class ProfilePage : UserControl
     {
         panel.Children.Add(new TextBlock
         {
-            Text = label, FontSize = 12, FontFamily = new FontFamily("Microsoft YaHei"),
+            Text = label, FontSize = 12, FontFamily = new FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)FindResource("TextSecondaryBrush"),
             Margin = new Thickness(0, 4, 0, 2)
         });

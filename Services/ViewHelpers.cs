@@ -44,7 +44,7 @@ public static class ViewHelpers
             FontSize = fontSize,
             FontWeight = FontWeights.Bold,
             Foreground = Brushes.White,
-            FontFamily = new FontFamily("Microsoft YaHei"),
+            FontFamily = new FontFamily("Microsoft YaHei UI"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };

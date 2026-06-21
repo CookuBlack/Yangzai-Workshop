@@ -21,7 +21,7 @@
                     <Border Grid.Column="0" Width="42" Height="42" CornerRadius="10"
                             Background="{DynamicResource PrimaryBrush}" Margin="0,0,16,0">
                         <TextBlock Text="N" FontSize="22" FontWeight="Bold"
-                                   FontFamily="Microsoft YaHei" Foreground="White"
+                                   FontFamily="Microsoft YaHei UI" Foreground="White"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -32,7 +32,7 @@
                                    Margin="0,3,0,0"/>
                     </StackPanel>
                     <TextBlock Grid.Column="2" Text=">"
-                               FontFamily="Microsoft YaHei" FontSize="18"
+                               FontFamily="Microsoft YaHei UI" FontSize="18"
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center"/>
                 </Grid>
@@ -52,7 +52,7 @@
                     <Border Grid.Column="0" Width="42" Height="42" CornerRadius="10"
                             Background="{DynamicResource SuccessBrush}" Margin="0,0,16,0">
                         <TextBlock Text="F" FontSize="22" FontWeight="Bold"
-                                   FontFamily="Microsoft YaHei" Foreground="White"
+                                   FontFamily="Microsoft YaHei UI" Foreground="White"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -63,7 +63,7 @@
                                    Margin="0,3,0,0"/>
                     </StackPanel>
                     <TextBlock Grid.Column="2" Text=">"
-                               FontFamily="Microsoft YaHei" FontSize="18"
+                               FontFamily="Microsoft YaHei UI" FontSize="18"
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center"/>
                 </Grid>
@@ -83,7 +83,7 @@
                     <Border Grid.Column="0" Width="42" Height="42" CornerRadius="10"
                             Background="#FF666666" Margin="0,0,14,0">
                         <TextBlock Text="T" FontSize="22" FontWeight="Bold"
-                                   FontFamily="Microsoft YaHei" Foreground="White"
+                                   FontFamily="Microsoft YaHei UI" Foreground="White"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -94,7 +94,7 @@
                                    FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                    Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
-                    <TextBlock Grid.Column="2" Text=">" FontFamily="Microsoft YaHei" FontSize="16"
+                    <TextBlock Grid.Column="2" Text=">" FontFamily="Microsoft YaHei UI" FontSize="16"
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center" Margin="8,0,0,0"/>
                 </Grid>
@@ -114,7 +114,7 @@
                     <Border Grid.Column="0" Width="42" Height="42" CornerRadius="10"
                             Background="{DynamicResource AccentBrush}" Margin="0,0,14,0">
                         <TextBlock Text="M" FontSize="22" FontWeight="Bold"
-                                   FontFamily="Microsoft YaHei" Foreground="White"
+                                   FontFamily="Microsoft YaHei UI" Foreground="White"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -125,7 +125,7 @@
                                    FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
                                    Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
-                    <TextBlock Grid.Column="2" Text=">" FontFamily="Microsoft YaHei" FontSize="16"
+                    <TextBlock Grid.Column="2" Text=">" FontFamily="Microsoft YaHei UI" FontSize="16"
                                Foreground="{DynamicResource TextSecondaryBrush}"
                                VerticalAlignment="Center" Margin="8,0,0,0"/>
                 </Grid>
