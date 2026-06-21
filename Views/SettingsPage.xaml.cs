@@ -94,6 +94,8 @@ public partial class SettingsPage : UserControl
         ApiEndpointBox.Text = _config.ApiEndpoint;
         ApiKeyBox.Password = _config.ApiKey;
         ApiModelBox.Text = _config.ApiModel;
+        ScriptSkillBox.Text = _config.ScriptSkill;
+        PromptSkillBox.Text = _config.PromptSkill;
 
         // 通用设置
         VersionLabel.Text = $"v{App.AppVersion}";
@@ -327,6 +329,19 @@ public partial class SettingsPage : UserControl
             _config.ApiModel = model;
             SaveConfig();
         }
+    }
+
+    private void ScriptSkillBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.ScriptSkill = ScriptSkillBox.Text;
+        SaveConfig();
+    }
+    private void PromptSkillBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.PromptSkill = PromptSkillBox.Text;
+        SaveConfig();
     }
 
     private async void FetchModels_Click(object sender, RoutedEventArgs e)

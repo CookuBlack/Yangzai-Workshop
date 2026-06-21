@@ -389,16 +389,20 @@
                     <Setter Property="Background" Value="Transparent"/>
                     <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
                     <Setter Property="FontSize" Value="12"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="VerticalContentAlignment" Value="Center"/>
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ComboBoxItem">
                                 <Border x:Name="border" Background="{TemplateBinding Background}"
                                         Padding="{TemplateBinding Padding}"
                                         BorderBrush="{DynamicResource BorderBrush}"
-                                        BorderThickness="0,0,0,0.5">
+                                        BorderThickness="0,0,0,0.5"
+                                        HorizontalAlignment="Stretch">
                                     <TextBlock Text="{TemplateBinding Content}"
                                                Foreground="{TemplateBinding Foreground}"
-                                               VerticalAlignment="Center"/>
+                                               VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis"/>
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsHighlighted" Value="True">
@@ -476,10 +480,10 @@
                                     BorderThickness="1"
                                     MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource AncestorType=ComboBox}}"
                                     Margin="0,1,0,0"
-                                    Padding="4"
+                                    ClipToBounds="True"
                                     MaxHeight="{TemplateBinding MaxDropDownHeight}">
-                                <ScrollViewer SnapsToDevicePixels="True">
-                                    <StackPanel IsItemsHost="True"/>
+                                <ScrollViewer SnapsToDevicePixels="True" HorizontalScrollBarVisibility="Disabled">
+                                    <ItemsPresenter/>
                                 </ScrollViewer>
                             </Border>
                         </Popup>
