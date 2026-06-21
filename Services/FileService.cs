@@ -624,6 +624,7 @@ public static class FileService
     {
         if (Directory.Exists(workRoot))
             Directory.Delete(workRoot, true);
-        ZipFile.ExtractToDirectory(zipPath, Path.GetDirectoryName(workRoot)!);
+        Directory.CreateDirectory(workRoot);
+        ZipFile.ExtractToDirectory(zipPath, workRoot);
     }
 }

@@ -396,12 +396,14 @@ public partial class SettingsPage : UserControl
             FileService.InitializeWorkData(App.WorkRoot);
             _config = FileService.LoadConfig(App.WorkRoot);
             SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+            // 清除所有页面缓存，确保恢复后各页面重新加载最新数据
+            NavigationService.Instance.ClearCache();
             RefreshSettings();
             ThemeService.InitTheme(App.WorkRoot);
             if (_config.FollowSystemTheme)
                 SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
 
-            MessageDialog.Show("恢复完成", "数据恢复成功！");
+            MessageDialog.Show("恢复完成", "数据恢复成功！\n\n请重新浏览各页面以加载恢复的数据。");
         }
         catch (Exception ex)
         {
