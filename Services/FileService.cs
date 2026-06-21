@@ -121,7 +121,24 @@ public static class FileService
     public static string ChapterVideoPath(string workRoot, string mediaFolder, string chapterFolder) =>
         Path.Combine(VideoRoot(workRoot), mediaFolder, chapterFolder);
 
-    public static string NovelPath(string workRoot, string novelId) => Path.Combine(NovelsPath(workRoot), novelId);
+    public static string NovelPath(string workRoot, string novelId)
+    {
+        var novelsRoot = NovelsPath(workRoot);
+        // 先试旧 GUID 路径
+        var guidPath = Path.Combine(novelsRoot, novelId);
+        if (Directory.Exists(guidPath)) return guidPath;
+        // 再搜索 FolderName 目录（找匹配 novelId 的 info.json）
+        if (Directory.Exists(novelsRoot))
+        {
+            foreach (var dir in Directory.GetDirectories(novelsRoot))
+            {
+                var info = ReadJson<NovelInfo>(Path.Combine(dir, "info.json"));
+                if (info?.Id == novelId) return dir;
+            }
+        }
+        // 回退到 GUID 路径（新建时使用）
+        return guidPath;
+    }
     public static string NovelInfoFile(string workRoot, string novelId) => Path.Combine(NovelPath(workRoot, novelId), "info.json");
     public static string NovelCoverFile(string workRoot, string novelId) => Path.Combine(NovelPath(workRoot, novelId), "cover.png");
     public static string NovelOriginalFile(string workRoot, string novelId) => Path.Combine(NovelPath(workRoot, novelId), "original.txt");
@@ -411,11 +428,29 @@ public static class FileService
         {
             var infoFile = Path.Combine(dir, "info.json");
             var info = ReadJson<NovelInfo>(infoFile);
-            if (info != null)
+            if (info == null) continue;
+
+            info.HasCoverImage = File.Exists(Path.Combine(dir, "cover.png"));
+
+            // 修复：为缺少 MediaFolder 的小说生成
+            if (string.IsNullOrWhiteSpace(info.MediaFolder) && !string.IsNullOrWhiteSpace(info.Name))
             {
-                info.HasCoverImage = File.Exists(Path.Combine(dir, "cover.png"));
-                novels.Add(info);
+                var baseName = SanitizeFolderName(info.Name);
+                var existing = novels.Select(n => n.MediaFolder).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                info.MediaFolder = existing.Contains(baseName) ? $"{baseName}_{info.Id[..4]}" : baseName;
+                WriteJson(infoFile, info);
             }
+
+            // 为缺少 FolderName 的小说生成（仅记录，不重命名旧目录）
+            if (string.IsNullOrWhiteSpace(info.FolderName) && !string.IsNullOrWhiteSpace(info.Name))
+            {
+                var baseName = SanitizeFolderName(info.Name);
+                var existing = novels.Select(n => n.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                info.FolderName = existing.Contains(baseName) ? $"{baseName}_{info.Id[..4]}" : baseName;
+                WriteJson(infoFile, info);
+            }
+
+            novels.Add(info);
         }
         return novels;
     }
@@ -438,7 +473,33 @@ public static class FileService
         // 首次保存时自动生成唯一 MediaFolder
         if (string.IsNullOrWhiteSpace(info.MediaFolder) && !string.IsNullOrWhiteSpace(info.Name))
             info.MediaFolder = GenerateUniqueMediaFolder(workRoot, info.Name, info.Id);
+        // 自动生成 FolderName（Novels 下的目录名）
+        var needRename = false;
+        var oldDir = "";
+        if (string.IsNullOrWhiteSpace(info.FolderName) && !string.IsNullOrWhiteSpace(info.Name))
+        {
+            var baseName = SanitizeFolderName(info.Name);
+            var others = LoadAllNovels(workRoot).Where(n => n.Id != info.Id)
+                .Select(n => n.FolderName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            info.FolderName = others.Contains(baseName)
+                ? $"{baseName}_{info.Id[..4]}"
+                : baseName;
+            // 检查是否需要重命名旧 GUID 目录
+            oldDir = Path.Combine(NovelsPath(workRoot), info.Id);
+            if (Directory.Exists(oldDir))
+                needRename = true;
+        }
         WriteJson(NovelInfoFile(workRoot, info.Id), info);
+        // 重命名旧 GUID 目录为 FolderName
+        if (needRename)
+        {
+            var newDir = Path.Combine(NovelsPath(workRoot), info.FolderName);
+            if (!Directory.Exists(newDir))
+            {
+                try { Directory.Move(oldDir, newDir); }
+                catch { }
+            }
+        }
     }
 
     /// <summary>个人资料作品（独立于剧本章节小说，存储在 Config/profile_works.json）</summary>

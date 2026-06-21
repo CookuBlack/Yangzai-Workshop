@@ -10,6 +10,8 @@ public class NovelInfo
 
     /// <summary>图片/视频存储用的文件夹名（从 Name 自动生成）</summary>
     public string MediaFolder { get; set; } = string.Empty;
+    /// <summary>Novels 目录下的文件夹名（从 Name 自动生成，唯一）</summary>
+    public string FolderName { get; set; } = string.Empty;
 
     // 统计数据
     public long TotalComments { get; set; }
