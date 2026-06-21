@@ -334,7 +334,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <ComboBox x:Name="ApiModelBox" Grid.Column="0" IsEditable="True"
-                                  Style="{StaticResource ModernTextBoxStyle}" FontSize="12"
+                                  Style="{StaticResource ModernComboBoxStyle}"
                                   SelectionChanged="ApiModelBox_SelectionChanged"
                                   LostFocus="ApiModelBox_LostFocus" Margin="0,0,8,0"/>
                         <Button Grid.Column="1" Content="⬇ 获取模型"
