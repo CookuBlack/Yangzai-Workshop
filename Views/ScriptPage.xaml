@@ -78,7 +78,11 @@
                                 Background="{DynamicResource HoverBrush}"
                                 CornerRadius="6,6,0,0">
                             <Grid>
-                                <StackPanel Orientation="Horizontal">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal">
                                     <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets"
                                                FontSize="14" Foreground="{DynamicResource PrimaryBrush}"
                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -86,7 +90,7 @@
                                                Foreground="{DynamicResource TextPrimaryBrush}"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button Content="&#xE8C8;" FontFamily="Segoe MDL2 Assets"
                                             FontSize="12" Padding="4,2" Margin="4,0,0,0"
                                             Style="{StaticResource SecondaryButtonStyle}"
@@ -150,18 +154,19 @@
                                 Background="{DynamicResource HoverBrush}"
                                 CornerRadius="6,6,0,0">
                             <Grid>
-                                <StackPanel Orientation="Horizontal">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal">
                                     <TextBlock x:Name="ScriptModeIcon" Text="&#xE70B;" FontFamily="Segoe MDL2 Assets"
                                                FontSize="14" Foreground="{DynamicResource SuccessBrush}"
                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
                                     <TextBlock x:Name="ScriptModeLabel" Text="剧本内容" FontSize="13" FontWeight="Bold"
                                                Foreground="{DynamicResource TextPrimaryBrush}"
                                                VerticalAlignment="Center"/>
-                                    <TextBlock Text=" (双击文本区切换)" FontSize="10"
-                                               Foreground="{DynamicResource TextSecondaryBrush}"
-                                               VerticalAlignment="Center" Margin="4,0,0,0"/>
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="AiScriptBtn" Content="🤖 AI 生成"
                                             FontSize="11" Padding="6,3" Margin="4,0,0,0"
                                             Style="{StaticResource SecondaryButtonStyle}"
@@ -177,39 +182,15 @@
                                 </StackPanel>
                             </Grid>
                         </Border>
-                        <!-- 剧本内容 -->
-                        <RichTextBox x:Name="ScriptTextBox" Grid.Row="1"
-                                     BorderThickness="0"
-                                     Background="Transparent" Padding="10"
-                                     Foreground="{DynamicResource TextPrimaryBrush}"
-                                     VerticalScrollBarVisibility="Auto"
-                                     FontSize="14" FontFamily="Microsoft YaHei UI"
-                                     LostFocus="ScriptTextBox_LostFocus"
-                                     PreviewMouseLeftButtonDown="ScriptTextBox_PreviewMouseDown">
-                            <RichTextBox.Resources>
-                                <Style TargetType="Paragraph">
-                                    <Setter Property="LineHeight" Value="26"/>
-                                    <Setter Property="Margin" Value="0,0,0,6"/>
-                                </Style>
-                            </RichTextBox.Resources>
-                        </RichTextBox>
-                        <!-- 创造提示词 -->
-                        <RichTextBox x:Name="PromptTextBox" Grid.Row="1"
-                                     BorderThickness="0"
-                                     Background="Transparent" Padding="10"
-                                     Foreground="{DynamicResource TextPrimaryBrush}"
-                                     VerticalScrollBarVisibility="Auto"
-                                     FontSize="14" FontFamily="Microsoft YaHei UI"
-                                     Visibility="Collapsed"
-                                     LostFocus="PromptTextBox_LostFocus"
-                                     PreviewMouseLeftButtonDown="ScriptTextBox_PreviewMouseDown">
-                            <RichTextBox.Resources>
-                                <Style TargetType="Paragraph">
-                                    <Setter Property="LineHeight" Value="26"/>
-                                    <Setter Property="Margin" Value="0,0,0,6"/>
-                                </Style>
-                            </RichTextBox.Resources>
-                        </RichTextBox>
+                        <!-- 剧本内容纯文本编辑 -->
+                        <TextBox x:Name="ScriptEditBox" Grid.Row="1"
+                                 BorderThickness="0"
+                                 PreviewMouseDoubleClick="ScriptEditBox_PreviewMouseDoubleClick"
+                                 Background="Transparent" Padding="10"
+                                 Foreground="{DynamicResource TextPrimaryBrush}"
+                                 AcceptsReturn="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"
+                                 FontSize="14" FontFamily="Microsoft YaHei UI" />
                     </Grid>
                 </Border>
 
@@ -233,7 +214,11 @@
                                 Background="{DynamicResource HoverBrush}"
                                 CornerRadius="6,6,0,0">
                             <Grid>
-                                <StackPanel Orientation="Horizontal">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal">
                                     <TextBlock Text="&#xE722;" FontFamily="Segoe MDL2 Assets"
                                                FontSize="14" Foreground="{DynamicResource AccentBrush}"
                                                VerticalAlignment="Center" Margin="0,0,6,0"/>
@@ -241,7 +226,7 @@
                                                Foreground="{DynamicResource TextPrimaryBrush}"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
-                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <StackPanel Grid.Column="1" Orientation="Horizontal">
                                     <Button x:Name="MultiSelectToggleBtn" Content="☐ 多选"
                                             FontSize="11" Padding="6,3" Margin="0,0,4,0"
                                             Style="{StaticResource SecondaryButtonStyle}"

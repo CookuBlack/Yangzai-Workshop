@@ -121,7 +121,7 @@
 
                             <StackPanel Grid.Row="0" Orientation="Horizontal"
                                         Margin="0,0,0,6">
-                                <TextBlock Text="角色性格设定" FontSize="14"
+                                <TextBlock Text="角色形象设定" FontSize="14"
                                            FontWeight="Bold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"
                                            VerticalAlignment="Center"/>
@@ -130,17 +130,33 @@
                                         Margin="10,0,4,0"
                                         Style="{StaticResource SecondaryButtonStyle}"
                                         Click="EditPersonality_Click"/>
+                                <Button x:Name="AiPersonalityBtn"
+                                        Content="🤖 AI 生成" FontSize="11" Padding="6,3"
+                                        Margin="4,0,4,0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="AiGeneratePersonality_Click"
+                                        ToolTip="AI 依据角色信息生成性格设定"/>
                                 <Button Content="复制" FontSize="11" Padding="6,3"
                                         Margin="4,0,0,0"
                                         Style="{StaticResource SecondaryButtonStyle}"
                                         Click="CopyPersonality_Click"/>
                             </StackPanel>
 
-                            <TextBlock x:Name="PersonalityDisplay" Grid.Row="1"
-                                       TextWrapping="Wrap" FontSize="14"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"
-                                       FontFamily="Microsoft YaHei UI" LineHeight="24"
-                                       Margin="0,0,0,8"/>
+                            <Border x:Name="PersonalityDisplayBorder" Grid.Row="1"
+                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                    CornerRadius="6" MaxHeight="220"
+                                    Margin="0,0,0,8"
+                                    Background="{DynamicResource CardBackgroundBrush}">
+                                <ScrollViewer x:Name="PersonalityInnerScroller"
+                                              VerticalScrollBarVisibility="Hidden"
+                                              PreviewMouseWheel="PersonalityInner_PreviewMouseWheel">
+                                    <TextBlock x:Name="PersonalityDisplay"
+                                               TextWrapping="Wrap" FontSize="14"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               FontFamily="Microsoft YaHei UI" LineHeight="24"
+                                               Padding="10"/>
+                                </ScrollViewer>
+                            </Border>
 
                             <Grid x:Name="PersonalityEditArea" Grid.Row="1"
                                   Visibility="Collapsed">
@@ -150,7 +166,7 @@
                                 </Grid.RowDefinitions>
                                 <TextBox x:Name="PersonalityEditBox" Grid.Row="0"
                                          TextWrapping="Wrap" AcceptsReturn="True"
-                                         MinHeight="100"
+                                         MinHeight="100" MaxHeight="220"
                                          Foreground="{DynamicResource TextPrimaryBrush}"
                                          FontSize="14" FontFamily="Microsoft YaHei UI"
                                          Padding="8" Margin="0,0,0,6"

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,8 +27,11 @@ public partial class ScriptPage : UserControl
     private double _savedOriginalWidth;
     private double _savedScriptWidth;
     private double _savedImageWidth;
+    private static string _lastImageSize = "1024x768";
     private bool _multiSelectMode;
     private readonly HashSet<string> _selectedFiles = new();
+    private string _scriptText = "";
+    private string _promptText = "";
 
     public ScriptPage()
     {
@@ -36,12 +40,17 @@ public partial class ScriptPage : UserControl
         ChapterPopup.Closed += (_, _) => _chapterPopupOpen = false;
     }
 
+    /// <summary>更新编辑框文本（剧本/提示词切换时）</summary>
+    private void UpdateScriptEditor()
+    {
+        ScriptEditBox.Text = _isScriptMode ? _scriptText : _promptText;
+    }
+
     /// <summary>从设置页面同步字体大小到编辑器</summary>
     public void ApplyFontSize(int fontSize)
     {
-        ScriptTextBox.FontSize = fontSize;
+        ScriptEditBox.FontSize = fontSize;
         OriginalTextBox.FontSize = fontSize;
-        PromptTextBox.FontSize = fontSize;
     }
 
     /// <summary>文件还原后刷新当前章节的图像网格</summary>
@@ -70,7 +79,6 @@ public partial class ScriptPage : UserControl
         try
         {
             var config = FileService.LoadConfig(App.WorkRoot);
-            ScriptTextBox.FontSize = config.FontSize;
             OriginalTextBox.FontSize = config.FontSize;
         }
         catch { }
@@ -86,7 +94,6 @@ public partial class ScriptPage : UserControl
     public void FixRichTextBoxCarets()
     {
         FixCaret(OriginalTextBox);
-        FixCaret(ScriptTextBox);
     }
 
     private static void FixCaret(RichTextBox rtb)
@@ -250,8 +257,7 @@ public partial class ScriptPage : UserControl
             RefreshNovelList();
             ChapterTabsPanel.Children.Clear();
             try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
-            try { ScriptTextBox.Document.Blocks.Clear(); } catch { }
-            try { PromptTextBox.Document.Blocks.Clear(); } catch { }
+            _scriptText = ""; _promptText = "";
             ImageGrid.Children.Clear();
         }
         catch (Exception ex)
@@ -372,8 +378,7 @@ public partial class ScriptPage : UserControl
         {
             _currentChapter = null;
             try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
-            try { ScriptTextBox.Document.Blocks.Clear(); } catch { }
-            try { PromptTextBox.Document.Blocks.Clear(); } catch { }
+            _scriptText = ""; _promptText = "";
             ImageGrid.Children.Clear();
             ImageGrid.RowDefinitions.Clear();
             ImageGrid.ColumnDefinitions.Clear();
@@ -560,10 +565,9 @@ public partial class ScriptPage : UserControl
         }
         catch { }
 
-        new TextRange(ScriptTextBox.Document.ContentStart, ScriptTextBox.Document.ContentEnd).Text =
-            _currentChapter.ScriptContent ?? "";
-        new TextRange(PromptTextBox.Document.ContentStart, PromptTextBox.Document.ContentEnd).Text =
-            _currentChapter.ScriptPrompt ?? "";
+        _scriptText = _currentChapter.ScriptContent ?? "";
+        _promptText = _currentChapter.ScriptPrompt ?? "";
+        UpdateScriptEditor();
         RefreshImageGrid();
     }
 
@@ -576,13 +580,11 @@ public partial class ScriptPage : UserControl
         if (_toggling || _currentChapter == null) return;
         _toggling = true;
 
-        // 切换前保存当前可见编辑器的内容
+        // 切换前保存当前编辑内容
         if (_isScriptMode)
-            _currentChapter.ScriptContent =
-                new TextRange(ScriptTextBox.Document.ContentStart, ScriptTextBox.Document.ContentEnd).Text;
+            _currentChapter.ScriptContent = _scriptText;
         else
-            _currentChapter.ScriptPrompt =
-                new TextRange(PromptTextBox.Document.ContentStart, PromptTextBox.Document.ContentEnd).Text;
+            _currentChapter.ScriptPrompt = _promptText;
 
         // 翻转动画：缩小 → 切换内容 → 放大
         var shrinkAnim = new System.Windows.Media.Animation.DoubleAnimation(
@@ -598,18 +600,15 @@ public partial class ScriptPage : UserControl
             _isScriptMode = !_isScriptMode;
             if (_isScriptMode)
             {
-                PromptTextBox.Visibility = Visibility.Collapsed;
-                ScriptTextBox.Visibility = Visibility.Visible;
                 ScriptModeIcon.Text = "\uE70B";
                 ScriptModeLabel.Text = "剧本内容";
             }
             else
             {
-                ScriptTextBox.Visibility = Visibility.Collapsed;
-                PromptTextBox.Visibility = Visibility.Visible;
                 ScriptModeIcon.Text = "\uE943";
                 ScriptModeLabel.Text = "创造提示词";
             }
+            UpdateScriptEditor();
 
             // 放大动画
             var growAnim = new System.Windows.Media.Animation.DoubleAnimation(
@@ -626,13 +625,11 @@ public partial class ScriptPage : UserControl
         ScriptPanelScale.BeginAnimation(ScaleTransform.ScaleXProperty, shrinkAnim);
     }
 
-    private void ScriptTextBox_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    // ===== 文本区双击切换剧本/提示词模式 =====
+    private void ScriptEditBox_PreviewMouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        if (e.ClickCount == 2)
-        {
-            ToggleScriptMode();
-            e.Handled = true;
-        }
+        ToggleScriptMode();
+        e.Handled = true;
     }
 
     // ===== AI 模型生成 =====
@@ -656,8 +653,7 @@ public partial class ScriptPage : UserControl
             return;
         }
 
-        var isPromptMode = PromptTextBox.Visibility == Visibility.Visible;
-        var targetBox = isPromptMode ? PromptTextBox : ScriptTextBox;
+        var isPromptMode = !_isScriptMode;
         var targetName = isPromptMode ? "创作提示词" : "剧本内容";
 
         // 准备提示词
@@ -665,9 +661,7 @@ public partial class ScriptPage : UserControl
         string sysPrompt;
         if (isPromptMode)
         {
-            var scriptContent = new TextRange(ScriptTextBox.Document.ContentStart,
-                ScriptTextBox.Document.ContentEnd).Text;
-            if (string.IsNullOrWhiteSpace(scriptContent))
+            if (string.IsNullOrWhiteSpace(_scriptText))
             {
                 ShowCopyToast("⚠ 剧本内容为空，请先生成或编写剧本");
                 return;
@@ -675,7 +669,8 @@ public partial class ScriptPage : UserControl
             sysPrompt = config.PromptSkill;
             userMsg = $"请根据以下漫剧剧本内容，为每个场景生成创作提示词（包括画面构图、角色动作、表情、光影氛围等描述）：\n\n"
                 + $"章节：第{_currentChapter.Index}章 {_currentChapter.Title}\n\n"
-                + $"剧本内容：\n{scriptContent}";
+                + $"剧本内容：\n{_scriptText}\n\n"
+                + "请用纯文本输出，每个场景用「场景N：标题」作为分隔，场景描述用自然段落，不要使用 Markdown 标记符号。";
         }
         else
         {
@@ -689,16 +684,14 @@ public partial class ScriptPage : UserControl
             sysPrompt = config.ScriptSkill;
             userMsg = $"请将以下小说章节内容改编为漫剧剧本：\n\n"
                 + $"章节：第{_currentChapter.Index}章 {_currentChapter.Title}\n\n"
-                + $"原文：\n{original}";
+                + $"原文：\n{original}\n\n"
+                + "剧本格式要求：用「场景N」分隔每个场景，每场景包含「画面描述」「对话」「动作指导」三部分，用自然段落表述，不要使用 Markdown 标记符号。";
         }
 
-        // 开始生成：切换按钮为取消
+        // 开始生成
         _aiCts = new CancellationTokenSource();
         AiScriptBtn.Content = "⏹ 取消生成";
-        // 清空目标编辑器并准备写入
-        targetBox.Document.Blocks.Clear();
-        var paragraph = new Paragraph();
-        targetBox.Document.Blocks.Add(paragraph);
+        var sb = new System.Text.StringBuilder();
         var tokenCount = 0;
 
         try
@@ -709,22 +702,41 @@ public partial class ScriptPage : UserControl
                 onToken: token =>
                 {
                     tokenCount++;
-                    Dispatcher.BeginInvoke(() =>
+                    lock (sb) sb.Append(token);
+                    // 每10个token刷新一次预览
+                    if (tokenCount % 10 == 0)
                     {
-                        paragraph.Inlines.Add(new Run(token));
-                        // 自动滚动到底部
-                        targetBox.ScrollToEnd();
-                    });
+                        var soFar = sb.ToString();
+                        Dispatcher.BeginInvoke(() =>
+                        {
+                            if (isPromptMode) _promptText = soFar;
+                            else _scriptText = soFar;
+                            UpdateScriptEditor();
+                        });
+                    }
                 },
                 cancel: _aiCts.Token);
 
+            // 生成完成，写入最终内容
             _ = Dispatcher.BeginInvoke(() =>
-                ShowCopyToast($"✓ {targetName}生成完成（{tokenCount} tokens）"));
+            {
+                var result = sb.ToString();
+                if (isPromptMode) _promptText = result;
+                else _scriptText = result;
+                UpdateScriptEditor();
+                SaveCurrentContent();
+                ShowCopyToast($"✓ {targetName}生成完成（{tokenCount} tokens）");
+            });
         }
         catch (OperationCanceledException)
         {
             _ = Dispatcher.BeginInvoke(() =>
-                ShowCopyToast($"⚠ 已取消生成（已生成 {tokenCount} tokens）"));
+            {
+                if (isPromptMode) _promptText = sb.ToString();
+                else _scriptText = sb.ToString();
+                SaveCurrentContent();
+                ShowCopyToast($"⚠ 已取消生成（已生成 {tokenCount} tokens）");
+            });
         }
         catch (ApiException ex)
         {
@@ -744,19 +756,7 @@ public partial class ScriptPage : UserControl
         }
     }
 
-    private void PromptTextBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (_toggling || _currentNovel == null || _currentChapter == null) return;
-        var config = FileService.LoadConfig(App.WorkRoot);
-        if (!config.AutoSaveScript) return;
-        try
-        {
-            _currentChapter.ScriptPrompt =
-                new TextRange(PromptTextBox.Document.ContentStart, PromptTextBox.Document.ContentEnd).Text;
-            FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
-        }
-        catch { }
-    }
+    private void PromptTextBox_LostFocus(object sender, RoutedEventArgs e) { }
 
     // ===== RichTextBox 文字高亮功能 =====
     private void HighlightRed_Click(object sender, RoutedEventArgs e)
@@ -887,9 +887,8 @@ public partial class ScriptPage : UserControl
         {
             Width = 140, Height = 28, FontSize = 13,
             IsEditable = true, IsReadOnly = false,
-            Text = "1024x768",
+            Text = _lastImageSize,
             ItemsSource = new[] { "1024x768", "1024x1024", "768x1024", "1280x720", "1920x1080", "512x512", "2560x1440" },
-            SelectedIndex = 0,
             Style = (Style)Application.Current.FindResource("ModernComboBoxStyle"),
             Background = (Brush)FindResource("CardBackgroundBrush"),
             BorderBrush = (Brush)FindResource("BorderBrush"),
@@ -933,6 +932,7 @@ public partial class ScriptPage : UserControl
             try
             {
                 var size = sizeBox.Text.Trim();
+                _lastImageSize = size;
                 var imageUrl = await ApiService.GenerateImageAsync(
                     config.ApiEndpoint, config.ApiKey, prompt, config.ImageModel, size, cts.Token);
 
@@ -1033,18 +1033,20 @@ public partial class ScriptPage : UserControl
                     Cursor = Cursors.Hand
                 };
 
-                // 选中标记（半透明选框 + 勾）
-                var selOverlay = new Border
+                // 选中角标（仅多选时显示，右上角小圆角方块 + 勾）
+                var selBadge = new Border
                 {
-                    Background = new SolidColorBrush(Color.FromArgb(0x40, 0x4A, 0x90, 0xE2)),
-                    BorderBrush = (Brush)FindResource("PrimaryBrush"),
-                    BorderThickness = new Thickness(3),
-                    CornerRadius = new CornerRadius(4),
+                    Background = new SolidColorBrush(Color.FromArgb(0xCC, 0x4A, 0x90, 0xE2)),
+                    CornerRadius = new CornerRadius(12),
+                    Width = 24, Height = 24,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 4, 4, 0),
                     Visibility = Visibility.Collapsed,
                     Child = new TextBlock
                     {
                         Text = "\uE73E", FontFamily = new FontFamily("Segoe MDL2 Assets"),
-                        FontSize = 24, Foreground = (Brush)FindResource("PrimaryBrush"),
+                        FontSize = 14, Foreground = Brushes.White,
                         HorizontalAlignment = HorizontalAlignment.Center,
                         VerticalAlignment = VerticalAlignment.Center
                     }
@@ -1057,6 +1059,8 @@ public partial class ScriptPage : UserControl
                     CornerRadius = new CornerRadius(6),
                     ClipToBounds = true,
                     Background = Brushes.Transparent,
+                    BorderBrush = Brushes.Transparent,
+                    BorderThickness = new Thickness(2),
                     Tag = imgPath
                 };
                 card.Loaded += (s, _) => ViewHelpers.ApplyRoundedClip(card);
@@ -1064,11 +1068,11 @@ public partial class ScriptPage : UserControl
 
                 var cardStack = new StackPanel();
 
-                // 图片区域（带悬停工具栏 + 选中遮罩 + 圆角裁剪）
+                // 图片区域（带悬停工具栏 + 选中角标 + 圆角裁剪）
                 var imageArea = new Grid { ClipToBounds = true };
                 img.ClipToBounds = true;
                 imageArea.Children.Add(img);
-                imageArea.Children.Add(selOverlay);
+                imageArea.Children.Add(selBadge);
 
                 var toolbar = new StackPanel
                 {
@@ -1102,7 +1106,7 @@ public partial class ScriptPage : UserControl
                 card.MouseLeftButtonDown += (_, _) =>
                 {
                     if (_multiSelectMode)
-                        ToggleFileSelection(imgPath, selOverlay);
+                        ToggleFileSelection(imgPath, card, selBadge);
                     else
                         ViewHelpers.ShowImageViewer(imgPath, Window.GetWindow(this));
                 };
@@ -1531,8 +1535,7 @@ public partial class ScriptPage : UserControl
             {
                 ChapterTabsPanel.Children.Clear();
                 try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
-                try { ScriptTextBox.Document.Blocks.Clear(); } catch { }
-                try { PromptTextBox.Document.Blocks.Clear(); } catch { }
+                _scriptText = ""; _promptText = ""; UpdateScriptEditor();
                 ImageGrid.Children.Clear();
             }
         }
@@ -1554,9 +1557,8 @@ public partial class ScriptPage : UserControl
     /// </summary>
     private void CopyScript_Click(object sender, RoutedEventArgs e)
     {
-        var range = new TextRange(ScriptTextBox.Document.ContentStart, ScriptTextBox.Document.ContentEnd);
-        Clipboard.SetText(range.Text);
-        ShowCopyToast("\u2713 剧本已复制");
+        Clipboard.SetText(_isScriptMode ? _scriptText : _promptText);
+        ShowCopyToast("\u2713 已复制");
     }
 
     /// <summary>
@@ -1577,14 +1579,20 @@ public partial class ScriptPage : UserControl
         catch { /* 页面卸载时忽略 */ }
     }
 
-    private void ScriptTextBox_LostFocus(object sender, RoutedEventArgs e)
+    private void SaveCurrentContent()
     {
-        if (_toggling || _currentNovel == null || _currentChapter == null) return;
+        if (_currentNovel == null || _currentChapter == null) return;
         var config = FileService.LoadConfig(App.WorkRoot);
         if (!config.AutoSaveScript) return;
-        var range = new TextRange(ScriptTextBox.Document.ContentStart, ScriptTextBox.Document.ContentEnd);
-        _currentChapter.ScriptContent = range.Text;
-        FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
+        _currentChapter.ScriptContent = _scriptText;
+        _currentChapter.ScriptPrompt = _promptText;
+        try { FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters); }
+        catch (Exception ex) { Debug.WriteLine($"[自动保存] {ex.Message}"); }
+    }
+
+    private void ScriptTextBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        // 已由 SaveCurrentContent / ExitEditMode 统一处理
     }
 
     private void OriginalTextBox_LostFocus(object sender, RoutedEventArgs e)
@@ -1608,17 +1616,19 @@ public partial class ScriptPage : UserControl
         RefreshImageGrid();
     }
 
-    private void ToggleFileSelection(string filePath, Border overlay)
+    private void ToggleFileSelection(string filePath, Border card, Border badge)
     {
         if (_selectedFiles.Contains(filePath))
         {
             _selectedFiles.Remove(filePath);
-            overlay.Visibility = Visibility.Collapsed;
+            badge.Visibility = Visibility.Collapsed;
+            card.BorderBrush = Brushes.Transparent;
         }
         else
         {
             _selectedFiles.Add(filePath);
-            overlay.Visibility = Visibility.Visible;
+            badge.Visibility = Visibility.Visible;
+            card.BorderBrush = (Brush)FindResource("PrimaryBrush");
         }
     }
 

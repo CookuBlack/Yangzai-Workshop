@@ -18,8 +18,10 @@ public partial class CharacterPage : UserControl
     private List<CharacterInfo> _characters = new();
     private CharacterInfo? _currentCharacter;
     private bool _isEditingPersonality;
+    private static string _lastImageSize = "1024x768";
     private bool _multiSelectMode;
     private readonly HashSet<string> _selectedFiles = new();
+    private CancellationTokenSource? _aiCts;
 
     public CharacterPage()
     {
@@ -290,7 +292,7 @@ public partial class CharacterPage : UserControl
         PersonalityDisplay.Text = string.IsNullOrWhiteSpace(ch.Personality) ? "暂无性格设定" : ch.Personality;
         _isEditingPersonality = false;
         PersonalityEditArea.Visibility = Visibility.Collapsed;
-        PersonalityDisplay.Visibility = Visibility.Visible;
+        PersonalityDisplayBorder.Visibility = Visibility.Visible;
         RefreshCharacterAvatar();
         RefreshCharacterImages();
         foreach (Border c in CharacterPanel.Children)
@@ -461,7 +463,7 @@ public partial class CharacterPage : UserControl
         if (_currentCharacter == null) return;
         _isEditingPersonality = true;
         PersonalityEditBox.Text = _currentCharacter.Personality ?? "";
-        PersonalityDisplay.Visibility = Visibility.Collapsed;
+        PersonalityDisplayBorder.Visibility = Visibility.Collapsed;
         PersonalityEditArea.Visibility = Visibility.Visible;
     }
 
@@ -475,7 +477,7 @@ public partial class CharacterPage : UserControl
         _isEditingPersonality = false;
         PersonalityDisplay.Text = string.IsNullOrWhiteSpace(_currentCharacter.Personality)
             ? "暂无性格设定" : _currentCharacter.Personality;
-        PersonalityDisplay.Visibility = Visibility.Visible;
+        PersonalityDisplayBorder.Visibility = Visibility.Visible;
         PersonalityEditArea.Visibility = Visibility.Collapsed;
         Toast("✓ 已保存");
     }
@@ -483,8 +485,118 @@ public partial class CharacterPage : UserControl
     private void CancelPersonality_Click(object sender, RoutedEventArgs e)
     {
         _isEditingPersonality = false;
-        PersonalityDisplay.Visibility = Visibility.Visible;
+        PersonalityDisplayBorder.Visibility = Visibility.Visible;
         PersonalityEditArea.Visibility = Visibility.Collapsed;
+    }
+
+    private async void AiGeneratePersonality_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+
+        // 如果正在生成中，点击变为取消
+        if (_aiCts != null)
+        {
+            _aiCts.Cancel();
+            return;
+        }
+
+        var config = FileService.LoadConfig(App.WorkRoot);
+        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
+        {
+            Toast("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥");
+            return;
+        }
+
+        // 收集小说原文作为上下文
+        string novelContext = "";
+        try
+        {
+            var originalFile = FileService.NovelOriginalFile(App.WorkRoot, _currentNovel.Id);
+            if (File.Exists(originalFile))
+            {
+                var fullText = File.ReadAllText(originalFile, System.Text.Encoding.UTF8);
+                // 取前 4000 字作为上下文参考
+                novelContext = fullText.Length > 4000 ? fullText[..4000] + "\n…(后续内容省略)" : fullText;
+            }
+        }
+        catch { /* 读不到原文就用空上下文 */ }
+
+        var sysPrompt = "你是一位资深的文学角色分析师，擅长从小说中提炼角色的性格特点、行为模式和心理动机。请用流畅优美的中文撰写，使用纯文本格式，不要使用任何 Markdown 标记符号（如 ##、**、- 等），用自然段落加小标题的方式组织内容。";
+
+        var userMsg = $"请为以下角色撰写详细的性格设定：\n\n"
+            + $"角色名称：{_currentCharacter.Name}\n"
+            + $"所属小说：{_currentNovel.Name}\n\n";
+
+        if (!string.IsNullOrWhiteSpace(novelContext))
+        {
+            userMsg += $"小说原文片段（供参考）：\n---\n{novelContext}\n---\n\n";
+        }
+
+        userMsg += "请从以下维度进行全面分析，每个维度用「【】」括起的小标题开头，下面跟 2-4 句描述：\n"
+            + "【性格特点】外向/内向、理性/感性、主导/随和等维度\n"
+            + "【行为习惯】日常举止、说话方式、待人接物的风格\n"
+            + "【价值观与动机】人生追求、核心信念、行为驱动力\n"
+            + "【优点与缺点】闪光点与性格弱点\n"
+            + "【外貌特征】体态、容貌、着装风格\n"
+            + "【背景故事】成长经历、关键事件\n\n"
+            + "请用纯文本输出，不要使用任何 Markdown 标记符号，每个小节之间空一行，总字数 800 字以内。";
+
+        // 自动进入编辑模式
+        _isEditingPersonality = true;
+        PersonalityDisplayBorder.Visibility = Visibility.Collapsed;
+        PersonalityEditArea.Visibility = Visibility.Visible;
+        PersonalityEditBox.Text = "";
+
+        _aiCts = new CancellationTokenSource();
+        AiPersonalityBtn.Content = "⏹ 取消";
+        var sb = new System.Text.StringBuilder();
+
+        try
+        {
+            await ApiService.ChatStreamAsync(
+                config.ApiEndpoint, config.ApiKey, config.ApiModel,
+                sysPrompt, userMsg,
+                onToken: token =>
+                {
+                    lock (sb) sb.Append(token);
+                    var soFar = sb.ToString();
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        PersonalityEditBox.Text = soFar;
+                        PersonalityEditBox.ScrollToEnd();
+                    });
+                },
+                cancel: _aiCts.Token);
+
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                var result = sb.ToString();
+                PersonalityEditBox.Text = result;
+                Toast("✓ 性格设定生成完成");
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            _ = Dispatcher.BeginInvoke(() =>
+            {
+                PersonalityEditBox.Text = sb.ToString();
+                Toast("⚠ 已取消生成");
+            });
+        }
+        catch (ApiException ex)
+        {
+            _ = Dispatcher.BeginInvoke(() => Toast($"⚠ {ex.Message}"));
+        }
+        catch (Exception ex)
+        {
+            _ = Dispatcher.BeginInvoke(() => Toast($"⚠ 生成失败：{ex.Message}"));
+        }
+        finally
+        {
+            _aiCts?.Dispose();
+            _aiCts = null;
+            AiPersonalityBtn.Content = "🤖 AI 生成";
+        }
     }
 
     private void CopyPersonality_Click(object sender, RoutedEventArgs e)
@@ -496,12 +608,36 @@ public partial class CharacterPage : UserControl
     // ===== 外/内滚动路由 =====
     private void DetailScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
-        // 鼠标在图像区 → 转发滚轮事件到内层，外层不动
+        // 优先：图像区内 → 滚内层图像列表，到边界后滚动外层
         if (CharImageScroller.IsVisible && CharImageScroller.IsMouseOver)
         {
-            CharImageScroller.ScrollToVerticalOffset(
-                CharImageScroller.VerticalOffset - e.Delta);
+            double delta = e.Delta;
+            var inner = CharImageScroller;
+            double newOff = inner.VerticalOffset - delta;
+            double maxOff = inner.ScrollableHeight;
+            if (newOff < 0) { inner.ScrollToVerticalOffset(0); delta = -inner.VerticalOffset; }
+            else if (newOff > maxOff) { inner.ScrollToVerticalOffset(maxOff); delta = inner.VerticalOffset - maxOff; }
+            else { inner.ScrollToVerticalOffset(newOff); delta = 0; }
+            // 剩余滚动量传给外层
+            if (delta != 0)
+                DetailScroll.ScrollToVerticalOffset(DetailScroll.VerticalOffset - delta);
             e.Handled = true;
+        }
+    }
+
+    /// <summary>性格设定区滚动透传到外层</summary>
+    private void PersonalityInner_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is ScrollViewer inner)
+        {
+            double newOff = inner.VerticalOffset - e.Delta;
+            double maxOff = inner.ScrollableHeight;
+            if (newOff < 0 || newOff > maxOff)
+            {
+                // 内层到边界，余量给外层
+                double remain = newOff < 0 ? -newOff : (newOff - maxOff);
+                DetailScroll.ScrollToVerticalOffset(DetailScroll.VerticalOffset - (e.Delta > 0 ? -remain : remain));
+            }
         }
     }
 
@@ -750,9 +886,8 @@ public partial class CharacterPage : UserControl
         {
             Width = 140, Height = 28, FontSize = 13,
             IsEditable = true, IsReadOnly = false,
-            Text = "1024x768",
+            Text = _lastImageSize,
             ItemsSource = new[] { "1024x768", "1024x1024", "768x1024", "1280x720", "1920x1080", "512x512", "2560x1440" },
-            SelectedIndex = 0,
             Style = (Style)Application.Current.FindResource("ModernComboBoxStyle"),
             Background = (Brush)FindResource("CardBackgroundBrush"),
             BorderBrush = (Brush)FindResource("BorderBrush"),
@@ -800,6 +935,7 @@ public partial class CharacterPage : UserControl
             try
             {
                 var size = sizeBox.Text.Trim();
+                _lastImageSize = size;
                 var imageUrl = await ApiService.GenerateImageAsync(
                     config.ApiEndpoint, config.ApiKey, prompt, config.ImageModel, size, cts.Token);
 

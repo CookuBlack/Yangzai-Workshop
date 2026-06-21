@@ -978,23 +978,41 @@ public partial class VideoPage : UserControl
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        // 标题区域
-        var headerStack = new StackPanel { Margin = new Thickness(0, 0, 0, 0) };
-        headerStack.Children.Add(new TextBlock
+        // 标题区域（含优化按钮）
+        var headerGrid = new Grid { Margin = new Thickness(0, 0, 0, 0) };
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var titleStack = new StackPanel();
+        titleStack.Children.Add(new TextBlock
         {
             Text = $"AI 生成视频 · 第{_currentChapter.Index}章 {_currentChapter.Title}",
             FontSize = 14, FontWeight = FontWeights.SemiBold,
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             Margin = new Thickness(0, 0, 0, 2)
         });
-        headerStack.Children.Add(new TextBlock
+        titleStack.Children.Add(new TextBlock
         {
             Text = "描述主体、动作、场景、镜头运动、光照和视觉风格",
             FontSize = 11,
             Foreground = (Brush)FindResource("TextSecondaryBrush")
         });
-        Grid.SetRow(headerStack, 0);
-        grid.Children.Add(headerStack);
+        headerGrid.Children.Add(titleStack);
+
+        // 优化提示词按钮（位于标题行右侧）
+        var optimizeBtn = new Button
+        {
+            Content = "✨ 优化提示词",
+            FontSize = 12, Padding = new Thickness(14, 5, 14, 5),
+            Style = (Style)FindResource("PrimaryButtonStyle"),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "AI 将您的简短提示词丰富为高质量视频生成提示词"
+        };
+        Grid.SetColumn(optimizeBtn, 1);
+        headerGrid.Children.Add(optimizeBtn);
+
+        Grid.SetRow(headerGrid, 0);
+        grid.Children.Add(headerGrid);
 
         // 提示词
         var promptBox = new TextBox
@@ -1130,6 +1148,51 @@ public partial class VideoPage : UserControl
 
         Grid.SetRow(footerStack, 4);
         grid.Children.Add(footerStack);
+
+        // 优化提示词按钮事件
+        optimizeBtn.Click += async (_, _) =>
+        {
+            var rawPrompt = promptBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(rawPrompt))
+            {
+                Toast("⚠ 请先输入提示词再优化");
+                return;
+            }
+
+            optimizeBtn.IsEnabled = false;
+            optimizeBtn.Content = "⏳ 优化中...";
+
+            try
+            {
+                var sys = "你是一位专业的 AI 视频生成提示词优化师。请根据用户提供的简短提示词，扩展为一段详细、专业的视频生成提示词。"
+                    + "要求：1. 添加镜头描述（如特写、全景、跟踪镜头） 2. 描述光影和色彩氛围 "
+                    + "3. 丰富动作和场景细节 4. 使用流畅的英文或中英混合（英文术语更准确）"
+                    + "5. 保持原意的同时让画面更具电影质感 6. 只输出优化后的提示词，不要任何解释。";
+
+                var result = await ApiService.ChatAsync(
+                    config.ApiEndpoint, config.ApiKey, config.ApiModel,
+                    sys, $"请优化以下视频生成提示词：\n{rawPrompt}");
+
+                if (!string.IsNullOrWhiteSpace(result))
+                {
+                    promptBox.Text = result.Trim();
+                    Toast("✓ 提示词已优化");
+                }
+            }
+            catch (ApiException ex)
+            {
+                Toast($"⚠ {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Toast($"⚠ 优化失败：{ex.Message}");
+            }
+            finally
+            {
+                optimizeBtn.IsEnabled = true;
+                optimizeBtn.Content = "✨ 优化提示词";
+            }
+        };
 
         win.Content = grid;
 

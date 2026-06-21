@@ -321,6 +321,19 @@ public partial class SettingsPage : UserControl
         SaveConfig();
     }
 
+    /// <summary>ComboBox 鼠标滚轮切换选中项</summary>
+    private void ComboBox_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is ComboBox cb && cb.Items.Count > 0)
+        {
+            int delta = e.Delta > 0 ? -1 : 1;
+            int newIdx = cb.SelectedIndex + delta;
+            if (newIdx >= 0 && newIdx < cb.Items.Count)
+                cb.SelectedIndex = newIdx;
+            e.Handled = true;
+        }
+    }
+
     private void ApiModelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_isLoading || !IsLoaded) return;

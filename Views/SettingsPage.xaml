@@ -336,7 +336,8 @@
                         <ComboBox x:Name="ApiModelBox" Grid.Column="0" IsEditable="True"
                                   Style="{StaticResource ModernComboBoxStyle}" MinHeight="28"
                                   SelectionChanged="ApiModelBox_SelectionChanged"
-                                  LostFocus="ApiModelBox_LostFocus" Margin="0,0,8,0"/>
+                                  LostFocus="ApiModelBox_LostFocus"
+                                  PreviewMouseWheel="ComboBox_PreviewMouseWheel" Margin="0,0,8,0"/>
                         <Button Grid.Column="1" Content="⬇ 获取模型列表"
                                 FontSize="11" Padding="8,5"
                                 Style="{StaticResource SecondaryButtonStyle}"
@@ -347,13 +348,15 @@
                                Foreground="{DynamicResource TextPrimaryBrush}"/>
                     <ComboBox x:Name="ImageModelBox" IsEditable="True" Margin="0,0,0,10"
                               Style="{StaticResource ModernComboBoxStyle}" MinHeight="28"
-                              LostFocus="ImageModelBox_LostFocus"/>
+                              LostFocus="ImageModelBox_LostFocus"
+                              PreviewMouseWheel="ComboBox_PreviewMouseWheel"/>
 
                     <TextBlock Text="视频模型" FontSize="12" Margin="0,0,0,4"
                                Foreground="{DynamicResource TextPrimaryBrush}"/>
                     <ComboBox x:Name="VideoModelBox" IsEditable="True" Margin="0,0,0,10"
                               Style="{StaticResource ModernComboBoxStyle}" MinHeight="28"
-                              LostFocus="VideoModelBox_LostFocus"/>
+                              LostFocus="VideoModelBox_LostFocus"
+                              PreviewMouseWheel="ComboBox_PreviewMouseWheel"/>
                 </StackPanel>
             </Border>
 
