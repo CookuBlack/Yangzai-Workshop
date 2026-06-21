@@ -23,6 +23,6 @@ public class AppConfig
     /// <summary>模型名称</summary>
     public string ApiModel { get; set; } = "gpt-4o-mini";
     public string LastUpdateDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
-    public string Version { get; set; } = "2.2.1";
+    public string Version { get; set; } = "2.2.0";
     public int GitHubStars { get; set; } = 128;
 }

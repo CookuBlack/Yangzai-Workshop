@@ -16,7 +16,7 @@ public partial class App : Application
     public static string AvatarDir => FileService.AssetsAvatarPath;
 
     private const string GitHubRepo = "CookuBlack/Yangzai-Workshop";
-    private const string CurrentVersion = "2.2.1";
+    private const string CurrentVersion = "2.2.0";
     public static string AppVersion => CurrentVersion;
 
     /// <summary>版本信息 JSON 地址（GitHub 直连优先，CDN 备用）</summary>
@@ -103,7 +103,8 @@ public partial class App : Application
         if (!System.ComponentModel.DesignerProperties.GetIsInDesignMode(new Window()))
             RestartBackupTimer();
 
-        try { await CheckForUpdateAsync(); }
+        // 启动时静默检查（不弹窗，缓存结果即可）
+        try { await CheckForUpdateCoreAsync(false, silent: true); }
         catch { /* 更新检测静默失败，不影响主流程 */ }
     }
 
@@ -157,7 +158,7 @@ public partial class App : Application
         }
     }
 
-    private static async Task<UpdateCheckResult> CheckForUpdateCoreAsync(bool forceCheck)
+    private static async Task<UpdateCheckResult> CheckForUpdateCoreAsync(bool forceCheck, bool silent = false)
     {
             // 缓存：1 小时内复用「无更新/限速」结果，减少 API 调用
             // 有更新时不缓存，确保每次都弹窗提醒
@@ -236,6 +237,10 @@ public partial class App : Application
         SaveCache(result, tag);
 
         // ---- 第二步：处理结果 ----
+        // 静默模式下仅缓存结果，不弹出对话框
+        if (silent)
+            return result;
+
         if (msiUrl == null)
         {
             // 无 MSI 文件 → 引导去 GitHub
