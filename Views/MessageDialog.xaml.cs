@@ -1,5 +1,7 @@
 using System.Linq;
 using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
 
 namespace YangzaiWorkshop.Views;
 
@@ -39,6 +41,38 @@ public partial class MessageDialog : Window
 
         OkBtn.Click += (_, _) => { Confirmed = true; Close(); };
         CancelBtn.Click += (_, _) => { Confirmed = false; Close(); };
+        Loaded += OnLoaded;
+    }
+
+    /// <summary>弹窗出现时播放闪动动画，吸引用户注意</summary>
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        // 窗口整体淡入
+        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        BeginAnimation(OpacityProperty, fadeIn);
+
+        // 弹窗缩放弹跳：小 → 大 → 正常
+        var scaleAnim = new DoubleAnimationUsingKeyFrames();
+        scaleAnim.KeyFrames.Add(new EasingDoubleKeyFrame(0.8, TimeSpan.FromMilliseconds(0)));
+        scaleAnim.KeyFrames.Add(new EasingDoubleKeyFrame(1.06, TimeSpan.FromMilliseconds(200),
+            new CubicEase { EasingMode = EasingMode.EaseOut }));
+        scaleAnim.KeyFrames.Add(new EasingDoubleKeyFrame(0.96, TimeSpan.FromMilliseconds(300),
+            new CubicEase { EasingMode = EasingMode.EaseInOut }));
+        scaleAnim.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, TimeSpan.FromMilliseconds(400),
+            new CubicEase { EasingMode = EasingMode.EaseOut }));
+
+        RootScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleAnim);
+        RootScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleAnim);
+
+        // 阴影闪动：从浅到深
+        var shadowAnim = new DoubleAnimation(0.1, 0.35, TimeSpan.FromMilliseconds(350))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        RootShadow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.OpacityProperty, shadowAnim);
     }
 
     void OkBtn_Click(object sender, RoutedEventArgs e) { }
