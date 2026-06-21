@@ -4,7 +4,7 @@
         Width="420" Height="160" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        ShowInTaskbar="False" Topmost="True">
+        ShowInTaskbar="True">
     <Border Background="{DynamicResource CardBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1" CornerRadius="10" Padding="24,20">

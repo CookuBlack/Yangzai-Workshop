@@ -275,6 +275,7 @@ public partial class App : Application
             await fs.FlushAsync();
 
             progressWindow.Report(100, "下载完成，正在安装...");
+            progressWindow.Close();
 
             // 先确保 UI 关闭，再创建安装脚本
             await Current.Dispatcher.InvokeAsync(() => Current.Shutdown());
@@ -282,15 +283,15 @@ public partial class App : Application
             // 等待应用完全退出
             await Task.Delay(2000);
 
-            // 创建安装脚本：等旧进程退出 → 安装新 MSI → 清理
+            // 创建安装脚本：等旧进程退出 → 安装新 MSI → 启动新版本 → 清理
             var cleanupBat = Path.Combine(FileService.AppBasePath, "_update_cleanup.bat");
+            var exePath = Path.Combine(FileService.AppBasePath, "YangzaiWorkshop.exe");
             File.WriteAllText(cleanupBat,
                 "@echo off\r\n" +
                 "echo Installing Yangzai Workshop...\r\n" +
                 $"msiexec /i \"{tempFile}\" INSTALL_FOLDER=\"{FileService.AppBasePath}\" /qb!- /norestart\r\n" +
-                "if exist \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Yangzai Workshop\\Yangzai Workshop.lnk\" (\r\n" +
-                "    start \"\" \"%PROGRAMDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Yangzai Workshop\\Yangzai Workshop.lnk\"\r\n" +
-                ")\r\n" +
+                "echo Starting Yangzai Workshop...\r\n" +
+                $"start \"\" \"{exePath}\"\r\n" +
                 $"del /f /q \"{tempFile}\" 2>nul\r\n" +
                 $"del /f /q \"%~f0\" 2>nul\r\n",
                 System.Text.Encoding.GetEncoding(936)); // GBK 编码兼容中文路径
