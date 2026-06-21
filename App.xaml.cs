@@ -193,8 +193,12 @@ public partial class App : Application
                     ? vp.GetString()?.TrimStart('v', 'V') ?? "" : "";
                 htmlUrl = root.TryGetProperty("release_url", out var hp)
                     ? hp.GetString() ?? "" : "";
-                msiUrl = root.TryGetProperty("msi", out var mp)
+                // MSI 地址：若未指定则自动拼接 GitHub Release 下载链接
+                var rawMsi = root.TryGetProperty("msi", out var mp)
                     ? mp.GetString() : null;
+                msiUrl = !string.IsNullOrEmpty(rawMsi)
+                    ? rawMsi
+                    : $"https://github.com/{GitHubRepo}/releases/download/v{tag}/YangzaiWorkshop.msi";
 
                 if (!string.IsNullOrEmpty(tag))
                     break;
