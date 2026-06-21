@@ -46,6 +46,12 @@ public class NavigationService
         _ => new Views.HomePage()
     };
 
+    /// <summary>获取指定页面的缓存实例（可能为 null）</summary>
+    public T? GetPage<T>(string pageName) where T : UserControl
+    {
+        return _cache.TryGetValue(pageName, out var p) ? p as T : null;
+    }
+
     /// <summary>清除指定页面缓存</summary>
     public void ClearPage(string pageName)
     {

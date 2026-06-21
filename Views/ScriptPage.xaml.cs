@@ -38,6 +38,7 @@ public partial class ScriptPage : UserControl
     {
         ScriptTextBox.FontSize = fontSize;
         OriginalTextBox.FontSize = fontSize;
+        PromptTextBox.FontSize = fontSize;
     }
 
     /// <summary>文件还原后刷新当前章节的图像网格</summary>

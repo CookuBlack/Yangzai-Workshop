@@ -187,6 +187,32 @@ public partial class SettingsPage : UserControl
     }
 
     // ==================== 通用设置 ====================
+    private void ResetGeneralSettings_Click(object sender, RoutedEventArgs e)
+    {
+        // 自动保存
+        _config.AutoSaveScript = true;
+        AutoSaveCheck.IsChecked = true;
+
+        // 字体大小
+        const int defaultFontSize = 14;
+        _config.FontSize = defaultFontSize;
+        FontSizeSlider.Value = defaultFontSize;
+        FontSizeLabel.Text = $"{defaultFontSize}px";
+
+        // 轮播自动播放
+        _config.AutoPlayBanner = true;
+        AutoPlayCheck.IsChecked = true;
+
+        // 轮播间隔
+        const int defaultInterval = 5;
+        _config.BannerIntervalSeconds = defaultInterval;
+        IntervalSlider.Value = defaultInterval;
+        IntervalLabel.Text = $"{defaultInterval}秒";
+
+        SaveConfig();
+        ApplyFontSizeToEditor(defaultFontSize);
+    }
+
     private void AutoSaveCheck_Changed(object sender, RoutedEventArgs e)
     {
         if (_isLoading || !IsLoaded) return;
@@ -209,26 +235,11 @@ public partial class SettingsPage : UserControl
     {
         try
         {
-            var mainWindow = Application.Current.MainWindow;
-            if (mainWindow == null) return;
-            // 查找 ScriptPage 中的文本框并应用字体大小
-            var scriptPage = FindVisualChild<ScriptPage>(mainWindow);
-            if (scriptPage != null)
-                scriptPage.ApplyFontSize(fontSize);
+            // 直接通过 NavigationService 缓存获取 ScriptPage，无需遍历可视化树
+            var scriptPage = NavigationService.Instance.GetPage<ScriptPage>("Script");
+            scriptPage?.ApplyFontSize(fontSize);
         }
         catch { /* 非关键路径 */ }
-    }
-
-    private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
-    {
-        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
-        {
-            var child = VisualTreeHelper.GetChild(parent, i);
-            if (child is T t) return t;
-            var result = FindVisualChild<T>(child);
-            if (result != null) return result;
-        }
-        return null;
     }
 
     private void AutoPlayCheck_Changed(object sender, RoutedEventArgs e)

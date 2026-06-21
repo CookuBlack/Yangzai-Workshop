@@ -207,6 +207,25 @@
                             </Border>
                         </Grid>
                     </Border>
+                    <Border BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="0,1,0,0" Margin="0,12,0,6"/>
+                    <Grid>
+                        <TextBlock Text="以上设置不满意？" FontSize="11"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center"/>
+                        <Button HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                FontSize="11" Padding="14,6"
+                                Click="ResetGeneralSettings_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE777;" FontFamily="Segoe MDL2 Assets"
+                                           FontSize="12" Margin="0,0,6,0"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                <TextBlock Text="恢复默认设置"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
                 </StackPanel>
             </Border>
 
