@@ -198,7 +198,7 @@ public partial class App : Application
                     ? mp.GetString() : null;
                 msiUrl = !string.IsNullOrEmpty(rawMsi)
                     ? rawMsi
-                    : $"https://github.com/{GitHubRepo}/releases/download/v{tag}/YangzaiWorkshop.msi";
+                    : $"https://github.com/{GitHubRepo}/releases/download/v{tag}/YangzaiWorkshop-windows-x64-v{tag}.msi";
 
                 if (!string.IsNullOrEmpty(tag))
                     break;
