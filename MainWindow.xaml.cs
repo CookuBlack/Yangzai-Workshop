@@ -10,6 +10,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
+using YangzaiWorkshop.Views;
 using YangzaiWorkshop.Services;
 
 namespace YangzaiWorkshop;
@@ -278,6 +279,11 @@ public partial class MainWindow : Window
     }
 
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void MemoButton_Click(object sender, RoutedEventArgs e)
+    {
+        ToolboxPage.OpenMemoWindow();
+    }
 
     private void ThemeToggle_Click(object sender, RoutedEventArgs e)
     {

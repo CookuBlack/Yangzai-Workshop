@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -33,7 +33,7 @@ public partial class ToolboxPage : UserControl
             WindowStartupLocation = WindowStartupLocation.CenterScreen,
             ShowInTaskbar = false,
             Topmost = true,
-            Background = (Brush)FindResource("WindowBackgroundBrush")
+            Background = (Brush)Application.Current.FindResource("WindowBackgroundBrush")
         };
 
         var root = new Grid { Margin = new Thickness(16) };
@@ -46,7 +46,7 @@ public partial class ToolboxPage : UserControl
         {
             Text = "回收站", FontSize = 18, FontWeight = FontWeights.Bold,
             FontFamily = new FontFamily("Microsoft YaHei"),
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
             Margin = new Thickness(0, 0, 0, 8)
         };
         root.Children.Add(title);
@@ -61,7 +61,7 @@ public partial class ToolboxPage : UserControl
         {
             Text = "已删除文件（30天自动清理）", FontSize = 12,
             FontFamily = new FontFamily("Microsoft YaHei"),
-            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         };
         toolbar.Children.Add(countText);
@@ -70,8 +70,8 @@ public partial class ToolboxPage : UserControl
             Content = "清空回收站", FontSize = 11,
             Padding = new Thickness(10, 4, 10, 4),
             Margin = new Thickness(12, 0, 0, 0),
-            Foreground = (Brush)FindResource("DangerBrush"),
-            Style = (Style)FindResource("SecondaryButtonStyle")
+            Foreground = (Brush)Application.Current.FindResource("DangerBrush"),
+            Style = (Style)Application.Current.FindResource("SecondaryButtonStyle")
         };
         toolbar.Children.Add(emptyBtn);
         root.Children.Add(toolbar);
@@ -111,7 +111,7 @@ public partial class ToolboxPage : UserControl
                 Margin = new Thickness(0, 2, 0, 2),
                 Padding = new Thickness(8, 6, 8, 6),
                 CornerRadius = new CornerRadius(4),
-                Background = (Brush)FindResource("CardBackgroundBrush")
+                Background = (Brush)Application.Current.FindResource("CardBackgroundBrush")
             };
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -122,7 +122,7 @@ public partial class ToolboxPage : UserControl
             {
                 Text = item.FileName,
                 FontSize = 11, FontFamily = new FontFamily("Microsoft YaHei"),
-                Foreground = (Brush)FindResource("TextPrimaryBrush"),
+                Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Cursor = Cursors.Hand,
@@ -136,8 +136,8 @@ public partial class ToolboxPage : UserControl
             {
                 Content = "还原", FontSize = 10, Padding = new Thickness(6, 2, 6, 2),
                 Margin = new Thickness(6, 0, 4, 0),
-                Style = (Style)FindResource("SecondaryButtonStyle"),
-                Foreground = (Brush)FindResource("SuccessBrush"), Tag = item
+                Style = (Style)Application.Current.FindResource("SecondaryButtonStyle"),
+                Foreground = (Brush)Application.Current.FindResource("SuccessBrush"), Tag = item
             };
             restoreBtn.Click += (_, _) =>
             {
@@ -152,7 +152,7 @@ public partial class ToolboxPage : UserControl
                 Content = "X", FontSize = 10, Width = 20, Height = 20,
                 Padding = new Thickness(0),
                 Background = Brushes.Transparent,
-                Foreground = (Brush)FindResource("DangerBrush"),
+                Foreground = (Brush)Application.Current.FindResource("DangerBrush"),
                 BorderThickness = new Thickness(0), Cursor = Cursors.Hand, Tag = item
             };
             delBtn.Click += (_, _) =>
@@ -161,7 +161,7 @@ public partial class ToolboxPage : UserControl
                 catch { }
                 LoadTrashList(list, countText);
             };
-            delBtn.MouseEnter += (s, _) => ((Button)s).Background = (Brush)FindResource("HoverBrush");
+            delBtn.MouseEnter += (s, _) => ((Button)s).Background = (Brush)Application.Current.FindResource("HoverBrush");
             delBtn.MouseLeave += (s, _) => ((Button)s).Background = Brushes.Transparent;
             Grid.SetColumn(delBtn, 2);
             grid.Children.Add(delBtn);
@@ -243,7 +243,7 @@ public partial class ToolboxPage : UserControl
     // ===== 备忘录 =====
     private void MemoCard_Click(object sender, MouseButtonEventArgs e) => OpenMemoWindow();
 
-    private void OpenMemoWindow()
+    internal static void OpenMemoWindow()
     {
         var memos = FileService.LoadMemos(App.WorkRoot);
         Memo? selectedMemo = memos.FirstOrDefault();
@@ -254,8 +254,8 @@ public partial class ToolboxPage : UserControl
             Width = 720, Height = 520,
             MinWidth = 560, MinHeight = 400,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = Window.GetWindow(this),
-            Background = (Brush)FindResource("WindowBackgroundBrush")
+            Owner = Application.Current.MainWindow,
+            Background = (Brush)Application.Current.FindResource("WindowBackgroundBrush")
         };
 
         var root = new Grid { Margin = new Thickness(16) };
@@ -275,7 +275,7 @@ public partial class ToolboxPage : UserControl
         {
             Text = $"全部备忘录 ({memos.Count})", FontSize = 13, FontWeight = FontWeights.Bold,
             FontFamily = new FontFamily("Microsoft YaHei"),
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(headerText, 0);
@@ -284,7 +284,7 @@ public partial class ToolboxPage : UserControl
         var addBtn = new Button
         {
             Content = "+ 新建", FontSize = 11, Padding = new Thickness(8, 3, 8, 3),
-            Style = (Style)FindResource("PrimaryButtonStyle")
+            Style = (Style)Application.Current.FindResource("PrimaryButtonStyle")
         };
         Grid.SetColumn(addBtn, 1);
         leftHeader.Children.Add(addBtn);
@@ -300,7 +300,7 @@ public partial class ToolboxPage : UserControl
         // 分隔线
         var separator = new Border
         {
-            Background = (Brush)FindResource("BorderBrush"),
+            Background = (Brush)Application.Current.FindResource("BorderBrush"),
             Width = 1, Margin = new Thickness(1, 0, 1, 0),
             VerticalAlignment = VerticalAlignment.Stretch
         };
@@ -312,12 +312,13 @@ public partial class ToolboxPage : UserControl
         rightPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         rightPanel.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         rightPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        rightPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var titleBox = new TextBox
         {
             FontSize = 18, FontWeight = FontWeights.Bold,
             FontFamily = new FontFamily("Microsoft YaHei"),
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
             Background = Brushes.Transparent,
             BorderBrush = Brushes.Transparent,
             BorderThickness = new Thickness(0),
@@ -335,9 +336,9 @@ public partial class ToolboxPage : UserControl
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             FontSize = 13,
             FontFamily = new FontFamily("Microsoft YaHei"),
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            Background = (Brush)FindResource("CardBackgroundBrush"),
-            BorderBrush = (Brush)FindResource("BorderBrush"),
+            Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
+            Background = (Brush)Application.Current.FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)Application.Current.FindResource("BorderBrush"),
             BorderThickness = new Thickness(1),
             Padding = new Thickness(10)
         };
@@ -348,13 +349,14 @@ public partial class ToolboxPage : UserControl
         var bottomBar = new Grid { Margin = new Thickness(0, 8, 0, 0) };
         bottomBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         bottomBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        bottomBar.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var dateText = new TextBlock
         {
             FontSize = 11, FontFamily = new FontFamily("Microsoft YaHei"),
-            Foreground = (Brush)FindResource("TextSecondaryBrush"),
-            VerticalAlignment = VerticalAlignment.Center
+            Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            MaxWidth = 320
         };
         Grid.SetColumn(dateText, 0);
         bottomBar.Children.Add(dateText);
@@ -362,26 +364,28 @@ public partial class ToolboxPage : UserControl
         var delBtn = new Button
         {
             Content = "删除", FontSize = 11, Padding = new Thickness(10, 4, 10, 4),
-            Margin = new Thickness(6, 0, 6, 0),
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            Foreground = (Brush)FindResource("DangerBrush"),
+            Margin = new Thickness(6, 0, 0, 0),
+            Style = (Style)Application.Current.FindResource("SecondaryButtonStyle"),
+            Foreground = (Brush)Application.Current.FindResource("DangerBrush"),
             Visibility = Visibility.Collapsed
         };
         Grid.SetColumn(delBtn, 1);
         bottomBar.Children.Add(delBtn);
 
+        // 提示文字放在父容器底部
         var saveHint = new TextBlock
         {
-            Text = "编辑内容自动保存", FontSize = 11,
+            Text = "Ctrl+S 即刻保存 | 失焦自动保存", FontSize = 11,
             FontFamily = new FontFamily("Microsoft YaHei"),
-            Foreground = (Brush)FindResource("TextSecondaryBrush"),
-            VerticalAlignment = VerticalAlignment.Center
+            Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush"),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 4, 0, 0)
         };
-        Grid.SetColumn(saveHint, 2);
-        bottomBar.Children.Add(saveHint);
+        Grid.SetRow(saveHint, 3);
 
         Grid.SetRow(bottomBar, 2);
         rightPanel.Children.Add(bottomBar);
+        rightPanel.Children.Add(saveHint);
         Grid.SetColumn(rightPanel, 2);
         root.Children.Add(rightPanel);
 
@@ -390,7 +394,7 @@ public partial class ToolboxPage : UserControl
         {
             Text = "← 点击「+ 新建」创建第一条备忘录",
             FontSize = 13, FontFamily = new FontFamily("Microsoft YaHei"),
-            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(12, 0, 0, 0),
@@ -433,18 +437,20 @@ public partial class ToolboxPage : UserControl
                 };
                 itemBorder.MouseLeftButtonDown += (_, _) =>
                 {
-                    if (autoSaveTimer != null && selectedMemo != null)
+                    // 先保存当前备忘录，再切换
+                    autoSaveTimer?.Stop();
+                    if (selectedMemo != null)
                     {
-                        autoSaveTimer.Stop();
                         SaveCurrentMemo(selectedMemo, titleBox.Text, contentBox.Text);
-                        autoSaveTimer.Start();
+                        UpdateCardDisplay(selectedMemo);
                     }
                     SelectMemo(m);
+                    // 不立即重启定时器，等用户真正编辑新备忘录时再启动
                 };
                 itemBorder.MouseEnter += (_, _) =>
                 {
                     if (selectedMemo?.Id != m.Id)
-                        itemBorder.Background = (Brush)FindResource("HoverBrush");
+                        itemBorder.Background = (Brush)Application.Current.FindResource("HoverBrush");
                 };
                 itemBorder.MouseLeave += (_, _) =>
                 {
@@ -458,14 +464,14 @@ public partial class ToolboxPage : UserControl
                     Text = m.Title.Length > 0 ? m.Title : "无标题",
                     FontSize = 12, FontWeight = FontWeights.SemiBold,
                     FontFamily = new FontFamily("Microsoft YaHei"),
-                    Foreground = (Brush)FindResource("TextPrimaryBrush"),
+                    Foreground = (Brush)Application.Current.FindResource("TextPrimaryBrush"),
                     TextTrimming = TextTrimming.CharacterEllipsis
                 });
                 textStack.Children.Add(new TextBlock
                 {
                     Text = m.UpdatedAt.ToString("MM-dd HH:mm"),
                     FontSize = 10, FontFamily = new FontFamily("Microsoft YaHei"),
-                    Foreground = (Brush)FindResource("TextSecondaryBrush"),
+                    Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush"),
                     Margin = new Thickness(0, 2, 0, 0)
                 });
                 itemBorder.Child = textStack;
@@ -475,25 +481,29 @@ public partial class ToolboxPage : UserControl
             // 选中项高亮
             void SelectMemo(Memo m)
             {
+                // 从磁盘重新加载最新数据，避免读到过期的内存对象
+                var latest = FileService.LoadMemos(App.WorkRoot)
+                    .FirstOrDefault(x => x.Id == m.Id);
+                if (latest != null) m = latest;
+
                 selectedMemo = m;
                 foreach (var child in memoList.Items)
                 {
                     if (child is Border b && b.Tag is Memo tm)
                     {
                         b.Background = tm.Id == m.Id
-                            ? (Brush)FindResource("PrimaryBrush") : Brushes.Transparent;
-                        // 高亮项的文本改白色
+                            ? (Brush)Application.Current.FindResource("PrimaryBrush") : Brushes.Transparent;
                         if (b.Child is StackPanel sp && sp.Children[0] is TextBlock tb)
                             tb.Foreground = tm.Id == m.Id
                                 ? Brushes.White
-                                : (Brush)FindResource("TextPrimaryBrush");
+                                : (Brush)Application.Current.FindResource("TextPrimaryBrush");
                         if (b.Child is StackPanel sp2 && sp2.Children[1] is TextBlock tb2)
                             tb2.Foreground = tm.Id == m.Id
                                 ? new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF))
-                                : (Brush)FindResource("TextSecondaryBrush");
+                                : (Brush)Application.Current.FindResource("TextSecondaryBrush");
                     }
                 }
-                // 更新右侧
+                // 更新右侧（使用最新数据）
                 titleBox.Text = m.Title;
                 contentBox.Text = m.Content;
                 dateText.Text = $"创建于 {m.CreatedAt:yyyy-MM-dd HH:mm}  更新于 {m.UpdatedAt:yyyy-MM-dd HH:mm}";
@@ -519,6 +529,28 @@ public partial class ToolboxPage : UserControl
             m.Title = title?.Trim() ?? "";
             m.Content = content ?? "";
             FileService.SaveMemo(App.WorkRoot, m);
+        }
+
+        // 刷新左侧卡片列表中的标题和时间
+        void UpdateCardDisplay(Memo m)
+        {
+            foreach (var child in memoList.Items)
+            {
+                if (child is Border b && b.Tag is Memo tm && tm.Id == m.Id
+                    && b.Child is StackPanel sp)
+                {
+                    if (sp.Children.Count >= 2)
+                    {
+                        if (sp.Children[0] is TextBlock tbTitle)
+                            tbTitle.Text = m.Title.Length > 0 ? m.Title : "无标题";
+                        if (sp.Children[1] is TextBlock tbDate)
+                            tbDate.Text = m.UpdatedAt.ToString("MM-dd HH:mm");
+                    }
+                    // 更新卡片 Tag 为最新对象
+                    b.Tag = m;
+                    break;
+                }
+            }
         }
 
         // 新增按钮
@@ -549,10 +581,8 @@ public partial class ToolboxPage : UserControl
             if (selectedMemo != null)
             {
                 SaveCurrentMemo(selectedMemo, titleBox.Text, contentBox.Text);
-                // 只更新日期和列表项时间，不全刷新
+                UpdateCardDisplay(selectedMemo);
                 dateText.Text = $"创建于 {selectedMemo.CreatedAt:yyyy-MM-dd HH:mm}  更新于 {selectedMemo.UpdatedAt:yyyy-MM-dd HH:mm}";
-                // 刷新列表（更新排序和时间显示）
-                RefreshList();
             }
         };
 
@@ -564,6 +594,34 @@ public partial class ToolboxPage : UserControl
 
         titleBox.TextChanged += (_, _) => StartAutoSave();
         contentBox.TextChanged += (_, _) => StartAutoSave();
+
+        // Ctrl+S 即刻保存
+        win.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.S && Keyboard.Modifiers == ModifierKeys.Control)
+            {
+                e.Handled = true;
+                autoSaveTimer?.Stop();
+                if (selectedMemo != null)
+                {
+                    SaveCurrentMemo(selectedMemo, titleBox.Text, contentBox.Text);
+                    UpdateCardDisplay(selectedMemo);
+                    var prev = saveHint.Text;
+                    saveHint.Text = "✓ 已保存";
+                    saveHint.Foreground = (Brush)Application.Current.FindResource("SuccessBrush");
+                    var restoreTimer = new System.Windows.Threading.DispatcherTimer
+                    { Interval = TimeSpan.FromSeconds(1.5) };
+                    restoreTimer.Tick += (_, _) =>
+                    {
+                        restoreTimer.Stop();
+                        saveHint.Text = prev;
+                        saveHint.Foreground = (Brush)Application.Current.FindResource("TextSecondaryBrush");
+                    };
+                    restoreTimer.Start();
+                }
+                autoSaveTimer?.Start();
+            }
+        };
 
         // 删除按钮
         delBtn.Click += (_, _) =>

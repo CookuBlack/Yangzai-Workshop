@@ -63,6 +63,13 @@
                     <!-- 窗口控制按钮 -->
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
 
+                        <!-- 备忘录 -->
+                        <Button Style="{StaticResource WindowControlButtonStyle}"
+                                Click="MemoButton_Click" ToolTip="备忘录"
+                                WindowChrome.IsHitTestVisibleInChrome="True">
+                            <TextBlock Text="&#xE700;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                        </Button>
+
                         <!-- 主题切换 -->
                         <Button Style="{StaticResource WindowControlButtonStyle}"
                                 Click="ThemeToggle_Click" ToolTip="切换亮色/暗色主题"
