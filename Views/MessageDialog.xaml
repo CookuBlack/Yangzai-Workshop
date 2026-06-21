@@ -4,8 +4,7 @@
         Width="380" MinHeight="160" SizeToContent="Height"
         WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
-        ShowInTaskbar="False"
-        Topmost="True">
+        ShowInTaskbar="False">
     <Border x:Name="RootBorder"
             Background="{DynamicResource CardBackgroundBrush}"
             BorderBrush="{DynamicResource BorderBrush}"

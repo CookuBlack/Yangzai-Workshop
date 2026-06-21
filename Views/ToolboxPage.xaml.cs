@@ -31,9 +31,8 @@ public partial class ToolboxPage : UserControl
             Title = "回收站",
             Width = 520, Height = 500,
             MinWidth = 360, MinHeight = 300,
-            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ShowInTaskbar = true,
-            Topmost = true,
             Owner = Application.Current.MainWindow,
             Background = (Brush)Application.Current.FindResource("WindowBackgroundBrush")
         };
@@ -93,7 +92,18 @@ public partial class ToolboxPage : UserControl
         };
 
         _trashWindow.Content = root;
-        _trashWindow.Closed += (_, _) => _trashWindow = null;
+        _trashWindow.Closed += (_, _) =>
+        {
+            _trashWindow = null;
+            // 修复 AllowsTransparency 主窗口关闭子窗口时被最小化的问题
+            var mw = Application.Current.MainWindow;
+            if (mw != null)
+            {
+                if (mw.WindowState == WindowState.Minimized)
+                    mw.WindowState = WindowState.Normal;
+                mw.Activate();
+            }
+        }; 
         LoadTrashList(trashList, countText);
         _trashWindow.Show();
     }
