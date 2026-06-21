@@ -160,8 +160,8 @@ public partial class StatsPage : UserControl
     private void SwitchPlatform(string platform)
     {
         _currentPlatform = platform;
-        DouyinBtn.Background = platform == "抖音" ? (Brush)FindResource("PrimaryBrush") : Brushes.Transparent;
-        DouyinBtn.Foreground = platform == "抖音" ? Brushes.White : (Brush)FindResource("TextPrimaryBrush");
+        DouyinBtn.Background = platform == "抖音" ? new SolidColorBrush((System.Windows.Media.Color)ColorConverter.ConvertFromString("#D0D0D0")) : Brushes.Transparent;
+        DouyinBtn.Foreground = platform == "抖音" ? new SolidColorBrush((System.Windows.Media.Color)ColorConverter.ConvertFromString("#1A1A1A")) : (Brush)FindResource("TextPrimaryBrush");
         KuaishouBtn.Background = platform == "快手" ? new SolidColorBrush((WpfColor)ColorConverter.ConvertFromString("#FF6A00")) : Brushes.Transparent;
         KuaishouBtn.Foreground = platform == "快手" ? Brushes.White : (Brush)FindResource("TextPrimaryBrush");
         BilibiliBtn.Background = platform == "Bilibili" ? new SolidColorBrush((WpfColor)ColorConverter.ConvertFromString("#FB7299")) : Brushes.Transparent;
