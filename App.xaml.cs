@@ -296,6 +296,21 @@ public partial class App : Application
 
             using var response = await client.GetAsync(downloadUrl,
                 HttpCompletionOption.ResponseHeadersRead);
+
+            // 404 → MSI 未上传，引导用户去 GitHub 手动下载
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                progressWindow.Close();
+                var openBrowser = await Current.Dispatcher.InvokeAsync(() =>
+                    MessageDialog.Confirm("MSI 未上传",
+                        $"v{newTag} 的安装包尚未上传到 GitHub。\n\n是否前往 GitHub Releases 手动下载？"));
+                if (openBrowser)
+                {
+                    var url = $"https://github.com/{GitHubRepo}/releases/tag/v{newTag}";
+                    try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+                }
+                return;
+            }
             response.EnsureSuccessStatusCode();
 
             var totalBytes = response.Content.Headers.ContentLength ?? -1;
