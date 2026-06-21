@@ -25,6 +25,8 @@ public partial class ScriptPage : UserControl
     private double _savedOriginalWidth;
     private double _savedScriptWidth;
     private double _savedImageWidth;
+    private bool _multiSelectMode;
+    private readonly HashSet<string> _selectedFiles = new();
 
     public ScriptPage()
     {
@@ -609,15 +611,13 @@ public partial class ScriptPage : UserControl
         ScriptPanelScale.BeginAnimation(ScaleTransform.ScaleXProperty, shrinkAnim);
     }
 
-    private void ScriptTextBox_DoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    private void ScriptTextBox_PreviewMouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
     {
-        ToggleScriptMode();
-        e.Handled = true;
-    }
-
-    private void ScriptHeader_MouseDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (e.ClickCount == 2) ToggleScriptMode();
+        if (e.ClickCount == 2)
+        {
+            ToggleScriptMode();
+            e.Handled = true;
+        }
     }
 
     private void PromptTextBox_LostFocus(object sender, RoutedEventArgs e)
@@ -735,7 +735,25 @@ public partial class ScriptPage : UserControl
                 var img = new Image
                 {
                     Source = bmp, Stretch = Stretch.Uniform,
-                    MaxHeight = 170, Tag = imgPath
+                    MaxHeight = 170, Tag = imgPath,
+                    Cursor = Cursors.Hand
+                };
+
+                // 选中标记（半透明选框 + 勾）
+                var selOverlay = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(0x40, 0x4A, 0x90, 0xE2)),
+                    BorderBrush = (Brush)FindResource("PrimaryBrush"),
+                    BorderThickness = new Thickness(3),
+                    CornerRadius = new CornerRadius(4),
+                    Visibility = Visibility.Collapsed,
+                    Child = new TextBlock
+                    {
+                        Text = "\uE73E", FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                        FontSize = 24, Foreground = (Brush)FindResource("PrimaryBrush"),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
                 };
 
                 // 卡片容器：图片 + 名称 + 悬停操作栏
@@ -752,10 +770,11 @@ public partial class ScriptPage : UserControl
 
                 var cardStack = new StackPanel();
 
-                // 图片区域（带悬停工具栏 + 圆角裁剪）
+                // 图片区域（带悬停工具栏 + 选中遮罩 + 圆角裁剪）
                 var imageArea = new Grid { ClipToBounds = true };
                 img.ClipToBounds = true;
                 imageArea.Children.Add(img);
+                imageArea.Children.Add(selOverlay);
 
                 var toolbar = new StackPanel
                 {
@@ -786,7 +805,13 @@ public partial class ScriptPage : UserControl
                 card.Child = cardStack;
                 card.MouseEnter += (_, _) => toolbar.Opacity = 1;
                 card.MouseLeave += (_, _) => toolbar.Opacity = 0;
-                card.MouseLeftButtonDown += (_, _) => ViewHelpers.ShowImageViewer(imgPath, Window.GetWindow(this));
+                card.MouseLeftButtonDown += (_, _) =>
+                {
+                    if (_multiSelectMode)
+                        ToggleFileSelection(imgPath, selOverlay);
+                    else
+                        ViewHelpers.ShowImageViewer(imgPath, Window.GetWindow(this));
+                };
 
                 Grid.SetRow(card, i / cols);
                 Grid.SetColumn(card, i % cols);
@@ -1273,18 +1298,61 @@ public partial class ScriptPage : UserControl
         FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
     }
 
+    // ===== 多选模式 =====
+    private void ToggleMultiSelect_Click(object sender, RoutedEventArgs e)
+    {
+        _multiSelectMode = !_multiSelectMode;
+        _selectedFiles.Clear();
+        MultiSelectToggleBtn.Content = _multiSelectMode
+            ? "☑ 退出多选" : "☐ 多选";
+        CopySelectedBtn.Visibility = _multiSelectMode ? Visibility.Visible : Visibility.Collapsed;
+        RefreshImageGrid();
+    }
+
+    private void ToggleFileSelection(string filePath, Border overlay)
+    {
+        if (_selectedFiles.Contains(filePath))
+        {
+            _selectedFiles.Remove(filePath);
+            overlay.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            _selectedFiles.Add(filePath);
+            overlay.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void CopySelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedFiles.Count == 0) return;
+        try
+        {
+            var files = _selectedFiles.ToArray();
+            var data = new DataObject(DataFormats.FileDrop, files);
+            Clipboard.SetDataObject(data);
+            ShowCopyToast($"✓ 已复制 {files.Length} 个文件");
+        }
+        catch
+        {
+            ShowCopyToast("✗ 复制失败");
+        }
+    }
     private void ImageGrid_Drop(object sender, DragEventArgs e)
     {
         if (_currentNovel == null || _currentChapter == null) return;
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
             var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            var targetDir = FileService.ChapterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+            var imgDir = FileService.ChapterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+            var vidDir = FileService.ChapterVideosPath(App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
             foreach (var file in files)
             {
                 var ext = Path.GetExtension(file).ToLower();
                 if (ext is ".png" or ".jpg" or ".jpeg" or ".webp")
-                    FileService.CopyFile(file, targetDir);
+                    FileService.CopyFile(file, imgDir);
+                else if (ext is ".mp4" or ".mkv" or ".avi" or ".mov" or ".wmv")
+                    FileService.CopyFile(file, vidDir);
             }
             RefreshImageGrid();
         }

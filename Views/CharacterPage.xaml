@@ -78,20 +78,18 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
-                            <Border Grid.Column="0" Width="72" Height="72"
+                            <Border x:Name="AvatarBorder" Grid.Column="0" Width="72" Height="72"
                                     CornerRadius="36" Cursor="Hand"
+                                    AllowDrop="True"
                                     Background="{DynamicResource PrimaryBrush}"
-                                    ClipToBounds="True"
-                                    MouseLeftButtonDown="Avatar_Click" Margin="0,0,16,0">
-                                <Grid>
-                                    <Image x:Name="CharAvatarImage" Stretch="UniformToFill"/>
-                                    <TextBlock x:Name="CharAvatarPlaceholder"
-                                               FontFamily="Segoe MDL2 Assets"
-                                               Text="&#xE77B;" FontSize="30"
-                                               Foreground="White"
-                                               HorizontalAlignment="Center"
-                                               VerticalAlignment="Center"/>
-                                </Grid>
+                                    MouseLeftButtonDown="Avatar_Click" Margin="0,0,16,0"
+                                    Drop="Avatar_Drop" DragOver="Avatar_DragOver">
+                                <TextBlock x:Name="CharAvatarPlaceholder"
+                                           FontFamily="Segoe MDL2 Assets"
+                                           Text="&#xE77B;" FontSize="30"
+                                           Foreground="White"
+                                           HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"/>
                             </Border>
 
                             <StackPanel Grid.Column="1" VerticalAlignment="Center">
@@ -180,16 +178,28 @@
                                            FontWeight="Bold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"
                                            VerticalAlignment="Center"/>
+                                <Button x:Name="CharMultiSelectBtn" Content="☐ 多选"
+                                        FontSize="11" Padding="6,3"
+                                        Margin="6,0,0,0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="ToggleCharMultiSelect_Click"/>
+                                <Button x:Name="CharCopySelectedBtn" Content="📋 复制选中"
+                                        FontSize="11" Padding="6,3"
+                                        Margin="6,0,0,0" Visibility="Collapsed"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="CopyCharSelected_Click"/>
                                 <Button Content="+ 添加" FontSize="11" Padding="6,3"
-                                        Margin="10,0,0,0"
+                                        Margin="6,0,0,0"
                                         Style="{StaticResource SecondaryButtonStyle}"
                                         Click="UploadImage_Click"/>
                             </StackPanel>
                             <ScrollViewer x:Name="CharImageScroller"
                                           VerticalScrollBarVisibility="Hidden"
                                           HorizontalScrollBarVisibility="Disabled"
+                                          AllowDrop="True"
                                           MinHeight="180" MaxHeight="280"
-                                          PreviewMouseWheel="CharImageScroller_MouseWheel">
+                                          PreviewMouseWheel="CharImageScroller_MouseWheel"
+                                          Drop="CharImage_Drop" DragOver="CharImage_DragOver">
                                 <WrapPanel x:Name="CharImagePanel"/>
                             </ScrollViewer>
                         </StackPanel>

@@ -35,6 +35,58 @@ public partial class App : Application
     public static string LastUpdateError => _lastUpdateError;
     private static string _lastUpdateError = "";
 
+    private static System.Windows.Threading.DispatcherTimer? _backupTimer;
+    private static DateTime _lastBackupTime;
+
+    /// <summary>重启自动备份定时器（设置变更时调用）</summary>
+    public static void RestartBackupTimer()
+    {
+        _backupTimer?.Stop();
+        _backupTimer = null;
+
+        var config = FileService.LoadConfig(WorkRoot);
+        if (!config.AutoBackup) return;
+
+        _backupTimer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMinutes(10)
+        };
+        _backupTimer.Tick += (_, _) =>
+        {
+            try
+            {
+                var cfg = FileService.LoadConfig(WorkRoot);
+                if (!cfg.AutoBackup) return;
+                var elapsed = DateTime.Now - _lastBackupTime;
+                if (elapsed.TotalHours >= cfg.BackupIntervalHours - 0.1)
+                    DoAutoBackup();
+            }
+            catch { }
+        };
+        _backupTimer.Start();
+        _lastBackupTime = DateTime.Now;
+    }
+
+    private static void DoAutoBackup()
+    {
+        var backupsDir = Path.Combine(WorkRoot, "Backups");
+        Directory.CreateDirectory(backupsDir);
+        var fileName = $"AutoBackup_{DateTime.Now:yyyyMMdd_HHmmss}.zip";
+        var zipPath = Path.Combine(backupsDir, fileName);
+        FileService.BackupData(WorkRoot, zipPath);
+        _lastBackupTime = DateTime.Now;
+
+        // 清理旧备份：保留最近 10 个
+        try
+        {
+            var files = Directory.GetFiles(backupsDir, "AutoBackup_*.zip")
+                .OrderByDescending(f => f).ToArray();
+            for (int i = 10; i < files.Length; i++)
+                File.Delete(files[i]);
+        }
+        catch { }
+    }
+
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -46,6 +98,10 @@ public partial class App : Application
 
         // 清理上次更新残留的安装包
         CleanupUpdateFiles();
+
+        // 启动自动备份定时器
+        if (!System.ComponentModel.DesignerProperties.GetIsInDesignMode(new Window()))
+            RestartBackupTimer();
 
         try { await CheckForUpdateAsync(); }
         catch { /* 更新检测静默失败，不影响主流程 */ }

@@ -207,25 +207,6 @@
                             </Border>
                         </Grid>
                     </Border>
-                    <Border BorderBrush="{DynamicResource BorderBrush}"
-                            BorderThickness="0,1,0,0" Margin="0,12,0,6"/>
-                    <Grid>
-                        <TextBlock Text="以上设置不满意？" FontSize="11"
-                                   Foreground="{DynamicResource TextSecondaryBrush}"
-                                   VerticalAlignment="Center"/>
-                        <Button HorizontalAlignment="Right" VerticalAlignment="Center"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                FontSize="11" Padding="14,6"
-                                Click="ResetGeneralSettings_Click">
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="&#xE777;" FontFamily="Segoe MDL2 Assets"
-                                           FontSize="12" Margin="0,0,6,0"
-                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                <TextBlock Text="恢复默认设置"
-                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            </StackPanel>
-                        </Button>
-                    </Grid>
                 </StackPanel>
             </Border>
 
@@ -285,7 +266,63 @@
                             </TextBlock>
                         </Button>
                     </StackPanel>
+
+                    <Border BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="0,1,0,0" Margin="0,12,0,10"/>
+                    <CheckBox x:Name="AutoBackupCheck" Margin="0,0,0,10"
+                              FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
+                              Checked="AutoBackupCheck_Changed" Unchecked="AutoBackupCheck_Changed">
+                        <TextBlock>
+                            <Run Text="启用自动备份"/><LineBreak/>
+                            <Run Text="按设定间隔自动生成 ZIP 备份文件" FontSize="10"
+                                 Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        </TextBlock>
+                    </CheckBox>
+
+                    <Border Background="{DynamicResource CardBackgroundBrush}"
+                            CornerRadius="6" Padding="14,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="备份间隔" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       VerticalAlignment="Center" Width="80"/>
+                            <Slider x:Name="BackupIntervalSlider" Grid.Column="1"
+                                    Minimum="1" Maximum="72" Margin="8,0"
+                                    ValueChanged="BackupIntervalSlider_ValueChanged"/>
+                            <Border Grid.Column="2" Background="{DynamicResource PrimaryBrush}"
+                                    CornerRadius="4" Padding="8,2" MinWidth="40">
+                                <TextBlock x:Name="BackupIntervalLabel" Text="24小时" FontSize="12"
+                                           Foreground="White" HorizontalAlignment="Center"
+                                           FontWeight="Bold"/>
+                            </Border>
+                        </Grid>
+                    </Border>
                 </StackPanel>
+            </Border>
+
+            <!-- ===== 恢复默认 ===== -->
+            <Border Style="{StaticResource CardStyle}" Padding="16,14" Margin="0,0,0,12">
+                <Grid>
+                    <TextBlock Text="重置所有设置为出厂默认值" FontSize="11"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               VerticalAlignment="Center"/>
+                    <Button HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            FontSize="12" Padding="16,8"
+                            Click="ResetGeneralSettings_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE777;" FontFamily="Segoe MDL2 Assets"
+                                       FontSize="13" Margin="0,0,6,0"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock Text="恢复默认设置"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
             </Border>
 
             <!-- ===== 关于 ===== -->

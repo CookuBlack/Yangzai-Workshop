@@ -17,6 +17,8 @@ public partial class CharacterPage : UserControl
     private List<CharacterInfo> _characters = new();
     private CharacterInfo? _currentCharacter;
     private bool _isEditingPersonality;
+    private bool _multiSelectMode;
+    private readonly HashSet<string> _selectedFiles = new();
 
     public CharacterPage()
     {
@@ -166,11 +168,23 @@ public partial class CharacterPage : UserControl
         var card = new Border
         {
             Background = (Brush)FindResource("CardBackgroundBrush"),
-            CornerRadius = new CornerRadius(6), Cursor = Cursors.Hand,
+            CornerRadius = new CornerRadius(12), Cursor = Cursors.Hand,
             Tag = ch, Width = 90, Height = 105,
-            Margin = new Thickness(3), Padding = new Thickness(3),
+            Margin = new Thickness(3), Padding = new Thickness(4),
             BorderThickness = new Thickness(1),
-            BorderBrush = (Brush)FindResource("BorderBrush")
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            ClipToBounds = true
+        };
+        // 显式 RectangleGeometry Clip 确保圆角在任何渲染模式下都生效
+        card.Loaded += (s, _) =>
+        {
+            var b = (Border)s;
+            b.Clip = new RectangleGeometry(new Rect(0, 0, b.ActualWidth, b.ActualHeight), 12, 12);
+        };
+        card.SizeChanged += (s, _) =>
+        {
+            var b = (Border)s;
+            b.Clip = new RectangleGeometry(new Rect(0, 0, b.ActualWidth, b.ActualHeight), 12, 12);
         };
         var g = new Grid();
         g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
@@ -196,7 +210,7 @@ public partial class CharacterPage : UserControl
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.DecodePixelWidth = 80; bmp.EndInit();
                 bmp.Freeze();
-                av.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
+                av.Background = new ImageBrush(bmp) { Stretch = Stretch.UniformToFill };
             }
             catch { av.Child = Fallback(ch.Name); }
         }
@@ -272,12 +286,12 @@ public partial class CharacterPage : UserControl
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.EndInit();
                 bmp.Freeze();
-                CharAvatarImage.Source = bmp;
+                AvatarBorder.Background = new ImageBrush(bmp) { Stretch = Stretch.UniformToFill };
                 CharAvatarPlaceholder.Visibility = Visibility.Collapsed; return;
             }
             catch { }
         }
-        CharAvatarImage.Source = null;
+        AvatarBorder.Background = (Brush)FindResource("PrimaryBrush");
         CharAvatarPlaceholder.Visibility = Visibility.Visible;
     }
 
@@ -302,7 +316,7 @@ public partial class CharacterPage : UserControl
                 fs.Flush(true);
                 var frozen = img.Clone();
                 frozen.Freeze();
-                CharAvatarImage.Source = frozen;
+                AvatarBorder.Background = new ImageBrush(frozen) { Stretch = Stretch.UniformToFill };
                 CharAvatarPlaceholder.Visibility = Visibility.Collapsed;
                 UpdateCharacterCardAvatar(_currentCharacter.Id, frozen);
             };
@@ -484,14 +498,45 @@ public partial class CharacterPage : UserControl
                 var card = new Border
                 {
                     Width = 170, Margin = new Thickness(4),
-                    CornerRadius = new CornerRadius(6),
+                    CornerRadius = new CornerRadius(8),
                     ClipToBounds = true, Background = Brushes.Transparent
                 };
                 card.Loaded += (_, _) => ViewHelpers.ApplyRoundedClip(card);
                 card.SizeChanged += (_, _) => ViewHelpers.ApplyRoundedClip(card);
                 var cs = new StackPanel();
                 var ia = new Grid();
-                ia.Children.Add(new Image { Source = bmp, Stretch = Stretch.Uniform, MaxHeight = 150 });
+                var charImg = new Image { Source = bmp, Stretch = Stretch.Uniform, MaxHeight = 150, Tag = ip, Cursor = Cursors.Hand };
+                // 选中遮罩
+                var selOverlay = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(0x40, 0x4A, 0x90, 0xE2)),
+                    BorderBrush = (Brush)FindResource("PrimaryBrush"),
+                    BorderThickness = new Thickness(3),
+                    CornerRadius = new CornerRadius(4),
+                    Visibility = _selectedFiles.Contains(ip) ? Visibility.Visible : Visibility.Collapsed,
+                    Child = new TextBlock
+                    {
+                        Text = "\uE73E", FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                        FontSize = 24, Foreground = (Brush)FindResource("PrimaryBrush"),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
+                };
+                charImg.MouseLeftButtonDown += (s, me) =>
+                {
+                    if (_multiSelectMode)
+                    {
+                        ToggleFileSelection(ip, selOverlay);
+                        me.Handled = true; // 阻止冒泡到卡片层打开查看器
+                    }
+                };
+                card.MouseLeftButtonDown += (_, _) =>
+                {
+                    if (!_multiSelectMode)
+                        ViewHelpers.ShowImageViewer(ip, Window.GetWindow(this));
+                };
+                ia.Children.Add(charImg);
+                ia.Children.Add(selOverlay);
 
                 var tb = new StackPanel
                 {
@@ -553,7 +598,6 @@ public partial class CharacterPage : UserControl
                 card.Child = cs;
                 card.MouseEnter += (_, _) => tb.Opacity = 1;
                 card.MouseLeave += (_, _) => tb.Opacity = 0;
-                card.MouseLeftButtonDown += (_, _) => ViewHelpers.ShowImageViewer(ip, Window.GetWindow(this));
                 CharImagePanel.Children.Add(card);
             }
             catch { }
@@ -588,6 +632,113 @@ public partial class CharacterPage : UserControl
         foreach (var f in dlg.FileNames) FileService.CopyFile(f, t);
         RefreshCharacterImages();
         Toast("✓ 已添加");
+    }
+
+    // ===== 多选模式 =====
+    private void ToggleCharMultiSelect_Click(object sender, RoutedEventArgs e)
+    {
+        _multiSelectMode = !_multiSelectMode;
+        _selectedFiles.Clear();
+        CharMultiSelectBtn.Content = _multiSelectMode
+            ? "☑ 退出多选" : "☐ 多选";
+        CharCopySelectedBtn.Visibility = _multiSelectMode ? Visibility.Visible : Visibility.Collapsed;
+        RefreshCharacterImages();
+    }
+
+    private void ToggleFileSelection(string filePath, Border overlay)
+    {
+        if (_selectedFiles.Contains(filePath))
+        {
+            _selectedFiles.Remove(filePath);
+            overlay.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            _selectedFiles.Add(filePath);
+            overlay.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void CopyCharSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedFiles.Count == 0) return;
+        try
+        {
+            var data = new DataObject(DataFormats.FileDrop, _selectedFiles.ToArray());
+            Clipboard.SetDataObject(data);
+            Toast($"✓ 已复制 {_selectedFiles.Count} 个文件");
+        }
+        catch { Toast("✗ 复制失败"); }
+    }
+
+    private void Avatar_Drop(object sender, DragEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            var firstImg = files.FirstOrDefault(f =>
+            {
+                var ext = Path.GetExtension(f).ToLower();
+                return ext is ".png" or ".jpg" or ".jpeg" or ".webp";
+            });
+            if (firstImg == null) return;
+            try
+            {
+                var cw = new CropWindow(firstImg) { Owner = Window.GetWindow(this) };
+                cw.Cropped += img =>
+                {
+                    var dir = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, _currentCharacter.Id);
+                    FileService.EnsureDirectory(dir);
+                    var ap = FileService.CharacterAvatarFile(App.WorkRoot, _currentNovel.Id, _currentCharacter.Id);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(img));
+                    using var fs = new FileStream(ap, FileMode.Create, FileAccess.Write, FileShare.Read);
+                    enc.Save(fs);
+                    fs.Flush(true);
+                    var frozen = img.Clone();
+                    frozen.Freeze();
+                    Dispatcher.Invoke(() =>
+                    {
+                        AvatarBorder.Background = new ImageBrush(frozen) { Stretch = Stretch.UniformToFill };
+                        CharAvatarPlaceholder.Visibility = Visibility.Collapsed;
+                    });
+                    Toast("✓ 头像已更新");
+                };
+                cw.Show();
+            }
+            catch { Toast("✗ 头像导入失败"); }
+        }
+    }
+
+    private void Avatar_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    private void CharImage_Drop(object sender, DragEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            var targetDir = FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, _currentCharacter.Id);
+            foreach (var file in files)
+            {
+                var ext = Path.GetExtension(file).ToLower();
+                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp")
+                    FileService.CopyFile(file, targetDir);
+            }
+            RefreshCharacterImages();
+            Toast("✓ 素材已导入");
+        }
+    }
+
+    private void CharImage_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
     }
 
     private void AddCharacter_Click(object sender, RoutedEventArgs e)

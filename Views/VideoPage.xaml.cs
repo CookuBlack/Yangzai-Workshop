@@ -18,6 +18,8 @@ public partial class VideoPage : UserControl
     private NovelInfo? _currentNovel;
     private List<Chapter> _chapters = new();
     private Chapter? _currentChapter;
+    private bool _multiSelectMode;
+    private readonly HashSet<string> _selectedFiles = new();
 
     public VideoPage()
     {
@@ -428,9 +430,33 @@ public partial class VideoPage : UserControl
 
         card.Child = stack;
 
+        // 选中遮罩
+        var selOverlay = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(0x40, 0x4A, 0x90, 0xE2)),
+            BorderBrush = (Brush)FindResource("PrimaryBrush"),
+            BorderThickness = new Thickness(3),
+            CornerRadius = new CornerRadius(4),
+            Visibility = _selectedFiles.Contains(vp) ? Visibility.Visible : Visibility.Collapsed,
+            Child = new TextBlock
+            {
+                Text = "\uE73E", FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                FontSize = 28, Foreground = (Brush)FindResource("PrimaryBrush"),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        thumbArea.Children.Add(selOverlay);
+
         card.MouseEnter += (_, _) => { playOverlay.Opacity = 0.7; toolbar.Opacity = 1; };
         card.MouseLeave += (_, _) => { playOverlay.Opacity = 0; toolbar.Opacity = 0; };
-        card.MouseLeftButtonDown += (_, _) => PlayVideoInline(vp);
+        card.MouseLeftButtonDown += (_, _) =>
+        {
+            if (_multiSelectMode)
+                ToggleVideoSelection(vp, selOverlay);
+            else
+                PlayVideoInline(vp);
+        };
 
         return card;
     }
@@ -560,6 +586,43 @@ public partial class VideoPage : UserControl
             return r < 15 && g < 15 && b < 15;
         }
         catch { return false; }
+    }
+
+    // ===== 多选模式 =====
+    private void ToggleVideoMultiSelect_Click(object sender, RoutedEventArgs e)
+    {
+        _multiSelectMode = !_multiSelectMode;
+        _selectedFiles.Clear();
+        VideoMultiSelectBtn.Content = _multiSelectMode
+            ? "☑ 退出多选" : "☐ 多选";
+        VideoCopySelectedBtn.Visibility = _multiSelectMode ? Visibility.Visible : Visibility.Collapsed;
+        RefreshVideoGrid();
+    }
+
+    private void ToggleVideoSelection(string filePath, Border overlay)
+    {
+        if (_selectedFiles.Contains(filePath))
+        {
+            _selectedFiles.Remove(filePath);
+            overlay.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            _selectedFiles.Add(filePath);
+            overlay.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void CopyVideoSelected_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selectedFiles.Count == 0) return;
+        try
+        {
+            var data = new DataObject(DataFormats.FileDrop, _selectedFiles.ToArray());
+            Clipboard.SetDataObject(data);
+            Toast($"✓ 已复制 {_selectedFiles.Count} 个文件");
+        }
+        catch { Toast("✗ 复制失败"); }
     }
 
     private void CopyVideo(string path)

@@ -22,8 +22,10 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <!-- 平台按钮：绝对居中 -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Center">
                         <Button x:Name="DouyinBtn" Content="抖音" FontSize="13" FontFamily="Microsoft YaHei UI"
                                 Padding="16,6" Margin="0,0,8,0"
                                 Style="{StaticResource SecondaryButtonStyle}"
@@ -37,8 +39,8 @@
                                 Style="{StaticResource SecondaryButtonStyle}"
                                 Click="BilibiliBtn_Click"/>
                     </StackPanel>
-                    <!-- 导出/导入 + 展开/收起按钮 -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <!-- 导出/导入 + 展开/收起按钮（右对齐） -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right">
                         <Button Content="导出" FontSize="11" FontFamily="Microsoft YaHei UI"
                                 Padding="8,3" Margin="0,0,4,0"
                                 Style="{StaticResource SecondaryButtonStyle}"

@@ -14,6 +14,8 @@ public class AppConfig
     public int FontSize { get; set; } = 14;
     public bool AutoPlayBanner { get; set; } = true;
     public int BannerIntervalSeconds { get; set; } = 5;
+    public bool AutoBackup { get; set; } = false;
+    public int BackupIntervalHours { get; set; } = 24;
     public string LastUpdateDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
     public string Version { get; set; } = "2.2.0";
     public int GitHubStars { get; set; } = 128;

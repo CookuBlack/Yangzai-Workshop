@@ -76,8 +76,7 @@
                         <!-- 标题栏 -->
                         <Border Grid.Row="0" Padding="10,6"
                                 Background="{DynamicResource HoverBrush}"
-                                CornerRadius="6,6,0,0"
-                                MouseDown="ScriptHeader_MouseDown">
+                                CornerRadius="6,6,0,0">
                             <Grid>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets"
@@ -149,8 +148,7 @@
                         </Grid.RowDefinitions>
                         <Border Grid.Row="0" Padding="10,6"
                                 Background="{DynamicResource HoverBrush}"
-                                CornerRadius="6,6,0,0"
-                                MouseDown="ScriptHeader_MouseDown">
+                                CornerRadius="6,6,0,0">
                             <Grid>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock x:Name="ScriptModeIcon" Text="&#xE70B;" FontFamily="Segoe MDL2 Assets"
@@ -159,7 +157,7 @@
                                     <TextBlock x:Name="ScriptModeLabel" Text="剧本内容" FontSize="13" FontWeight="Bold"
                                                Foreground="{DynamicResource TextPrimaryBrush}"
                                                VerticalAlignment="Center"/>
-                                    <TextBlock Text=" (双击切换)" FontSize="10"
+                                    <TextBlock Text=" (双击文本区切换)" FontSize="10"
                                                Foreground="{DynamicResource TextSecondaryBrush}"
                                                VerticalAlignment="Center" Margin="4,0,0,0"/>
                                 </StackPanel>
@@ -183,7 +181,7 @@
                                      VerticalScrollBarVisibility="Auto"
                                      FontSize="14" FontFamily="Microsoft YaHei UI"
                                      LostFocus="ScriptTextBox_LostFocus"
-                                     PreviewMouseDoubleClick="ScriptTextBox_DoubleClick">
+                                     PreviewMouseLeftButtonDown="ScriptTextBox_PreviewMouseDown">
                             <RichTextBox.Resources>
                                 <Style TargetType="Paragraph">
                                     <Setter Property="LineHeight" Value="26"/>
@@ -200,7 +198,7 @@
                                      FontSize="14" FontFamily="Microsoft YaHei UI"
                                      Visibility="Collapsed"
                                      LostFocus="PromptTextBox_LostFocus"
-                                     PreviewMouseDoubleClick="ScriptTextBox_DoubleClick">
+                                     PreviewMouseLeftButtonDown="ScriptTextBox_PreviewMouseDown">
                             <RichTextBox.Resources>
                                 <Style TargetType="Paragraph">
                                     <Setter Property="LineHeight" Value="26"/>
@@ -229,8 +227,7 @@
                         </Grid.RowDefinitions>
                         <Border Grid.Row="0" Padding="10,6"
                                 Background="{DynamicResource HoverBrush}"
-                                CornerRadius="6,6,0,0"
-                                MouseDown="ScriptHeader_MouseDown">
+                                CornerRadius="6,6,0,0">
                             <Grid>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="&#xE722;" FontFamily="Segoe MDL2 Assets"
@@ -241,6 +238,15 @@
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button x:Name="MultiSelectToggleBtn" Content="☐ 多选"
+                                            FontSize="11" Padding="6,3" Margin="0,0,4,0"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="ToggleMultiSelect_Click" ToolTip="开启多选模式"/>
+                                    <Button x:Name="CopySelectedBtn" Content="📋 复制选中"
+                                            FontSize="11" Padding="6,3" Margin="0,0,4,0"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="CopySelected_Click" ToolTip="复制选中的素材"
+                                            Visibility="Collapsed"/>
                                     <Button Content="+ 添加" FontFamily="Microsoft YaHei UI"
                                             FontSize="11" Padding="6,3" Margin="0,0,6,0"
                                             Style="{StaticResource SecondaryButtonStyle}"
@@ -252,7 +258,9 @@
                                 </StackPanel>
                             </Grid>
                         </Border>
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                      AllowDrop="True"
+                                      Drop="ImageGrid_Drop" DragOver="ImageGrid_DragOver">
                             <Grid x:Name="ImageGrid" AllowDrop="True"
                                   Drop="ImageGrid_Drop" DragOver="ImageGrid_DragOver">
                                 <Grid.RowDefinitions>

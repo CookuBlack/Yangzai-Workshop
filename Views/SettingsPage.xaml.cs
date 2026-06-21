@@ -88,6 +88,9 @@ public partial class SettingsPage : UserControl
         AutoPlayCheck.IsChecked = _config.AutoPlayBanner;
         IntervalSlider.Value = _config.BannerIntervalSeconds;
         IntervalLabel.Text = $"{_config.BannerIntervalSeconds}秒";
+        AutoBackupCheck.IsChecked = _config.AutoBackup;
+        BackupIntervalSlider.Value = _config.BackupIntervalHours;
+        BackupIntervalLabel.Text = FormatBackupInterval(_config.BackupIntervalHours);
 
         // 通用设置
         VersionLabel.Text = $"v{App.AppVersion}";
@@ -209,8 +212,16 @@ public partial class SettingsPage : UserControl
         IntervalSlider.Value = defaultInterval;
         IntervalLabel.Text = $"{defaultInterval}秒";
 
+        // 自动备份
+        _config.AutoBackup = false;
+        AutoBackupCheck.IsChecked = false;
+        _config.BackupIntervalHours = 24;
+        BackupIntervalSlider.Value = 24;
+        BackupIntervalLabel.Text = FormatBackupInterval(24);
+
         SaveConfig();
         ApplyFontSizeToEditor(defaultFontSize);
+        App.RestartBackupTimer();
     }
 
     private void AutoSaveCheck_Changed(object sender, RoutedEventArgs e)
@@ -247,6 +258,34 @@ public partial class SettingsPage : UserControl
         if (_isLoading || !IsLoaded) return;
         _config.AutoPlayBanner = AutoPlayCheck.IsChecked == true;
         SaveConfig();
+    }
+
+    private void AutoBackupCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.AutoBackup = AutoBackupCheck.IsChecked == true;
+        SaveConfig();
+        App.RestartBackupTimer();
+    }
+
+    private void BackupIntervalSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.BackupIntervalHours = (int)e.NewValue;
+        BackupIntervalLabel.Text = FormatBackupInterval(_config.BackupIntervalHours);
+        SaveConfig();
+        App.RestartBackupTimer();
+    }
+
+    private static string FormatBackupInterval(int hours)
+    {
+        return hours switch
+        {
+            <= 1 => "1小时",
+            < 24 => $"{hours}小时",
+            24 => "24小时（1天）",
+            _ => $"{hours}小时（{hours / 24}天{hours % 24}小时）"
+        };
     }
 
     private void IntervalSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
