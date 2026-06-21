@@ -162,6 +162,10 @@
                                                VerticalAlignment="Center" Margin="4,0,0,0"/>
                                 </StackPanel>
                                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Button x:Name="AiScriptBtn" Content="🤖 AI 生成"
+                                            FontSize="11" Padding="6,3" Margin="4,0,0,0"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="AiGenerateScript_Click" ToolTip="AI 生成剧本内容"/>
                                     <Button Content="&#xE8C8;" FontFamily="Segoe MDL2 Assets"
                                             FontSize="12" Padding="4,2" Margin="4,0,0,0"
                                             Style="{StaticResource SecondaryButtonStyle}"

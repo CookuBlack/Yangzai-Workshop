@@ -91,6 +91,9 @@ public partial class SettingsPage : UserControl
         AutoBackupCheck.IsChecked = _config.AutoBackup;
         BackupIntervalSlider.Value = _config.BackupIntervalHours;
         BackupIntervalLabel.Text = FormatBackupInterval(_config.BackupIntervalHours);
+        ApiEndpointBox.Text = _config.ApiEndpoint;
+        ApiKeyBox.Password = _config.ApiKey;
+        ApiModelBox.Text = _config.ApiModel;
 
         // 通用设置
         VersionLabel.Text = $"v{App.AppVersion}";
@@ -293,6 +296,26 @@ public partial class SettingsPage : UserControl
         if (_isLoading || !IsLoaded) return;
         _config.BannerIntervalSeconds = (int)e.NewValue;
         IntervalLabel.Text = $"{_config.BannerIntervalSeconds}秒";
+        SaveConfig();
+    }
+
+    // ==================== AI 模型配置 ====================
+    private void ApiEndpointBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.ApiEndpoint = ApiEndpointBox.Text.Trim();
+        SaveConfig();
+    }
+    private void ApiKeyBox_PasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.ApiKey = ApiKeyBox.Password;
+        SaveConfig();
+    }
+    private void ApiModelBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.ApiModel = ApiModelBox.Text.Trim();
         SaveConfig();
     }
 
