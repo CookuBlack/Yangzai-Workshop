@@ -284,8 +284,10 @@ public static class FileService
         if (!Directory.Exists(trash)) return result;
         // 清理超过30天的
         var cutoff = DateTime.Now.AddDays(-30);
-        foreach (var d in Directory.GetDirectories(trash))
+        try
         {
+            foreach (var d in Directory.GetDirectories(trash))
+            {
             var infoPath = Path.Combine(d, ".info");
             if (!File.Exists(infoPath))
             {
@@ -337,6 +339,8 @@ public static class FileService
             }
             catch { }
         }
+        }
+        catch { /* 目录枚举失败静默忽略 */ }
         return result.OrderByDescending(x => x.DeletedAt).ToList();
     }
 

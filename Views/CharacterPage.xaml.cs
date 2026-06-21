@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -28,6 +29,31 @@ public partial class CharacterPage : UserControl
 
     private bool _loaded;
 
+    /// <summary>外部触发刷新：重新加载小说列表（含封面），保持当前选中状态</summary>
+    public void RefreshContent()
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            var curNovelId = _currentNovel?.Id;
+            var curCharId = _currentCharacter?.Id;
+            RefreshNovels();
+            // 重新选中之前的小说和角色
+            if (curNovelId != null)
+            {
+                var novel = _novels.FirstOrDefault(n => n.Id == curNovelId);
+                if (novel != null)
+                {
+                    SelectNovel(novel);
+                    if (curCharId != null)
+                    {
+                        var character = _characters.FirstOrDefault(c => c.Id == curCharId);
+                        if (character != null) SelectCharacter(character);
+                    }
+                }
+            }
+        }, System.Windows.Threading.DispatcherPriority.Render);
+    }
+
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         if (_loaded) return;
@@ -44,12 +70,17 @@ public partial class CharacterPage : UserControl
     // ===== Toast 反馈 =====
     private async void Toast(string msg)
     {
+        if (ToastText == null || ToastBorder == null) return;
         ToastText.Text = msg;
         ToastBorder.Opacity = 1;
-        await System.Threading.Tasks.Task.Delay(1500);
-        var a = new System.Windows.Media.Animation.DoubleAnimation(1, 0,
-            TimeSpan.FromSeconds(0.3));
-        ToastBorder.BeginAnimation(UIElement.OpacityProperty, a);
+        try
+        {
+            await System.Threading.Tasks.Task.Delay(1500);
+            var a = new System.Windows.Media.Animation.DoubleAnimation(1, 0,
+                TimeSpan.FromSeconds(0.3));
+            ToastBorder.BeginAnimation(UIElement.OpacityProperty, a);
+        }
+        catch { /* 页面已卸载时忽略 */ }
     }
 
     // ===== 小说选择 =====
@@ -83,7 +114,8 @@ public partial class CharacterPage : UserControl
                     var data = File.ReadAllBytes(FileService.NovelCoverFile(App.WorkRoot, novel.Id));
                     var bmp = new BitmapImage();
                     bmp.BeginInit();
-                    bmp.StreamSource = new MemoryStream(data);
+                    using var ms = new MemoryStream(data);
+                    bmp.StreamSource = ms;
                     bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
                     coverBox.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
                 }
@@ -206,7 +238,8 @@ public partial class CharacterPage : UserControl
                 var data = File.ReadAllBytes(avP);
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
-                bmp.StreamSource = new MemoryStream(data);
+                using var ms = new MemoryStream(data);
+                bmp.StreamSource = ms;
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.DecodePixelWidth = 80; bmp.EndInit();
                 bmp.Freeze();
@@ -282,7 +315,8 @@ public partial class CharacterPage : UserControl
                 var data = File.ReadAllBytes(p);
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
-                bmp.StreamSource = new MemoryStream(data);
+                using var ms = new MemoryStream(data);
+                bmp.StreamSource = ms;
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.EndInit();
                 bmp.Freeze();
@@ -552,7 +586,8 @@ public partial class CharacterPage : UserControl
                         var data = File.ReadAllBytes(ip);
                         var full = new BitmapImage();
                         full.BeginInit();
-                        full.StreamSource = new MemoryStream(data);
+                        using var msCopy = new MemoryStream(data);
+                        full.StreamSource = msCopy;
                         full.CacheOption = BitmapCacheOption.OnLoad;
                         full.EndInit();
                         Clipboard.SetImage(full);
@@ -632,6 +667,179 @@ public partial class CharacterPage : UserControl
         foreach (var f in dlg.FileNames) FileService.CopyFile(f, t);
         RefreshCharacterImages();
         Toast("✓ 已添加");
+    }
+
+    private void CharAiGenerateImage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+
+        var config = FileService.LoadConfig(App.WorkRoot);
+        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
+        {
+            Toast("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥");
+            return;
+        }
+
+        // 预填角色性格设定作为提示词参考
+        var personalityHint = _currentCharacter.Personality ?? "";
+
+        var win = new Window
+        {
+            Title = $"AI 生成角色图片 - {_currentCharacter.Name}",
+            Width = 500, Height = 360,
+            MinWidth = 400, MinHeight = 300,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = Window.GetWindow(this),
+            ResizeMode = ResizeMode.CanResize,
+            Background = (Brush)FindResource("WindowBackgroundBrush")
+        };
+
+        var grid = new Grid { Margin = new Thickness(16) };
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        grid.Children.Add(new TextBlock
+        {
+            Text = $"为角色「{_currentCharacter.Name}」输入图片生成提示词",
+            FontSize = 14, FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Margin = new Thickness(0, 0, 0, 4)
+        });
+
+        var promptBox = new TextBox
+        {
+            Text = personalityHint,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontSize = 13,
+            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(10)
+        };
+        Grid.SetRow(promptBox, 2);
+        grid.Children.Add(promptBox);
+
+        // 底部：尺寸选择 + 生成按钮
+        var footer = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
+
+        var sizeCard = new Border
+        {
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 6, 10, 6),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var sizePanel = new StackPanel { Orientation = Orientation.Horizontal };
+        sizePanel.Children.Add(new TextBlock
+        {
+            Text = "📐 尺寸", FontSize = 12, FontWeight = FontWeights.Medium,
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        });
+        var sizeBox = new ComboBox
+        {
+            Width = 140, Height = 28, FontSize = 13,
+            IsEditable = true, IsReadOnly = false,
+            Text = "1024x768",
+            ItemsSource = new[] { "1024x768", "1024x1024", "768x1024", "1280x720", "1920x1080", "512x512", "2560x1440" },
+            SelectedIndex = 0,
+            Style = (Style)Application.Current.FindResource("ModernComboBoxStyle"),
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Padding = new Thickness(8, 0, 8, 0)
+        };
+        sizePanel.Children.Add(sizeBox);
+        sizeCard.Child = sizePanel;
+        DockPanel.SetDock(sizeCard, Dock.Left);
+        footer.Children.Add(sizeCard);
+
+        var btnPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        var genBtn = new Button
+        {
+            Content = "🎨 开始生成",
+            FontSize = 13, Padding = new Thickness(16, 6, 16, 6),
+            Style = (Style)FindResource("PrimaryButtonStyle")
+        };
+        btnPanel.Children.Add(genBtn);
+        footer.Children.Add(btnPanel);
+        Grid.SetRow(footer, 4);
+        grid.Children.Add(footer);
+
+        win.Content = grid;
+
+        var cts = new CancellationTokenSource();
+
+        genBtn.Click += async (_, _) =>
+        {
+            var prompt = promptBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                Toast("⚠ 请输入提示词");
+                return;
+            }
+
+            genBtn.IsEnabled = false;
+            genBtn.Content = "⏳ 生成中...";
+            sizeBox.IsEnabled = false;
+
+            try
+            {
+                var size = sizeBox.Text.Trim();
+                var imageUrl = await ApiService.GenerateImageAsync(
+                    config.ApiEndpoint, config.ApiKey, prompt, config.ImageModel, size, cts.Token);
+
+                var imageBytes = await ApiService.DownloadImageAsync(imageUrl, cts.Token);
+
+                var targetDir = FileService.CharacterImagesPath(
+                    App.WorkRoot, _currentNovel.MediaFolder, _currentCharacter.Id);
+                FileService.EnsureDirectory(targetDir);
+                var fileName = $"AI_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+                var filePath = Path.Combine(targetDir, fileName);
+                await File.WriteAllBytesAsync(filePath, imageBytes, cts.Token);
+
+                // 已经回到 UI 线程，直接操作 UI
+                RefreshCharacterImages();
+                Toast("✓ 图片已生成并保存");
+                try { win.Close(); } catch { }
+            }
+            catch (OperationCanceledException)
+            {
+                Toast("⚠ 已取消");
+            }
+            catch (ApiException ex)
+            {
+                Toast($"⚠ {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Toast($"⚠ 生成失败：{ex.Message}");
+            }
+            finally
+            {
+                try { cts.Dispose(); } catch { }
+                genBtn.IsEnabled = true;
+                genBtn.Content = "🎨 开始生成";
+                sizeBox.IsEnabled = true;
+            }
+        };
+
+        win.Closed += (_, _) => cts.Cancel();
+        win.ShowDialog();
     }
 
     // ===== 多选模式 =====

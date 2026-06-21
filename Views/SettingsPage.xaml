@@ -326,7 +326,7 @@
                                  Style="{StaticResource ModernPasswordBoxStyle}" FontSize="12"
                                  PasswordChanged="ApiKeyBox_PasswordChanged"/>
 
-                    <TextBlock Text="模型名称" FontSize="12" Margin="0,0,0,4"
+                    <TextBlock Text="文本模型" FontSize="12" Margin="0,0,0,4"
                                Foreground="{DynamicResource TextPrimaryBrush}"/>
                     <Grid Margin="0,0,0,10">
                         <Grid.ColumnDefinitions>
@@ -334,43 +334,52 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
                         <ComboBox x:Name="ApiModelBox" Grid.Column="0" IsEditable="True"
-                                  Style="{StaticResource ModernComboBoxStyle}"
+                                  Style="{StaticResource ModernComboBoxStyle}" MinHeight="28"
                                   SelectionChanged="ApiModelBox_SelectionChanged"
                                   LostFocus="ApiModelBox_LostFocus" Margin="0,0,8,0"/>
-                        <Button Grid.Column="1" Content="⬇ 获取模型"
+                        <Button Grid.Column="1" Content="⬇ 获取模型列表"
                                 FontSize="11" Padding="8,5"
                                 Style="{StaticResource SecondaryButtonStyle}"
                                 Click="FetchModels_Click"/>
                     </Grid>
+
+                    <TextBlock Text="图片模型" FontSize="12" Margin="0,0,0,4"
+                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    <ComboBox x:Name="ImageModelBox" IsEditable="True" Margin="0,0,0,10"
+                              Style="{StaticResource ModernComboBoxStyle}" MinHeight="28"
+                              LostFocus="ImageModelBox_LostFocus"/>
+
+                    <TextBlock Text="视频模型" FontSize="12" Margin="0,0,0,4"
+                               Foreground="{DynamicResource TextPrimaryBrush}"/>
+                    <ComboBox x:Name="VideoModelBox" IsEditable="True" Margin="0,0,0,10"
+                              Style="{StaticResource ModernComboBoxStyle}" MinHeight="28"
+                              LostFocus="VideoModelBox_LostFocus"/>
                 </StackPanel>
             </Border>
 
-            <!-- ===== AI 生成 Skill 配置 ===== -->
-            <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock FontSize="16" FontWeight="Bold"
-                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4">
-                        <Run Text="🎬" /><Run Text=" AI 生成 Skill"/>
-                    </TextBlock>
-                    <TextBlock Text="自定义生成剧本和提示词的 System Prompt，{content} 将替换为小说内容" FontSize="10"
-                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,12"/>
-
-                    <TextBlock Text="生成剧本 Skill" FontSize="12" Margin="0,0,0,4"
-                               Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <TextBox x:Name="ScriptSkillBox" MinHeight="80"
-                             AcceptsReturn="True" TextWrapping="Wrap"
-                             VerticalScrollBarVisibility="Auto"
-                             Style="{StaticResource ModernTextBoxStyle}" FontSize="11"
-                             LostFocus="ScriptSkillBox_LostFocus"/>
-
-                    <TextBlock Text="生成提示词 Skill" FontSize="12" Margin="0,10,0,4"
-                               Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <TextBox x:Name="PromptSkillBox" MinHeight="60"
-                             AcceptsReturn="True" TextWrapping="Wrap"
-                             VerticalScrollBarVisibility="Auto"
-                             Style="{StaticResource ModernTextBoxStyle}" FontSize="11"
-                             LostFocus="PromptSkillBox_LostFocus"/>
-                </StackPanel>
+            <!-- ===== AI 生成 Skill ===== -->
+            <Border Style="{StaticResource CardStyle}" Padding="16,14" Margin="0,0,0,12">
+                <Grid>
+                    <StackPanel>
+                        <TextBlock FontSize="13" FontWeight="Bold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,2">
+                            <Run Text="🎬" /><Run Text=" AI 生成 Skill"/>
+                        </TextBlock>
+                        <TextBlock Text="自定义剧本生成和提示词生成的 AI 指令" FontSize="10"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
+                    </StackPanel>
+                    <Button HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            FontSize="12" Padding="14,6"
+                            Click="EditSkill_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="✏️" Margin="0,0,6,0"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock Text="编辑 Skill"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
             </Border>
 
             <!-- ===== 恢复默认 ===== -->

@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -101,7 +103,8 @@ public partial class MainWindow : Window
             var data = File.ReadAllBytes(path);
             var bmp = new System.Windows.Media.Imaging.BitmapImage();
             bmp.BeginInit();
-            bmp.StreamSource = new MemoryStream(data);
+            using var msAvatar = new MemoryStream(data);
+            bmp.StreamSource = msAvatar;
             bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
             bmp.DecodePixelWidth = 48;
             bmp.EndInit();
@@ -119,7 +122,7 @@ public partial class MainWindow : Window
                 }
             }
         }
-        catch { }
+        catch (Exception ex) { Debug.WriteLine($"[头像加载] {ex.Message}"); }
     }
 
     private void UpdateStatusBar()
@@ -229,8 +232,12 @@ public partial class MainWindow : Window
         else if (e.LeftButton == MouseButtonState.Pressed) DragMove();
     }
 
-    private void MinimizeButton_Click(object sender, RoutedEventArgs e) =>
+    private void MinimizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _userMinimizing = true;
         WindowState = WindowState.Minimized;
+        Dispatcher.BeginInvoke(() => _userMinimizing = false, DispatcherPriority.Background);
+    }
 
     private bool _isMaximized;
     private double _normalLeft, _normalTop, _normalWidth, _normalHeight;
@@ -275,14 +282,6 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// 标题栏双击最大/还原由 ToggleMaximize 独占处理，CaptionHeight=0 让 WindowChrome 不插手
-    /// </summary>
-    protected override void OnStateChanged(EventArgs e)
-    {
-        base.OnStateChanged(e);
-    }
-
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
 
     protected override void OnClosed(EventArgs e)
@@ -293,7 +292,7 @@ public partial class MainWindow : Window
 
     private void MemoButton_Click(object sender, RoutedEventArgs e)
     {
-        ToolboxPage.OpenMemoWindow();
+        ToolboxPage.OpenMemoWindow(this);
     }
 
     private void ThemeToggle_Click(object sender, RoutedEventArgs e)
@@ -316,7 +315,25 @@ public partial class MainWindow : Window
                 UseShellExecute = true
             });
         }
-        catch { }
+        catch (Exception ex) { Debug.WriteLine($"[头像加载] {ex.Message}"); }
+    }
+
+    private bool _userMinimizing;
+    private bool _suppressStateChange;
+
+    /// <summary>
+    /// 防护：拦截 AllowsTransparency bug 导致的非预期最小化。
+    /// </summary>
+    protected override void OnStateChanged(EventArgs e)
+    {
+        base.OnStateChanged(e);
+        if (WindowState == WindowState.Minimized && !_userMinimizing && !_suppressStateChange)
+        {
+            _suppressStateChange = true;
+            WindowState = WindowState.Normal;
+            Activate();
+            Dispatcher.BeginInvoke(() => _suppressStateChange = false, DispatcherPriority.Loaded);
+        }
     }
 
     protected override void OnClosing(CancelEventArgs e)

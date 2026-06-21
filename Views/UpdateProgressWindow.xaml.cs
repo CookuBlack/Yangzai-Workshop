@@ -9,8 +9,8 @@ public partial class UpdateProgressWindow : Window
     public UpdateProgressWindow(string title, string initialStatus)
     {
         InitializeComponent();
-        Owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive)
-             ?? Application.Current.MainWindow;
+        Topmost = true;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
         TitleText.Text = title;
         StatusText.Text = initialStatus;
         PercentText.Text = "0%";
@@ -19,7 +19,7 @@ public partial class UpdateProgressWindow : Window
     /// <summary>更新进度（0-100）和状态文字</summary>
     public void Report(int percent, string? status = null)
     {
-        Dispatcher.Invoke(() =>
+        Dispatcher.BeginInvoke(() =>
         {
             ProgressBar.Value = percent;
             PercentText.Text = $"{percent}%";

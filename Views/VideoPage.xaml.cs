@@ -1,5 +1,6 @@
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -27,13 +28,25 @@ public partial class VideoPage : UserControl
         Loaded += OnLoaded;
     }
 
-    /// <summary>文件还原后刷新当前章节的视频网格</summary>
+    /// <summary>外部触发刷新：重新加载小说列表（含封面），保持当前选中状态</summary>
     public void RefreshContent()
     {
-        Dispatcher.Invoke(() =>
+        Dispatcher.BeginInvoke(() =>
         {
-            if (_currentNovel != null && _currentChapter != null)
-                RefreshVideoGrid();
+            var curNovelId = _currentNovel?.Id;
+            var curChapterIndex = _currentChapter != null
+                ? _chapters.IndexOf(_currentChapter) : -1;
+            RefreshNovels();
+            if (curNovelId != null)
+            {
+                var novel = _novels.FirstOrDefault(n => n.Id == curNovelId);
+                if (novel != null)
+                {
+                    SelectNovel(novel);
+                    if (curChapterIndex >= 0 && curChapterIndex < _chapters.Count)
+                        SelectChapter(_chapters[curChapterIndex]);
+                }
+            }
         }, System.Windows.Threading.DispatcherPriority.Render);
     }
 
@@ -79,7 +92,8 @@ public partial class VideoPage : UserControl
                 {
                     var data = File.ReadAllBytes(coverPath);
                     var bmp = new BitmapImage(); bmp.BeginInit();
-                    bmp.StreamSource = new MemoryStream(data);
+                    using var msVid = new MemoryStream(data);
+                    bmp.StreamSource = msVid;
                     bmp.CacheOption = BitmapCacheOption.OnLoad;
                     bmp.DecodePixelWidth = 140; bmp.EndInit();
                     coverBorder.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
@@ -935,6 +949,266 @@ public partial class VideoPage : UserControl
         }
     }
 
+    private void AiGenerateVideo_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentChapter == null) return;
+
+        var config = FileService.LoadConfig(App.WorkRoot);
+        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
+        {
+            Toast("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥");
+            return;
+        }
+
+        var win = new Window
+        {
+            Title = "AI 生成视频",
+            Width = 660, Height = 460,
+            MinWidth = 520, MinHeight = 380,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = Window.GetWindow(this),
+            ResizeMode = ResizeMode.CanResize,
+            Background = (Brush)FindResource("WindowBackgroundBrush")
+        };
+
+        var grid = new Grid { Margin = new Thickness(16) };
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        // 标题区域
+        var headerStack = new StackPanel { Margin = new Thickness(0, 0, 0, 0) };
+        headerStack.Children.Add(new TextBlock
+        {
+            Text = $"AI 生成视频 · 第{_currentChapter.Index}章 {_currentChapter.Title}",
+            FontSize = 14, FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Margin = new Thickness(0, 0, 0, 2)
+        });
+        headerStack.Children.Add(new TextBlock
+        {
+            Text = "描述主体、动作、场景、镜头运动、光照和视觉风格",
+            FontSize = 11,
+            Foreground = (Brush)FindResource("TextSecondaryBrush")
+        });
+        Grid.SetRow(headerStack, 0);
+        grid.Children.Add(headerStack);
+
+        // 提示词
+        var promptBox = new TextBox
+        {
+            Text = "",
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontSize = 13, FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(10)
+        };
+        Grid.SetRow(promptBox, 2);
+        grid.Children.Add(promptBox);
+
+        // 参数变量（提前声明以便预设按钮引用）
+        TextBox WidthBox = null!, HeightBox = null!, FramesBox = null!, FpsBox = null!;
+
+        // 底部区域：分为上下两行
+        var footerStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(0, 8, 0, 0) };
+
+        // 第1行：预设按钮 + 状态
+        var topRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+
+        // 左侧预设按钮
+        var presetPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var (label, w, h, nf, fr) in new (string, int, int, int, int)[]
+        {
+            ("5s横屏", 1152, 768, 121, 24),
+            ("3s横屏", 1152, 768, 81, 24),
+            ("5s竖屏", 768, 1152, 121, 24),
+            ("3s竖屏", 768, 1152, 81, 24),
+            ("10s横屏", 1152, 768, 241, 24)
+        })
+        {
+            var pb = new Button
+            {
+                Content = label, FontSize = 11, Padding = new Thickness(10, 4, 10, 4),
+                Margin = new Thickness(0, 0, 6, 0),
+                Style = (Style)FindResource("SecondaryButtonStyle"),
+                Tag = (w, h, nf, fr)
+            };
+            pb.Click += (_, _) =>
+            {
+                var t = ((int, int, int, int))pb.Tag;
+                WidthBox.Text = t.Item1.ToString();
+                HeightBox.Text = t.Item2.ToString();
+                FramesBox.Text = t.Item3.ToString();
+                FpsBox.Text = t.Item4.ToString();
+            };
+            presetPanel.Children.Add(pb);
+        }
+        DockPanel.SetDock(presetPanel, Dock.Left);
+        topRow.Children.Add(presetPanel);
+
+        // 右侧状态文字
+        var statusLabel = new TextBlock
+        {
+            Text = "", FontSize = 11,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        topRow.Children.Add(statusLabel);
+        footerStack.Children.Add(topRow);
+
+        // 第2行：参数卡片 + 生成按钮（右对齐）
+        var bottomRow = new DockPanel();
+
+        // 右侧参数 + 按钮容器
+        var rightPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+
+        // 参数卡片
+        var paramCard = new Border
+        {
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(12, 6, 12, 6),
+            Margin = new Thickness(0, 0, 10, 0)
+        };
+        var paramRow = new StackPanel { Orientation = Orientation.Horizontal };
+        var paramDefs = new[]
+        {
+            ("W", "1152", new Action<TextBox>(b => WidthBox = b)),
+            ("H", "768", new Action<TextBox>(b => HeightBox = b)),
+            ("帧数", "121", new Action<TextBox>(b => FramesBox = b)),
+            ("FPS", "24", new Action<TextBox>(b => FpsBox = b))
+        };
+        foreach (var (label, def, boxRef) in paramDefs)
+        {
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 10, 0) };
+            sp.Children.Add(new TextBlock
+            {
+                Text = label, FontSize = 11,
+                Foreground = (Brush)FindResource("TextSecondaryBrush"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 4, 0)
+            });
+            var box = new TextBox
+            {
+                Width = 44, FontSize = 12, Text = def, TextAlignment = TextAlignment.Center,
+                Background = (Brush)FindResource("WindowBackgroundBrush"),
+                BorderBrush = (Brush)FindResource("BorderBrush"),
+                Foreground = (Brush)FindResource("TextPrimaryBrush"),
+                BorderThickness = new Thickness(1),
+                Height = 24, Padding = new Thickness(4, 0, 4, 0),
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+            boxRef(box);
+            sp.Children.Add(box);
+            paramRow.Children.Add(sp);
+        }
+        paramCard.Child = paramRow;
+        rightPanel.Children.Add(paramCard);
+
+        var genBtn = new Button
+        {
+            Content = "🎬 生成视频",
+            FontSize = 13, Padding = new Thickness(20, 6, 20, 6),
+            Style = (Style)FindResource("PrimaryButtonStyle")
+        };
+        rightPanel.Children.Add(genBtn);
+        DockPanel.SetDock(rightPanel, Dock.Right);
+        bottomRow.Children.Add(rightPanel);
+
+        footerStack.Children.Add(bottomRow);
+
+        Grid.SetRow(footerStack, 4);
+        grid.Children.Add(footerStack);
+
+        win.Content = grid;
+
+        var winCts = new CancellationTokenSource();
+        win.Closed += (_, _) => { try { winCts.Cancel(); } catch { } };
+
+        genBtn.Click += async (_, _) =>
+        {
+            var prompt = promptBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(prompt))
+            { Toast("⚠ 请输入提示词"); return; }
+
+            genBtn.IsEnabled = false;
+            genBtn.Content = "⏳ 创建任务...";
+            statusLabel.Text = "";
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(winCts.Token);
+
+            try
+            {
+                int w = int.TryParse(WidthBox.Text, out var x) ? x : 1152;
+                int h = int.TryParse(HeightBox.Text, out var y) ? y : 768;
+                int nf = int.TryParse(FramesBox.Text, out var f) ? f : 121;
+                int fr = int.TryParse(FpsBox.Text, out var r) ? r : 24;
+
+                var videoId = await ApiService.CreateVideoTaskAsync(
+                    config.ApiEndpoint, config.ApiKey, config.VideoModel, prompt, w, h, nf, fr, cts.Token);
+
+                genBtn.Content = "⏳ 生成中...";
+
+                var progress = new Progress<string>(msg =>
+                {
+                    try { statusLabel.Text = msg; } catch { }
+                });
+
+                var videoUrl = await ApiService.PollVideoResultAsync(
+                    config.ApiEndpoint, config.ApiKey, videoId, progress, cts.Token);
+
+                statusLabel.Text = "下载中...";
+                genBtn.Content = "⏳ 下载中...";
+                var videoBytes = await ApiService.DownloadVideoAsync(videoUrl, cts.Token);
+
+                var targetDir = FileService.ChapterVideosPath(
+                    App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+                FileService.EnsureDirectory(targetDir);
+                var fileName = $"AI_{DateTime.Now:yyyyMMdd_HHmmss}.mp4";
+                var filePath = Path.Combine(targetDir, fileName);
+                await File.WriteAllBytesAsync(filePath, videoBytes, cts.Token);
+
+                RefreshVideoGrid();
+                Toast("✓ 视频已生成并保存");
+                try { win.Close(); } catch { }
+            }
+            catch (OperationCanceledException)
+            {
+                statusLabel.Text = "";
+                Toast("⚠ 已取消");
+            }
+            catch (ApiException ex)
+            {
+                statusLabel.Text = "";
+                Toast($"⚠ {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                statusLabel.Text = "";
+                Toast($"⚠ {ex.Message}");
+            }
+            finally
+            {
+                try { cts.Dispose(); } catch { }
+                genBtn.IsEnabled = true;
+                genBtn.Content = "🎬 生成视频";
+            }
+        };
+
+        win.ShowDialog();
+        try { winCts.Dispose(); } catch { }
+    }
+
     private void VideoGrid_Drop(object sender, DragEventArgs e)
     {
         if (_currentNovel == null || _currentChapter == null) return;
@@ -963,11 +1237,16 @@ public partial class VideoPage : UserControl
     // ===== Toast =====
     private async void Toast(string msg)
     {
+        if (ToastText == null || ToastBorder == null) return;
         ToastText.Text = msg;
-        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.2));
-        ToastBorder.BeginAnimation(UIElement.OpacityProperty, fadeIn);
-        await Task.Delay(1500);
-        var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.35));
-        ToastBorder.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+        ToastBorder.BeginAnimation(UIElement.OpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.2)));
+        try
+        {
+            await Task.Delay(1500);
+            ToastBorder.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.35)));
+        }
+        catch { /* 页面卸载时忽略 */ }
     }
 }

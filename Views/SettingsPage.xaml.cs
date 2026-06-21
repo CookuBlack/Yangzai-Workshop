@@ -94,8 +94,8 @@ public partial class SettingsPage : UserControl
         ApiEndpointBox.Text = _config.ApiEndpoint;
         ApiKeyBox.Password = _config.ApiKey;
         ApiModelBox.Text = _config.ApiModel;
-        ScriptSkillBox.Text = _config.ScriptSkill;
-        PromptSkillBox.Text = _config.PromptSkill;
+        ImageModelBox.Text = _config.ImageModel;
+        VideoModelBox.Text = _config.VideoModel;
 
         // 通用设置
         VersionLabel.Text = $"v{App.AppVersion}";
@@ -154,7 +154,7 @@ public partial class SettingsPage : UserControl
     {
         if (e.Category == UserPreferenceCategory.General)
         {
-            Dispatcher.Invoke(ApplySystemTheme);
+            Dispatcher.BeginInvoke(ApplySystemTheme);
         }
     }
 
@@ -331,17 +331,211 @@ public partial class SettingsPage : UserControl
         }
     }
 
-    private void ScriptSkillBox_LostFocus(object sender, RoutedEventArgs e)
+    private void ImageModelBox_LostFocus(object sender, RoutedEventArgs e)
     {
         if (_isLoading || !IsLoaded) return;
-        _config.ScriptSkill = ScriptSkillBox.Text;
+        _config.ImageModel = ImageModelBox.Text.Trim();
         SaveConfig();
     }
-    private void PromptSkillBox_LostFocus(object sender, RoutedEventArgs e)
+
+    private void VideoModelBox_LostFocus(object sender, RoutedEventArgs e)
     {
         if (_isLoading || !IsLoaded) return;
-        _config.PromptSkill = PromptSkillBox.Text;
+        _config.VideoModel = VideoModelBox.Text.Trim();
         SaveConfig();
+    }
+
+    private void EditSkill_Click(object sender, RoutedEventArgs e)
+    {
+        var win = new Window
+        {
+            Title = "编辑 AI Skill",
+            Width = 620, Height = 520,
+            MinWidth = 500, MinHeight = 400,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = Window.GetWindow(this),
+            ResizeMode = ResizeMode.CanResize,
+            Background = (Brush)FindResource("WindowBackgroundBrush")
+        };
+
+        var grid = new Grid { Margin = new Thickness(20) };
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        // 两个编辑框放入同一行，通过 Visibility 切换
+        var scriptBox = new TextBox
+        {
+            Text = _config.ScriptSkill,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontSize = 13,
+            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(10)
+        };
+        Grid.SetRow(scriptBox, 2);
+        grid.Children.Add(scriptBox);
+
+        var promptBox = new TextBox
+        {
+            Text = _config.PromptSkill,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontSize = 13,
+            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(10),
+            Visibility = Visibility.Collapsed
+        };
+        Grid.SetRow(promptBox, 2);
+        grid.Children.Add(promptBox);
+
+        // 标签页切换按钮
+        var scriptBtn = CreateTabBtn("生成剧本 Skill", true);
+        var promptBtn = CreateTabBtn("生成提示词 Skill", false);
+        scriptBtn.Click += (_, _) => { SwitchTab(scriptBox, promptBox, scriptBtn, promptBtn); };
+        promptBtn.Click += (_, _) => { SwitchTab(promptBox, scriptBox, promptBtn, scriptBtn); };
+        var tabBar = new StackPanel { Orientation = Orientation.Horizontal };
+        tabBar.Children.Add(scriptBtn);
+        tabBar.Children.Add(promptBtn);
+        Grid.SetRow(tabBar, 0);
+        grid.Children.Add(tabBar);
+
+        // 底部按钮
+        var footer = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right
+        };
+        var resetBtn = new Button
+        {
+            Content = "🔄 恢复默认",
+            FontSize = 13,
+            Padding = new Thickness(16, 6, 16, 6),
+            Margin = new Thickness(0, 0, 8, 0),
+            Style = (Style)FindResource("SecondaryButtonStyle")
+        };
+        var saveBtn = new Button
+        {
+            Content = "💾 保存",
+            FontSize = 13,
+            Padding = new Thickness(20, 6, 20, 6),
+            Style = (Style)FindResource("PrimaryButtonStyle")
+        };
+        resetBtn.Click += (_, _) =>
+        {
+            var def = new AppConfig();
+            scriptBox.Text = def.ScriptSkill;
+            promptBox.Text = def.PromptSkill;
+        };
+        saveBtn.Click += (_, _) =>
+        {
+            _config.ScriptSkill = scriptBox.Text;
+            _config.PromptSkill = promptBox.Text;
+            SaveConfig();
+            win.Close();
+        };
+        footer.Children.Add(resetBtn);
+        footer.Children.Add(saveBtn);
+        Grid.SetRow(footer, 4);
+        grid.Children.Add(footer);
+
+        win.Content = grid;
+        win.ShowDialog();
+    }
+
+    private Button CreateTabBtn(string text, bool active)
+    {
+        var btn = new Button
+        {
+            Content = text,
+            FontSize = 14,
+            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal,
+            MinWidth = 150,
+            Padding = new Thickness(20, 7, 20, 7),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Background = active
+                ? (Brush)FindResource("PrimaryBrush")
+                : (Brush)FindResource("CardBackgroundBrush"),
+            Foreground = active
+                ? Brushes.White
+                : (Brush)FindResource("TextPrimaryBrush"),
+            BorderBrush = active
+                ? (Brush)FindResource("PrimaryBrush")
+                : (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 0, 1, 0)
+        };
+        // 不使用样式，手动设置模板避免样式覆盖我们的属性
+        btn.Style = null;
+        btn.OverridesDefaultStyle = true;
+        var template = new ControlTemplate(typeof(Button));
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.Name = "Border";
+        border.SetBinding(Border.BackgroundProperty,
+            new System.Windows.Data.Binding("Background") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+        border.SetBinding(Border.BorderBrushProperty,
+            new System.Windows.Data.Binding("BorderBrush") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+        border.SetBinding(Border.BorderThicknessProperty,
+            new System.Windows.Data.Binding("BorderThickness") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(6, 6, 0, 0));
+        var contentPresenter = new FrameworkElementFactory(typeof(ContentPresenter));
+        contentPresenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+        contentPresenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+        contentPresenter.SetValue(ContentPresenter.MarginProperty, new Thickness(0));
+        contentPresenter.SetBinding(ContentPresenter.ContentProperty,
+            new System.Windows.Data.Binding("Content") { RelativeSource = new System.Windows.Data.RelativeSource(System.Windows.Data.RelativeSourceMode.TemplatedParent) });
+        var sp = new FrameworkElementFactory(typeof(StackPanel));
+        sp.SetValue(StackPanel.OrientationProperty, Orientation.Horizontal);
+        sp.AppendChild(border);
+        border.AppendChild(contentPresenter);
+        template.VisualTree = sp;
+
+        // 鼠标悬停效果（非激活状态）
+        if (!active)
+        {
+            var trigger = new System.Windows.Trigger
+            {
+                Property = UIElement.IsMouseOverProperty,
+                Value = true
+            };
+            trigger.Setters.Add(new Setter(Button.BackgroundProperty,
+                (Brush)FindResource("HoverBrush")));
+            template.Triggers.Add(trigger);
+        }
+
+        btn.Template = template;
+        return btn;
+    }
+
+    private void SwitchTab(TextBox show, TextBox hide, Button activeBtn, Button inactiveBtn)
+    {
+        show.Visibility = Visibility.Visible;
+        hide.Visibility = Visibility.Collapsed;
+
+        // 激活按钮样式
+        activeBtn.Background = (Brush)FindResource("PrimaryBrush");
+        activeBtn.Foreground = Brushes.White;
+        activeBtn.BorderBrush = (Brush)FindResource("PrimaryBrush");
+        activeBtn.FontWeight = FontWeights.SemiBold;
+
+        // 非激活按钮样式
+        inactiveBtn.Background = (Brush)FindResource("CardBackgroundBrush");
+        inactiveBtn.Foreground = (Brush)FindResource("TextPrimaryBrush");
+        inactiveBtn.BorderBrush = (Brush)FindResource("BorderBrush");
+        inactiveBtn.FontWeight = FontWeights.Normal;
     }
 
     private async void FetchModels_Click(object sender, RoutedEventArgs e)
@@ -359,13 +553,24 @@ public partial class SettingsPage : UserControl
         btn.IsEnabled = false;
         btn.Content = "⏳ 获取中...";
         ApiModelBox.IsEnabled = false;
+        ImageModelBox.IsEnabled = false;
+        VideoModelBox.IsEnabled = false;
 
         try
         {
             var models = await ApiService.FetchModelsAsync(endpoint, apiKey);
+            // 填充三个模型下拉框
             ApiModelBox.ItemsSource = models;
+            ImageModelBox.ItemsSource = models;
+            VideoModelBox.ItemsSource = models;
+
             if (!string.IsNullOrEmpty(_config.ApiModel))
                 ApiModelBox.SelectedItem = _config.ApiModel;
+            if (!string.IsNullOrEmpty(_config.ImageModel))
+                ImageModelBox.SelectedItem = _config.ImageModel;
+            if (!string.IsNullOrEmpty(_config.VideoModel))
+                VideoModelBox.SelectedItem = _config.VideoModel;
+
             MessageDialog.Show("成功", $"获取到 {models.Count} 个模型");
         }
         catch (ApiException ex)
@@ -379,8 +584,10 @@ public partial class SettingsPage : UserControl
         finally
         {
             btn.IsEnabled = true;
-            btn.Content = "⬇ 获取模型";
+            btn.Content = "⬇ 获取模型列表";
             ApiModelBox.IsEnabled = true;
+            ImageModelBox.IsEnabled = true;
+            VideoModelBox.IsEnabled = true;
         }
     }
 

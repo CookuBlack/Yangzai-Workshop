@@ -188,6 +188,11 @@
                                         Margin="6,0,0,0" Visibility="Collapsed"
                                         Style="{StaticResource SecondaryButtonStyle}"
                                         Click="CopyCharSelected_Click"/>
+                                <Button x:Name="CharAiImageBtn" Content="🤖 AI 生图"
+                                        FontSize="11" Padding="6,3"
+                                        Margin="6,0,0,0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="CharAiGenerateImage_Click"/>
                                 <Button Content="+ 添加" FontSize="11" Padding="6,3"
                                         Margin="6,0,0,0"
                                         Style="{StaticResource SecondaryButtonStyle}"

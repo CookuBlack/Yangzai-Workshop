@@ -20,20 +20,25 @@ public partial class ToolboxPage : UserControl
         InitializeComponent();
     }
 
-    private void TrashCard_Click(object sender, MouseButtonEventArgs e) => OpenTrashWindow();
+    private void TrashCard_Click(object sender, MouseButtonEventArgs e)
+    {
+        try { OpenTrashWindow(); }
+        catch (Exception ex) { MessageBox.Show($"打开回收站失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error); }
+    }
 
     private Window? _trashWindow;
 
     private void OpenTrashWindow()
     {
+        try
+        {
         _trashWindow = new Window
         {
             Title = "回收站",
             Width = 520, Height = 500,
             MinWidth = 360, MinHeight = 300,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            ShowInTaskbar = true,
-            Owner = Application.Current.MainWindow,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            ShowInTaskbar = false,
             Background = (Brush)Application.Current.FindResource("WindowBackgroundBrush")
         };
 
@@ -95,17 +100,25 @@ public partial class ToolboxPage : UserControl
         _trashWindow.Closed += (_, _) =>
         {
             _trashWindow = null;
-            // 修复 AllowsTransparency 主窗口关闭子窗口时被最小化的问题
-            var mw = Application.Current.MainWindow;
-            if (mw != null)
-            {
-                if (mw.WindowState == WindowState.Minimized)
-                    mw.WindowState = WindowState.Normal;
-                mw.Activate();
-            }
-        }; 
-        LoadTrashList(trashList, countText);
+            // 关闭后激活主窗口
+            Application.Current.MainWindow?.Activate();
+        };
+        _trashWindow.Topmost = true;
+        try { LoadTrashList(trashList, countText); } catch { }
         _trashWindow.Show();
+        _trashWindow.Activate();
+        // 延迟解除置顶，确保窗口取得焦点后不再强制置顶
+        var timer = new System.Windows.Threading.DispatcherTimer
+        { Interval = TimeSpan.FromMilliseconds(400) };
+        timer.Tick += (_, _) => { timer.Stop(); _trashWindow!.Topmost = false; };
+        timer.Start();
+        }
+        catch (Exception ex)
+        {
+            _trashWindow = null;
+            MessageBox.Show($"回收站加载失败：{ex.Message}\n\n{ex.StackTrace}", "错误",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private void LoadTrashList(ItemsControl list, TextBlock countText)
@@ -200,7 +213,8 @@ public partial class ToolboxPage : UserControl
                 };
                 var data = File.ReadAllBytes(item.FilePath);
                 var bmp = new BitmapImage(); bmp.BeginInit();
-                bmp.StreamSource = new MemoryStream(data);
+                using var msTrash = new MemoryStream(data);
+                bmp.StreamSource = msTrash;
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.DecodePixelWidth = 800;
                 bmp.EndInit();
@@ -253,9 +267,12 @@ public partial class ToolboxPage : UserControl
     }
 
     // ===== 备忘录 =====
-    private void MemoCard_Click(object sender, MouseButtonEventArgs e) => OpenMemoWindow();
+    private void MemoCard_Click(object sender, MouseButtonEventArgs e)
+    {
+        try { OpenMemoWindow(Window.GetWindow(this)); } catch { }
+    }
 
-    internal static void OpenMemoWindow()
+    internal static void OpenMemoWindow(Window? owner = null)
     {
         var memos = FileService.LoadMemos(App.WorkRoot);
         Memo? selectedMemo = memos.FirstOrDefault();
@@ -265,8 +282,8 @@ public partial class ToolboxPage : UserControl
             Title = "备忘录",
             Width = 720, Height = 520,
             MinWidth = 560, MinHeight = 400,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = Application.Current.MainWindow,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            ShowInTaskbar = false,
             Background = (Brush)Application.Current.FindResource("WindowBackgroundBrush")
         };
 
@@ -653,10 +670,16 @@ public partial class ToolboxPage : UserControl
             if (selectedMemo != null)
                 SaveCurrentMemo(selectedMemo, titleBox.Text, contentBox.Text);
         };
-
+        win.Closed += (_, _) => { Application.Current.MainWindow?.Activate(); };
         win.Content = root;
+        win.Topmost = true;
         RefreshList();
         win.Show();
+        win.Activate();
+        var topmostTimer = new System.Windows.Threading.DispatcherTimer
+        { Interval = TimeSpan.FromMilliseconds(400) };
+        topmostTimer.Tick += (_, _) => { topmostTimer.Stop(); win.Topmost = false; };
+        topmostTimer.Start();
     }
 
     private void NovelCard_Click(object sender, MouseButtonEventArgs e)

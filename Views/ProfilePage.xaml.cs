@@ -50,7 +50,8 @@ public partial class ProfilePage : UserControl
                 var data = File.ReadAllBytes(path);
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
-                bmp.StreamSource = new MemoryStream(data);
+                using var msAv = new MemoryStream(data);
+                bmp.StreamSource = msAv;
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.EndInit();
                 bmp.Freeze();
@@ -194,7 +195,8 @@ public partial class ProfilePage : UserControl
                 var data = File.ReadAllBytes(FileService.NovelCoverFile(App.WorkRoot, novel.Id));
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
-                bmp.StreamSource = new MemoryStream(data);
+                using var msCov = new MemoryStream(data);
+                bmp.StreamSource = msCov;
                 bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
                 coverBorder.Child = new Border
                 {

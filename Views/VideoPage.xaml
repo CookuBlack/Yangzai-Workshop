@@ -83,6 +83,10 @@
                             Visibility="Collapsed"
                             Style="{StaticResource SecondaryButtonStyle}"
                             Click="CopyVideoSelected_Click"/>
+                    <Button x:Name="AiVideoBtn" Content="🤖 AI 生视频"
+                            FontSize="11" Padding="8,5" Margin="0,0,6,0"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Click="AiGenerateVideo_Click"/>
                     <Button Content="+ 导入视频" Style="{StaticResource PrimaryButtonStyle}"
                             FontSize="12" Padding="10,6"
                             Click="ImportVideo_Click"/>

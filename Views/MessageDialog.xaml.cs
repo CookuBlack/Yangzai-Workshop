@@ -14,9 +14,8 @@ public partial class MessageDialog : Window
         string? checkBoxText = null)
     {
         InitializeComponent();
-        // 以最前台窗口为 Owner，确保弹窗在最前
-        Owner = Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive)
-             ?? Application.Current.MainWindow;
+        Topmost = true;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
         TitleBlock.Text = title;
         MessageBlock.Text = message;
 
@@ -92,14 +91,7 @@ public partial class MessageDialog : Window
         return dlg.Confirmed;
     }
 
-    /// <summary>
-    /// 显示带勾选框的确认对话框
-    /// </summary>
-    /// <param name="title">标题</param>
-    /// <param name="message">提示内容</param>
-    /// <param name="checkBoxText">勾选框文案（如"7 天内不再提醒"）</param>
-    /// <param name="skipChecked">勾选框是否被勾选</param>
-    /// <returns>true=用户点了确定，false=点了取消</returns>
+    /// <summary>显示带勾选框的确认对话框</summary>
     public static bool ConfirmWithCheck(string title, string message,
         string checkBoxText, out bool skipChecked)
     {

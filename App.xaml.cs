@@ -16,7 +16,7 @@ public partial class App : Application
     public static string AvatarDir => FileService.AssetsAvatarPath;
 
     private const string GitHubRepo = "CookuBlack/Yangzai-Workshop";
-    private const string CurrentVersion = "2.2.0";
+    private const string CurrentVersion = "3.0.0";
     public static string AppVersion => CurrentVersion;
 
     /// <summary>版本信息 JSON 地址（GitHub 直连优先，CDN 备用）</summary>
@@ -61,7 +61,7 @@ public partial class App : Application
                 if (elapsed.TotalHours >= cfg.BackupIntervalHours - 0.1)
                     DoAutoBackup();
             }
-            catch { }
+            catch (Exception ex) { Debug.WriteLine($"[备份定时器] {ex.Message}"); }
         };
         _backupTimer.Start();
         _lastBackupTime = DateTime.Now;
@@ -69,27 +69,59 @@ public partial class App : Application
 
     private static void DoAutoBackup()
     {
-        var backupsDir = Path.Combine(WorkRoot, "Backups");
-        Directory.CreateDirectory(backupsDir);
-        var fileName = $"AutoBackup_{DateTime.Now:yyyyMMdd_HHmmss}.zip";
-        var zipPath = Path.Combine(backupsDir, fileName);
-        FileService.BackupData(WorkRoot, zipPath);
-        _lastBackupTime = DateTime.Now;
-
-        // 清理旧备份：保留最近 10 个
         try
         {
-            var files = Directory.GetFiles(backupsDir, "AutoBackup_*.zip")
-                .OrderByDescending(f => f).ToArray();
-            for (int i = 10; i < files.Length; i++)
-                File.Delete(files[i]);
+            var backupsDir = Path.Combine(WorkRoot, "Backups");
+            Directory.CreateDirectory(backupsDir);
+            var fileName = $"AutoBackup_{DateTime.Now:yyyyMMdd_HHmmss}.zip";
+            var zipPath = Path.Combine(backupsDir, fileName);
+            FileService.BackupData(WorkRoot, zipPath);
+            _lastBackupTime = DateTime.Now;
+
+            // 清理旧备份：保留最近 10 个
+            try
+            {
+                var files = Directory.GetFiles(backupsDir, "AutoBackup_*.zip")
+                    .OrderByDescending(f => f).ToArray();
+                for (int i = 10; i < files.Length; i++)
+                {
+                    try { File.Delete(files[i]); } catch { }
+                }
+            }
+            catch { }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[自动备份失败] {ex.Message}");
+        }
     }
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // 全局未处理异常捕获（防止 async void 等导致进程静默崩溃）
+        DispatcherUnhandledException += (_, args) =>
+        {
+            Debug.WriteLine($"[UI异常] {args.Exception}");
+            try { File.AppendAllText(Path.Combine(WorkRoot, "error.log"),
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} UI: {args.Exception}\n"); } catch { }
+            args.Handled = true;
+        };
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            Debug.WriteLine($"[后台任务异常] {args.Exception}");
+            try { File.AppendAllText(Path.Combine(WorkRoot, "error.log"),
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} BgTask: {args.Exception}\n"); } catch { }
+            args.SetObserved();
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            var ex = args.ExceptionObject as Exception;
+            Debug.WriteLine($"[进程异常] {ex}");
+            try { File.AppendAllText(Path.Combine(WorkRoot, "error.log"),
+                $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} Fatal: {ex}\n"); } catch { }
+        };
 
         WorkRoot = FileService.DefaultWorkPath;
         FileService.InitializeWorkData(WorkRoot, CurrentVersion);
@@ -105,7 +137,7 @@ public partial class App : Application
 
         // 启动时静默检查（不弹窗，缓存结果即可）
         try { await CheckForUpdateCoreAsync(false, silent: true); }
-        catch { /* 更新检测静默失败，不影响主流程 */ }
+        catch (Exception ex) { Debug.WriteLine($"[更新检查] {ex.Message}"); }
     }
 
     private static void CleanupUpdateFiles()
@@ -428,7 +460,7 @@ public partial class App : Application
             File.WriteAllText(CacheFile,
                 JsonSerializer.Serialize(data));
         }
-        catch { }
+        catch (Exception ex) { Debug.WriteLine($"[缓存保存失败] {ex.Message}"); }
     }
 
     // ==================== 跳过提醒 ====================
@@ -461,7 +493,7 @@ public partial class App : Application
             File.WriteAllText(UpdateSkipFile,
                 JsonSerializer.Serialize(data));
         }
-        catch { }
+        catch (Exception ex) { Debug.WriteLine($"[跳过提醒保存失败] {ex.Message}"); }
     }
 
     // ==================== 工具方法 ====================

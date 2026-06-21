@@ -1,4 +1,5 @@
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -46,7 +47,7 @@ public partial class ScriptPage : UserControl
     /// <summary>文件还原后刷新当前章节的图像网格</summary>
     public void RefreshContent()
     {
-        Dispatcher.Invoke(() =>
+        Dispatcher.BeginInvoke(() =>
         {
             if (_currentNovel != null && _currentChapter != null)
                 RefreshImageGrid();
@@ -163,7 +164,8 @@ public partial class ScriptPage : UserControl
                 var data = File.ReadAllBytes(FileService.NovelCoverFile(App.WorkRoot, novel.Id));
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
-                bmp.StreamSource = new MemoryStream(data);
+                using var ms1 = new MemoryStream(data);
+                bmp.StreamSource = ms1;
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.EndInit();
                 bmp.Freeze();
@@ -296,6 +298,19 @@ public partial class ScriptPage : UserControl
                 UpdateNovelCardCover(novel.Id, frozen);
                 if (_currentNovel?.Id == novel.Id)
                     _currentNovel.HasCoverImage = true;
+                // 清除人物素材和视频文件页面缓存，确保下次访问时重新加载封面
+                var nav = NavigationService.Instance;
+                nav.ClearPage("Character");
+                nav.ClearPage("Video");
+                // 如果用户当前正在这些页面，刷新内容
+                var currentPage = nav.CurrentPageName;
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (currentPage == "Character" && nav.CurrentPage is CharacterPage cp)
+                        cp.RefreshContent();
+                    else if (currentPage == "Video" && nav.CurrentPage is VideoPage vp)
+                        vp.RefreshContent();
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
             };
             cw.Show();
         }
@@ -621,9 +636,19 @@ public partial class ScriptPage : UserControl
     }
 
     // ===== AI 模型生成 =====
+    private CancellationTokenSource? _aiCts;
+
     private async void AiGenerateScript_Click(object sender, RoutedEventArgs e)
     {
         if (_currentNovel == null || _currentChapter == null) return;
+
+        // 如果正在生成中，点击变为取消
+        if (_aiCts != null)
+        {
+            _aiCts.Cancel();
+            return;
+        }
+
         var config = FileService.LoadConfig(App.WorkRoot);
         if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
         {
@@ -631,59 +656,90 @@ public partial class ScriptPage : UserControl
             return;
         }
 
-        AiScriptBtn.IsEnabled = false;
-        AiScriptBtn.Content = "⏳ 生成中...";
         var isPromptMode = PromptTextBox.Visibility == Visibility.Visible;
         var targetBox = isPromptMode ? PromptTextBox : ScriptTextBox;
         var targetName = isPromptMode ? "创作提示词" : "剧本内容";
 
-        try
+        // 准备提示词
+        string userMsg;
+        string sysPrompt;
+        if (isPromptMode)
         {
-            string userMsg;
-            string sysPrompt;
-            if (isPromptMode)
+            var scriptContent = new TextRange(ScriptTextBox.Document.ContentStart,
+                ScriptTextBox.Document.ContentEnd).Text;
+            if (string.IsNullOrWhiteSpace(scriptContent))
             {
-                sysPrompt = config.PromptSkill;
-                userMsg = $"请为以下小说章节生成创作提示词（用于指导漫剧剧本创作）：\n\n{_currentChapter.OriginalContent}";
-            }
-            else
-            {
-                sysPrompt = config.ScriptSkill;
-                var original = new TextRange(OriginalTextBox.Document.ContentStart,
-                    OriginalTextBox.Document.ContentEnd).Text;
-                if (string.IsNullOrWhiteSpace(original))
-                {
-                    ShowCopyToast("⚠ 小说内容为空，请先导入小说");
-                    return;
-                }
-                userMsg = $"请将以下小说内容改编为漫剧剧本：\n\n{original}";
-            }
-
-            var result = await ApiService.ChatAsync(
-                config.ApiEndpoint, config.ApiKey, config.ApiModel,
-                sysPrompt, userMsg);
-
-            if (result == null)
-            {
-                ShowCopyToast("⚠ API 返回空内容");
+                ShowCopyToast("⚠ 剧本内容为空，请先生成或编写剧本");
                 return;
             }
+            sysPrompt = config.PromptSkill;
+            userMsg = $"请根据以下漫剧剧本内容，为每个场景生成创作提示词（包括画面构图、角色动作、表情、光影氛围等描述）：\n\n"
+                + $"章节：第{_currentChapter.Index}章 {_currentChapter.Title}\n\n"
+                + $"剧本内容：\n{scriptContent}";
+        }
+        else
+        {
+            var original = new TextRange(OriginalTextBox.Document.ContentStart,
+                OriginalTextBox.Document.ContentEnd).Text;
+            if (string.IsNullOrWhiteSpace(original))
+            {
+                ShowCopyToast("⚠ 小说内容为空，请先导入小说");
+                return;
+            }
+            sysPrompt = config.ScriptSkill;
+            userMsg = $"请将以下小说章节内容改编为漫剧剧本：\n\n"
+                + $"章节：第{_currentChapter.Index}章 {_currentChapter.Title}\n\n"
+                + $"原文：\n{original}";
+        }
 
-            targetBox.Document.Blocks.Clear();
-            targetBox.Document.Blocks.Add(new Paragraph(new Run(result)));
-            ShowCopyToast($"✓ {targetName}生成完成");
+        // 开始生成：切换按钮为取消
+        _aiCts = new CancellationTokenSource();
+        AiScriptBtn.Content = "⏹ 取消生成";
+        // 清空目标编辑器并准备写入
+        targetBox.Document.Blocks.Clear();
+        var paragraph = new Paragraph();
+        targetBox.Document.Blocks.Add(paragraph);
+        var tokenCount = 0;
+
+        try
+        {
+            await ApiService.ChatStreamAsync(
+                config.ApiEndpoint, config.ApiKey, config.ApiModel,
+                sysPrompt, userMsg,
+                onToken: token =>
+                {
+                    tokenCount++;
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        paragraph.Inlines.Add(new Run(token));
+                        // 自动滚动到底部
+                        targetBox.ScrollToEnd();
+                    });
+                },
+                cancel: _aiCts.Token);
+
+            _ = Dispatcher.BeginInvoke(() =>
+                ShowCopyToast($"✓ {targetName}生成完成（{tokenCount} tokens）"));
+        }
+        catch (OperationCanceledException)
+        {
+            _ = Dispatcher.BeginInvoke(() =>
+                ShowCopyToast($"⚠ 已取消生成（已生成 {tokenCount} tokens）"));
         }
         catch (ApiException ex)
         {
-            ShowCopyToast($"⚠ {ex.Message}");
+            _ = Dispatcher.BeginInvoke(() =>
+                ShowCopyToast($"⚠ {ex.Message}"));
         }
         catch (Exception ex)
         {
-            ShowCopyToast($"⚠ 生成失败：{ex.Message}");
+            _ = Dispatcher.BeginInvoke(() =>
+                ShowCopyToast($"⚠ 生成失败：{ex.Message}"));
         }
         finally
         {
-            AiScriptBtn.IsEnabled = true;
+            _aiCts?.Dispose();
+            _aiCts = null;
             AiScriptBtn.Content = "🤖 AI 生成";
         }
     }
@@ -751,6 +807,175 @@ public partial class ScriptPage : UserControl
         RefreshImageGrid();
     }
 
+    private void AiGenerateImage_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentChapter == null) return;
+
+        var config = FileService.LoadConfig(App.WorkRoot);
+        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
+        {
+            ShowCopyToast("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥");
+            return;
+        }
+
+        var win = new Window
+        {
+            Title = "AI 生成图片",
+            Width = 500, Height = 360,
+            MinWidth = 400, MinHeight = 300,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = Window.GetWindow(this),
+            ResizeMode = ResizeMode.CanResize,
+            Background = (Brush)FindResource("WindowBackgroundBrush")
+        };
+
+        var grid = new Grid { Margin = new Thickness(16) };
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        // 标题
+        grid.Children.Add(new TextBlock
+        {
+            Text = "输入图片生成提示词",
+            FontSize = 14, FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Margin = new Thickness(0, 0, 0, 4)
+        });
+
+        // 提示词输入框
+        var promptBox = new TextBox
+        {
+            Text = "",
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontSize = 13, FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(10)
+        };
+        Grid.SetRow(promptBox, 2);
+        grid.Children.Add(promptBox);
+
+        // 底部：尺寸选择 + 生成按钮
+        var footer = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
+
+        // 尺寸选择区域（带边框卡片样式）
+        var sizeCard = new Border
+        {
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(10, 6, 10, 6),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var sizePanel = new StackPanel { Orientation = Orientation.Horizontal };
+        sizePanel.Children.Add(new TextBlock
+        {
+            Text = "📐 尺寸", FontSize = 12, FontWeight = FontWeights.Medium,
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        });
+        var sizeBox = new ComboBox
+        {
+            Width = 140, Height = 28, FontSize = 13,
+            IsEditable = true, IsReadOnly = false,
+            Text = "1024x768",
+            ItemsSource = new[] { "1024x768", "1024x1024", "768x1024", "1280x720", "1920x1080", "512x512", "2560x1440" },
+            SelectedIndex = 0,
+            Style = (Style)Application.Current.FindResource("ModernComboBoxStyle"),
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Padding = new Thickness(8, 0, 8, 0)
+        };
+        sizePanel.Children.Add(sizeBox);
+        sizeCard.Child = sizePanel;
+        DockPanel.SetDock(sizeCard, Dock.Left);
+        footer.Children.Add(sizeCard);
+
+        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var genBtn = new Button
+        {
+            Content = "🎨 开始生成",
+            FontSize = 13, Padding = new Thickness(16, 6, 16, 6),
+            Style = (Style)FindResource("PrimaryButtonStyle")
+        };
+        btnPanel.Children.Add(genBtn);
+        footer.Children.Add(btnPanel);
+        Grid.SetRow(footer, 4);
+        grid.Children.Add(footer);
+
+        win.Content = grid;
+
+        var cts = new CancellationTokenSource();
+
+        genBtn.Click += async (_, _) =>
+        {
+            var prompt = promptBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(prompt))
+            {
+                ShowCopyToast("⚠ 请输入提示词");
+                return;
+            }
+
+            genBtn.IsEnabled = false;
+            genBtn.Content = "⏳ 生成中...";
+            sizeBox.IsEnabled = false;
+
+            try
+            {
+                var size = sizeBox.Text.Trim();
+                var imageUrl = await ApiService.GenerateImageAsync(
+                    config.ApiEndpoint, config.ApiKey, prompt, config.ImageModel, size, cts.Token);
+
+                var imageBytes = await ApiService.DownloadImageAsync(imageUrl, cts.Token);
+
+                // 保存到当前章节图像目录
+                var targetDir = FileService.ChapterImagesPath(
+                    App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+                FileService.EnsureDirectory(targetDir);
+                var fileName = $"AI_{DateTime.Now:yyyyMMdd_HHmmss}.png";
+                var filePath = Path.Combine(targetDir, fileName);
+                await File.WriteAllBytesAsync(filePath, imageBytes, cts.Token);
+
+                // 已经回到 UI 线程，直接操作 UI
+                RefreshImageGrid();
+                ShowCopyToast("✓ 图片已生成并保存");
+                try { win.Close(); } catch { }
+            }
+            catch (OperationCanceledException)
+            {
+                ShowCopyToast("⚠ 已取消");
+            }
+            catch (ApiException ex)
+            {
+                ShowCopyToast($"⚠ {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                ShowCopyToast($"⚠ 生成失败：{ex.Message}");
+            }
+            finally
+            {
+                try { cts.Dispose(); } catch { }
+                genBtn.IsEnabled = true;
+                genBtn.Content = "🎨 开始生成";
+                sizeBox.IsEnabled = true;
+            }
+        };
+
+        win.Closed += (_, _) => cts.Cancel();
+        win.ShowDialog();
+    }
+
     private void RefreshImageGrid()
     {
         ImageGrid.Children.Clear();
@@ -794,7 +1019,8 @@ public partial class ScriptPage : UserControl
                 var data = File.ReadAllBytes(imgPath);
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
-                bmp.StreamSource = new MemoryStream(data);
+                using var msImg = new MemoryStream(data);
+                bmp.StreamSource = msImg;
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.DecodePixelWidth = 240;
                 bmp.EndInit();
@@ -1338,12 +1564,17 @@ public partial class ScriptPage : UserControl
     /// </summary>
     private async void ShowCopyToast(string message)
     {
+        if (CopyToastText == null || CopyToast == null) return;
         CopyToastText.Text = message;
-        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.2));
-        CopyToast.BeginAnimation(UIElement.OpacityProperty, fadeIn);
-        await Task.Delay(1500);
-        var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.35));
-        CopyToast.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+        CopyToast.BeginAnimation(UIElement.OpacityProperty,
+            new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.2)));
+        try
+        {
+            await Task.Delay(1500);
+            CopyToast.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.35)));
+        }
+        catch { /* 页面卸载时忽略 */ }
     }
 
     private void ScriptTextBox_LostFocus(object sender, RoutedEventArgs e)

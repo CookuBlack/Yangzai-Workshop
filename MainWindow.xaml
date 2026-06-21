@@ -10,7 +10,8 @@
         ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
         UseLayoutRounding="True"
-        SnapsToDevicePixels="True">
+        SnapsToDevicePixels="True"
+        >
 
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="0"
