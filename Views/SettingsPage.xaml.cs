@@ -319,6 +319,56 @@ public partial class SettingsPage : UserControl
         SaveConfig();
     }
 
+    private void ApiModelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        if (ApiModelBox.SelectedItem is string model)
+        {
+            _config.ApiModel = model;
+            SaveConfig();
+        }
+    }
+
+    private async void FetchModels_Click(object sender, RoutedEventArgs e)
+    {
+        var endpoint = ApiEndpointBox.Text.Trim();
+        var apiKey = ApiKeyBox.Password.Trim();
+        if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(apiKey))
+        {
+            MessageDialog.Show("提示", "请先填写 API 地址和密钥");
+            return;
+        }
+
+        // 获取模型按钮改为加载状态
+        var btn = (Button)sender;
+        btn.IsEnabled = false;
+        btn.Content = "⏳ 获取中...";
+        ApiModelBox.IsEnabled = false;
+
+        try
+        {
+            var models = await ApiService.FetchModelsAsync(endpoint, apiKey);
+            ApiModelBox.ItemsSource = models;
+            if (!string.IsNullOrEmpty(_config.ApiModel))
+                ApiModelBox.SelectedItem = _config.ApiModel;
+            MessageDialog.Show("成功", $"获取到 {models.Count} 个模型");
+        }
+        catch (ApiException ex)
+        {
+            MessageDialog.Show("获取失败", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            MessageDialog.Show("获取失败", $"网络错误：{ex.Message}");
+        }
+        finally
+        {
+            btn.IsEnabled = true;
+            btn.Content = "⬇ 获取模型";
+            ApiModelBox.IsEnabled = true;
+        }
+    }
+
     // ==================== 自动更新 ====================
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
     {

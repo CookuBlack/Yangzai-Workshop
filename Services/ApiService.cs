@@ -73,6 +73,31 @@ public static class ApiService
         return choices[0].GetProperty("message")
             .GetProperty("content").GetString();
     }
+
+    /// <summary>获取可用模型列表</summary>
+    public static async Task<List<string>> FetchModelsAsync(string endpoint, string apiKey)
+    {
+        var url = endpoint.TrimEnd('/') + "/models";
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Add("Authorization", $"Bearer {apiKey}");
+
+        using var res = await _client.SendAsync(req);
+        var respText = await res.Content.ReadAsStringAsync();
+
+        if (!res.IsSuccessStatusCode)
+            throw new ApiException($"获取模型失败 ({(int)res.StatusCode})：{respText}");
+
+        using var doc = JsonDocument.Parse(respText);
+        var data = doc.RootElement.GetProperty("data");
+        var models = new List<string>();
+        foreach (var m in data.EnumerateArray())
+        {
+            var id = m.GetProperty("id").GetString();
+            if (!string.IsNullOrEmpty(id)) models.Add(id);
+        }
+        models.Sort();
+        return models;
+    }
 }
 
 public class ApiException : Exception

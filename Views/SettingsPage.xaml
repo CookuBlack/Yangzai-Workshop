@@ -328,9 +328,20 @@
 
                     <TextBlock Text="模型名称" FontSize="12" Margin="0,0,0,4"
                                Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <TextBox x:Name="ApiModelBox"
-                             Style="{StaticResource ModernTextBoxStyle}" FontSize="12"
-                             LostFocus="ApiModelBox_LostFocus"/>
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <ComboBox x:Name="ApiModelBox" Grid.Column="0" IsEditable="True"
+                                  Style="{StaticResource ModernTextBoxStyle}" FontSize="12"
+                                  SelectionChanged="ApiModelBox_SelectionChanged"
+                                  LostFocus="ApiModelBox_LostFocus" Margin="0,0,8,0"/>
+                        <Button Grid.Column="1" Content="⬇ 获取模型"
+                                FontSize="11" Padding="8,5"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="FetchModels_Click"/>
+                    </Grid>
                 </StackPanel>
             </Border>
 
