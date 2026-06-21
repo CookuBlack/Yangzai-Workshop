@@ -260,43 +260,6 @@
                 </StackPanel>
             </Border>
 
-            <!-- ===== 公告编辑 ===== -->
-            <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12">
-                <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid Grid.Row="0" Margin="0,0,0,10">
-                        <StackPanel>
-                            <TextBlock FontSize="16" FontWeight="Bold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4">
-                                <Run Text="&#xE789;" FontFamily="Segoe MDL2 Assets"/>
-                                <Run Text=" 公告内容"/>
-                            </TextBlock>
-                            <TextBlock Text="首页右侧显示的公告，支持多行文本" FontSize="11"
-                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
-                        </StackPanel>
-                        <Button Style="{StaticResource PrimaryButtonStyle}"
-                                FontSize="12" Padding="12,6" HorizontalAlignment="Right"
-                                Click="SaveNotice_Click">
-                            <TextBlock>
-                                <Run Text="&#xE74E;" FontFamily="Segoe MDL2 Assets"/>
-                                <Run Text=" 保存公告"/>
-                            </TextBlock>
-                        </Button>
-                    </Grid>
-                    <TextBox x:Name="NoticeEditBox" Grid.Row="1" MinHeight="120"
-                             AcceptsReturn="True" TextWrapping="Wrap"
-                             VerticalScrollBarVisibility="Auto"
-                             Style="{StaticResource ModernTextBoxStyle}" FontSize="13"/>
-                    <TextBlock x:Name="NoticeSaveStatus" Grid.Row="2"
-                               FontSize="11" Margin="0,6,0,0"
-                               Foreground="{DynamicResource SuccessBrush}"
-                               Visibility="Collapsed"/>
-                </Grid>
-            </Border>
 
             <!-- ===== 数据备份与恢复 ===== -->
             <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12">

@@ -602,16 +602,13 @@ public static class FileService
             SaveConfig(workRoot, config);
         }
 
-        // 默认公告
-        if (!File.Exists(NoticeFile(workRoot)))
-        {
-            WriteText(NoticeFile(workRoot), "欢迎使用 Yangzai Workshop 小说漫剧创作工作台！\n\n" +
-                $"v{appVersion ?? "1.0"} 版本功能：\n" +
-                "• 支持小说导入与智能分章\n" +
-                "• 剧本改编与素材管理\n" +
-                "• 平台数据统计与可视化\n\n" +
-                "点击「+」按钮导入你的第一本小说吧！");
-        }
+        // 公告（每次启动更新，确保版本号同步）
+        WriteText(NoticeFile(workRoot), "欢迎使用 Yangzai Workshop 小说漫剧创作工作台！\n\n" +
+            $"v{appVersion ?? "1.0"} 版本功能：\n" +
+            "• 支持小说导入与智能分章\n" +
+            "• 剧本改编与素材管理\n" +
+            "• 平台数据统计与可视化\n\n" +
+            "点击「+」按钮导入你的第一本小说吧！");
     }
 
     // ===== 数据备份与恢复 =====

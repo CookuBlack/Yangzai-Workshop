@@ -15,7 +15,7 @@ public class AppConfig
     public bool AutoPlayBanner { get; set; } = true;
     public int BannerIntervalSeconds { get; set; } = 5;
     public string LastUpdateDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
-    public string Version { get; set; } = "2.1.0";
+    public string Version { get; set; } = "2.2.0";
     public int GitHubStars { get; set; } = 128;
     /// <summary>GitHub Personal Access Token（可选，用于提高 API 速率限制至 5000 次/小时）</summary>
     public string GitHubToken { get; set; } = string.Empty;

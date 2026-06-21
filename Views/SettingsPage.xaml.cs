@@ -17,7 +17,6 @@ public partial class SettingsPage : UserControl
 {
     private AppConfig _config = null!;
     private bool _isLoading;
-    private DispatcherTimer? _noticeStatusTimer;
 
     public SettingsPage()
     {
@@ -95,10 +94,6 @@ public partial class SettingsPage : UserControl
         {
             GitHubTokenBox.Password = _config.GitHubToken;
         }
-
-        // 公告
-        var notice = FileService.ReadText(FileService.NoticeFile(App.WorkRoot));
-        NoticeEditBox.Text = notice;
 
         // 版本信息（统一从 App.AppVersion 读取）
         VersionLabel.Text = $"v{App.AppVersion}";
@@ -320,25 +315,6 @@ public partial class SettingsPage : UserControl
         var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
         timer.Tick += (_, _) => { timer.Stop(); UpdateStatusLabel.Visibility = Visibility.Collapsed; };
         timer.Start();
-    }
-
-    // ==================== 公告 ====================
-    private void SaveNotice_Click(object sender, RoutedEventArgs e)
-    {
-        FileService.WriteText(FileService.NoticeFile(App.WorkRoot), NoticeEditBox.Text);
-
-        NoticeSaveStatus.Text = "✓ 公告已保存";
-        NoticeSaveStatus.Visibility = Visibility.Visible;
-        NoticeSaveStatus.Foreground = (Brush)FindResource("SuccessBrush");
-
-        _noticeStatusTimer?.Stop();
-        _noticeStatusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
-        _noticeStatusTimer.Tick += (_, _) =>
-        {
-            _noticeStatusTimer.Stop();
-            NoticeSaveStatus.Visibility = Visibility.Collapsed;
-        };
-        _noticeStatusTimer.Start();
     }
 
     // ==================== 备份与恢复 ====================
