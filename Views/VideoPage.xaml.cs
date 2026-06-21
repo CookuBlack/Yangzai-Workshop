@@ -728,7 +728,7 @@ public partial class VideoPage : UserControl
                 isAtEnd = false;
             }
             if (isPlaying) { me.Pause(); ppBtn.Content = "\uE768"; }
-            else { me.Play(); ppBtn.Content = "\uE769"; }
+            else { me.Play(); ppBtn.Content = "\uE769"; if (!timer.IsEnabled) timer.Start(); }
             isPlaying = !isPlaying;
         };
 
@@ -795,13 +795,13 @@ public partial class VideoPage : UserControl
         {
             sliderDragging = true;
             wasPlayingBeforeDrag = isPlaying;
-            if (isPlaying) { me.Pause(); isPlaying = false; ppBtn.Content = "\uE769"; }
+            if (isPlaying) { me.Pause(); isPlaying = false; ppBtn.Content = "\uE768"; }
         };
         slider.PreviewMouseUp += (_, _) =>
         {
             me.Position = TimeSpan.FromSeconds(slider.Value);
             sliderDragging = false;
-            if (wasPlayingBeforeDrag) { me.Play(); isPlaying = true; ppBtn.Content = "\uE768"; }
+            if (wasPlayingBeforeDrag) { me.Play(); isPlaying = true; ppBtn.Content = "\uE769"; }
         };
         slider.ValueChanged += (s, _) =>
         {
