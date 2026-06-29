@@ -1302,8 +1302,10 @@ public partial class ScriptPage : UserControl
             OriginalCol.Width = new GridLength(40, GridUnitType.Pixel);
             OriginalCol.MinWidth = 0;
             Splitter1.Visibility = Visibility.Collapsed;
+            OriginalExpandBtn.Visibility = Visibility.Visible;
             return;
         }
+        OriginalExpandBtn.Visibility = Visibility.Collapsed;
         FitColumnsToContainer();
     }
 
@@ -1324,8 +1326,10 @@ public partial class ScriptPage : UserControl
             ScriptCol.Width = new GridLength(40, GridUnitType.Pixel);
             ScriptCol.MinWidth = 0;
             Splitter2.Visibility = Visibility.Collapsed;
+            ScriptExpandBtn.Visibility = Visibility.Visible;
             return;
         }
+        ScriptExpandBtn.Visibility = Visibility.Collapsed;
         FitColumnsToContainer();
     }
 
@@ -1344,8 +1348,10 @@ public partial class ScriptPage : UserControl
             _savedImageWidth = ImageCol.ActualWidth > 40 ? ImageCol.ActualWidth : _savedImageWidth;
             ImageCol.Width = new GridLength(40, GridUnitType.Pixel);
             ImageCol.MinWidth = 0;
+            ImageExpandBtn.Visibility = Visibility.Visible;
             return;
         }
+        ImageExpandBtn.Visibility = Visibility.Collapsed;
         FitColumnsToContainer();
     }
 
@@ -1371,27 +1377,23 @@ public partial class ScriptPage : UserControl
     /// </summary>
     private void ClampColumnsNow()
     {
-        double total = ContentGrid.ActualWidth > 0 ? ContentGrid.ActualWidth
-            : this.ActualWidth - NovelListCol.ActualWidth - 32;
+        // 始终从窗口尺寸计算可用空间，避免 ActualWidth 被子列撑大导致误判
+        double total = ActualWidth - NovelListCol.ActualWidth - 24;
+        if (total <= 0) return;
         int visible = (_isOriginalExpanded ? 1 : 0) + (_isScriptExpanded ? 1 : 0) + (_isImageExpanded ? 1 : 0);
         if (visible == 0) return;
         double collapsed = (3 - visible) * 40;
         double available = total - collapsed - 8;
         if (available < visible * 80) return;
 
-        double actualSum = 0;
-        if (_isOriginalExpanded) actualSum += OriginalCol.ActualWidth;
-        if (_isScriptExpanded) actualSum += ScriptCol.ActualWidth;
-        if (_isImageExpanded) actualSum += ImageCol.ActualWidth;
-
-        // 不溢出就不动，保留用户手动调节
-        if (actualSum <= available + 2) return;
-
         double[] saved = { _savedOriginalWidth, _savedScriptWidth, _savedImageWidth };
         bool[] show = { _isOriginalExpanded, _isScriptExpanded, _isImageExpanded };
         double savedSum = 0;
         for (int j = 0; j < 3; j++) if (show[j]) savedSum += saved[j];
         if (savedSum <= 0) return;
+
+        // 用已保存宽度判断是否溢出，避免 ActualWidth 未刷新导致误判
+        if (savedSum <= available + 2) return;
 
         double ratio = available / savedSum;
         if (_isOriginalExpanded)

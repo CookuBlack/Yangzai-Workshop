@@ -128,6 +128,14 @@
                                 </ContextMenu>
                             </RichTextBox.ContextMenu>
                         </RichTextBox>
+                        <!-- 收起时显示的展开按钮 -->
+                        <Button x:Name="OriginalExpandBtn" Grid.RowSpan="2"
+                                Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
+                                FontSize="14" Width="28" Height="28" Padding="0"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="ToggleOriginal_Click" ToolTip="展开小说内容"
+                                Visibility="Collapsed"/>
                     </Grid>
                 </Border>
 
@@ -191,6 +199,14 @@
                                  AcceptsReturn="True" TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto"
                                  FontSize="14" FontFamily="Microsoft YaHei UI" />
+                        <!-- 收起时显示的展开按钮 -->
+                        <Button x:Name="ScriptExpandBtn" Grid.RowSpan="2"
+                                Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
+                                FontSize="14" Width="28" Height="28" Padding="0"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="ToggleScript_Click" ToolTip="展开剧本内容"
+                                Visibility="Collapsed"/>
                     </Grid>
                 </Border>
 
@@ -261,6 +277,14 @@
                                 </Grid.RowDefinitions>
                             </Grid>
                         </ScrollViewer>
+                        <!-- 收起时显示的展开按钮 -->
+                        <Button x:Name="ImageExpandBtn" Grid.RowSpan="2"
+                                Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
+                                FontSize="14" Width="28" Height="28" Padding="0"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="ToggleImage_Click" ToolTip="展开图像素材"
+                                Visibility="Collapsed"/>
                     </Grid>
                 </Border>
             </Grid>
