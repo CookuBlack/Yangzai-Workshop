@@ -41,6 +41,6 @@ public class AppConfig
         new() { Name = "Hugging Face", Url = "https://huggingface.co" },
     };
     public string LastUpdateDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
-    public string Version { get; set; } = "3.1.0";
+    public string Version { get; set; } = "3.2.0";
     public int GitHubStars { get; set; } = 128;
 }
