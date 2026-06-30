@@ -297,6 +297,10 @@ public partial class MainWindow : Window
 
     private void ThemeToggle_Click(object sender, RoutedEventArgs e)
     {
+        // 切换主题前，先保存当前页面内容（防止 FlowDocument 在资源切换时损坏）
+        if (NavigationService.Instance.CurrentPage is Views.ScriptPage sp)
+            sp.ForceSave();
+
         var newTheme = ThemeService.CurrentTheme == "Light" ? "Dark" : "Light";
         ThemeService.ApplyTheme(newTheme, App.WorkRoot);
         UpdateThemeIcon();

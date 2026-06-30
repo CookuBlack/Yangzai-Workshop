@@ -113,11 +113,20 @@ public partial class SettingsPage : UserControl
     }
 
     // ==================== 主题 ====================
+
+    /// <summary>切换主题前先保存当前页内容，防止 RichTextBox 文档在资源切换时损坏</summary>
+    private static void SaveAndApplyTheme(string theme)
+    {
+        if (NavigationService.Instance.CurrentPage is ScriptPage sp)
+            sp.ForceSave();
+        ThemeService.ApplyTheme(theme, App.WorkRoot);
+    }
+
     private void LightRadio_Checked(object sender, RoutedEventArgs e)
     {
         if (_isLoading || !IsLoaded) return;
         _config.Theme = "Light";
-        ThemeService.ApplyTheme("Light", App.WorkRoot);
+        SaveAndApplyTheme("Light");
         SaveConfig();
     }
 
@@ -125,7 +134,7 @@ public partial class SettingsPage : UserControl
     {
         if (_isLoading || !IsLoaded) return;
         _config.Theme = "Dark";
-        ThemeService.ApplyTheme("Dark", App.WorkRoot);
+        SaveAndApplyTheme("Dark");
         SaveConfig();
     }
 
@@ -147,7 +156,7 @@ public partial class SettingsPage : UserControl
         ThemeManualPanel.Visibility = Visibility.Visible;
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         // 恢复之前手动选择的主题
-        ThemeService.ApplyTheme(_config.Theme, App.WorkRoot);
+        SaveAndApplyTheme(_config.Theme);
     }
 
     private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs e)
@@ -164,7 +173,7 @@ public partial class SettingsPage : UserControl
         var theme = isLight ? "Light" : "Dark";
         if (ThemeService.CurrentTheme != theme)
         {
-            ThemeService.ApplyTheme(theme, App.WorkRoot);
+            SaveAndApplyTheme(theme);
             _config.Theme = theme;
             SaveConfig();
         }

@@ -61,6 +61,7 @@
                     <ColumnDefinition x:Name="ScriptCol" Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition x:Name="ImageCol" Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- ===== 小说原内容 ===== -->
@@ -69,73 +70,87 @@
                         CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}"
                         Margin="0,0,0,0">
                     <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <!-- 标题栏 -->
-                        <Border Grid.Row="0" Padding="10,6"
-                                Background="{DynamicResource HoverBrush}"
-                                CornerRadius="6,6,0,0">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                    <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets"
-                                               FontSize="14" Foreground="{DynamicResource PrimaryBrush}"
-                                               VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <TextBlock Text="小说内容" FontSize="13" FontWeight="Bold"
-                                               Foreground="{DynamicResource TextPrimaryBrush}"
-                                               VerticalAlignment="Center"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                    <Button Content="&#xE8C8;" FontFamily="Segoe MDL2 Assets"
-                                            FontSize="12" Padding="4,2" Margin="4,0,0,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="CopyOriginal_Click" ToolTip="复制"/>
-                                    <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
-                                            FontSize="12" Padding="4,2" Margin="4,0,0,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="ToggleOriginal_Click" ToolTip="收起/展开"/>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-                        <RichTextBox x:Name="OriginalTextBox" Grid.Row="1"
-                                     BorderThickness="0"
-                                     Background="Transparent" Padding="10"
-                                     Foreground="{DynamicResource TextPrimaryBrush}"
-                                     VerticalScrollBarVisibility="Auto"
-                                     FontSize="14" FontFamily="Microsoft YaHei UI"
-                                     AllowDrop="False"
-                                     LostFocus="OriginalTextBox_LostFocus">
-                            <RichTextBox.Resources>
-                                <Style TargetType="Paragraph">
-                                    <Setter Property="LineHeight" Value="26"/>
-                                    <Setter Property="Margin" Value="0,0,0,6"/>
-                                </Style>
-                            </RichTextBox.Resources>
-                            <RichTextBox.ContextMenu>
-                                <ContextMenu>
-                                    <MenuItem Header="标红" Click="HighlightRed_Click" Tag="#E81123"/>
-                                    <MenuItem Header="标蓝" Click="HighlightColor_Click" Tag="#1976D2"/>
-                                    <MenuItem Header="标绿" Click="HighlightColor_Click" Tag="#66BB6A"/>
-                                    <MenuItem Header="标橙" Click="HighlightColor_Click" Tag="#FF7043"/>
-                                    <MenuItem Header="标黄" Click="HighlightColor_Click" Tag="#FFD600"/>
-                                    <Separator/>
-                                    <MenuItem Header="清除标记" Click="ClearHighlight_Click"/>
-                                </ContextMenu>
-                            </RichTextBox.ContextMenu>
-                        </RichTextBox>
-                        <!-- 收起时显示的展开按钮 -->
-                        <Button x:Name="OriginalExpandBtn" Grid.RowSpan="2"
-                                Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
-                                FontSize="14" Width="28" Height="28" Padding="0"
-                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Click="ToggleOriginal_Click" ToolTip="展开小说内容"
-                                Visibility="Collapsed"/>
+                        <!-- 展开状态：正常内容 -->
+                        <Grid x:Name="OriginalContentGrid">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <!-- 标题栏 -->
+                            <Border Grid.Row="0" Padding="10,6"
+                                    Background="{DynamicResource HoverBrush}"
+                                    CornerRadius="6,6,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                        <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="14" Foreground="{DynamicResource PrimaryBrush}"
+                                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="小说内容" FontSize="13" FontWeight="Bold"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <Button Content="&#xE8C8;" FontFamily="Segoe MDL2 Assets"
+                                                FontSize="12" Padding="4,2" Margin="4,0,0,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="CopyOriginal_Click" ToolTip="复制"/>
+                                        <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
+                                                FontSize="12" Padding="4,2" Margin="4,0,0,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="ToggleOriginal_Click" ToolTip="收起/展开"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                            <RichTextBox x:Name="OriginalTextBox" Grid.Row="1"
+                                         BorderThickness="0"
+                                         Background="Transparent" Padding="10"
+                                         Foreground="{DynamicResource TextPrimaryBrush}"
+                                         VerticalScrollBarVisibility="Auto"
+                                         FontSize="14" FontFamily="Microsoft YaHei UI"
+                                         AllowDrop="False"
+                                         LostFocus="OriginalTextBox_LostFocus">
+                                <RichTextBox.Resources>
+                                    <Style TargetType="Paragraph">
+                                        <Setter Property="LineHeight" Value="26"/>
+                                    </Style>
+                                </RichTextBox.Resources>
+                                <RichTextBox.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="标红" Click="HighlightRed_Click" Tag="#E81123"/>
+                                        <MenuItem Header="标蓝" Click="HighlightColor_Click" Tag="#1976D2"/>
+                                        <MenuItem Header="标绿" Click="HighlightColor_Click" Tag="#66BB6A"/>
+                                        <MenuItem Header="标橙" Click="HighlightColor_Click" Tag="#FF7043"/>
+                                        <MenuItem Header="标黄" Click="HighlightColor_Click" Tag="#FFD600"/>
+                                        <Separator/>
+                                        <MenuItem Header="清除标记" Click="ClearHighlight_Click"/>
+                                    </ContextMenu>
+                                </RichTextBox.ContextMenu>
+                            </RichTextBox>
+                        </Grid>
+
+                        <!-- 收起状态：干净竖条（图标 + 箭头） -->
+                        <Grid x:Name="OriginalCollapsedView" Visibility="Collapsed">
+                            <StackPanel Orientation="Vertical"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center">
+                                <!-- 图标 -->
+                                <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets"
+                                           FontSize="16"
+                                           Foreground="{DynamicResource PrimaryBrush}"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,0,0,4"
+                                           ToolTip="小说内容"/>
+                                <!-- 展开箭头 -->
+                                <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
+                                        FontSize="12" Width="24" Height="24" Padding="0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="ToggleOriginal_Click" ToolTip="展开小说内容"/>
+                            </StackPanel>
+                        </Grid>
                     </Grid>
                 </Border>
 
@@ -144,7 +159,8 @@
                               HorizontalAlignment="Center" VerticalAlignment="Stretch"
                               Background="Transparent"
                               DragDelta="Splitter1_DragDelta"
-                              DragCompleted="Splitter_DragCompleted"/>
+                              DragCompleted="Splitter_DragCompleted"
+                              PreviewMouseDoubleClick="Splitter_DoubleClick"/>
 
                 <!-- ===== 剧本内容 ===== -->
                 <Border x:Name="ScriptPanel" Grid.Column="2"
@@ -154,59 +170,73 @@
                         <ScaleTransform x:Name="ScriptPanelScale" ScaleX="1" ScaleY="1"/>
                     </Border.LayoutTransform>
                     <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <Border Grid.Row="0" Padding="10,6"
-                                Background="{DynamicResource HoverBrush}"
-                                CornerRadius="6,6,0,0">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                    <TextBlock x:Name="ScriptModeIcon" Text="&#xE70B;" FontFamily="Segoe MDL2 Assets"
-                                               FontSize="14" Foreground="{DynamicResource SuccessBrush}"
-                                               VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <TextBlock x:Name="ScriptModeLabel" Text="剧本内容" FontSize="13" FontWeight="Bold"
-                                               Foreground="{DynamicResource TextPrimaryBrush}"
-                                               VerticalAlignment="Center"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                    <Button x:Name="AiScriptBtn" Content="🤖 AI 生成"
-                                            FontSize="11" Padding="6,3" Margin="4,0,0,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="AiGenerateScript_Click" ToolTip="AI 生成剧本内容"/>
-                                    <Button Content="&#xE8C8;" FontFamily="Segoe MDL2 Assets"
-                                            FontSize="12" Padding="4,2" Margin="4,0,0,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="CopyScript_Click" ToolTip="复制"/>
-                                    <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
-                                            FontSize="12" Padding="4,2" Margin="4,0,0,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="ToggleScript_Click" ToolTip="收起/展开"/>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-                        <!-- 剧本内容纯文本编辑 -->
-                        <TextBox x:Name="ScriptEditBox" Grid.Row="1"
-                                 BorderThickness="0"
-                                 PreviewMouseDoubleClick="ScriptEditBox_PreviewMouseDoubleClick"
-                                 Background="Transparent" Padding="10"
-                                 Foreground="{DynamicResource TextPrimaryBrush}"
-                                 AcceptsReturn="True" TextWrapping="Wrap"
-                                 VerticalScrollBarVisibility="Auto"
-                                 FontSize="14" FontFamily="Microsoft YaHei UI" />
-                        <!-- 收起时显示的展开按钮 -->
-                        <Button x:Name="ScriptExpandBtn" Grid.RowSpan="2"
-                                Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
-                                FontSize="14" Width="28" Height="28" Padding="0"
-                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Click="ToggleScript_Click" ToolTip="展开剧本内容"
-                                Visibility="Collapsed"/>
+                        <!-- 展开状态：正常内容 -->
+                        <Grid x:Name="ScriptContentGrid">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Grid.Row="0" Padding="10,6"
+                                    Background="{DynamicResource HoverBrush}"
+                                    CornerRadius="6,6,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                        <TextBlock x:Name="ScriptModeIcon" Text="&#xE70B;" FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="14" Foreground="{DynamicResource SuccessBrush}"
+                                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock x:Name="ScriptModeLabel" Text="剧本内容" FontSize="13" FontWeight="Bold"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <Button x:Name="AiScriptBtn" Content="🤖 AI 生成"
+                                                FontSize="11" Padding="6,3" Margin="4,0,0,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="AiGenerateScript_Click" ToolTip="AI 生成剧本内容"/>
+                                        <Button Content="&#xE8C8;" FontFamily="Segoe MDL2 Assets"
+                                                FontSize="12" Padding="4,2" Margin="4,0,0,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="CopyScript_Click" ToolTip="复制"/>
+                                        <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
+                                                FontSize="12" Padding="4,2" Margin="4,0,0,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="ToggleScript_Click" ToolTip="收起/展开"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                            <!-- 剧本内容纯文本编辑 -->
+                            <TextBox x:Name="ScriptEditBox" Grid.Row="1"
+                                     BorderThickness="0"
+                                     TextBlock.LineHeight="26"
+                                     PreviewMouseDoubleClick="ScriptEditBox_PreviewMouseDoubleClick"
+                                     Background="Transparent" Padding="10"
+                                     Foreground="{DynamicResource TextPrimaryBrush}"
+                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto"
+                                     FontSize="14" FontFamily="Microsoft YaHei UI" />
+                        </Grid>
+
+                        <!-- 收起状态：干净竖条 -->
+                        <Grid x:Name="ScriptCollapsedView" Visibility="Collapsed">
+                            <StackPanel Orientation="Vertical"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center">
+                                <TextBlock Text="&#xE70B;" FontFamily="Segoe MDL2 Assets"
+                                           FontSize="16"
+                                           Foreground="{DynamicResource SuccessBrush}"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,0,0,4"
+                                           ToolTip="剧本内容"/>
+                                <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
+                                        FontSize="12" Width="24" Height="24" Padding="0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="ToggleScript_Click" ToolTip="展开剧本内容"/>
+                            </StackPanel>
+                        </Grid>
                     </Grid>
                 </Border>
 
@@ -215,78 +245,101 @@
                               HorizontalAlignment="Center" VerticalAlignment="Stretch"
                               Background="Transparent"
                               DragDelta="Splitter2_DragDelta"
-                              DragCompleted="Splitter_DragCompleted"/>
+                              DragCompleted="Splitter_DragCompleted"
+                              PreviewMouseDoubleClick="Splitter_DoubleClick"/>
 
                 <!-- ===== 图像素材 ===== -->
                 <Border x:Name="ImagePanel" Grid.Column="4"
                         BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                        CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}">
+                        CornerRadius="6" Background="{DynamicResource CardBackgroundBrush}"
+                        ClipToBounds="True">
                     <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-                        <Border Grid.Row="0" Padding="10,6"
-                                Background="{DynamicResource HoverBrush}"
-                                CornerRadius="6,6,0,0">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                    <TextBlock Text="&#xE722;" FontFamily="Segoe MDL2 Assets"
-                                               FontSize="14" Foreground="{DynamicResource AccentBrush}"
-                                               VerticalAlignment="Center" Margin="0,0,6,0"/>
-                                    <TextBlock Text="图像素材" FontSize="13" FontWeight="Bold"
-                                               Foreground="{DynamicResource TextPrimaryBrush}"
-                                               VerticalAlignment="Center"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                    <Button x:Name="MultiSelectToggleBtn" Content="☐ 多选"
-                                            FontSize="11" Padding="6,3" Margin="0,0,4,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="ToggleMultiSelect_Click" ToolTip="开启多选模式"/>
-                                    <Button x:Name="CopySelectedBtn" Content="📋 复制选中"
-                                            FontSize="11" Padding="6,3" Margin="0,0,4,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="CopySelected_Click" ToolTip="复制选中的素材"
-                                            Visibility="Collapsed"/>
-                                    <Button x:Name="AiImageBtn" Content="🤖 AI 生图"
-                                            FontSize="11" Padding="6,3" Margin="0,0,4,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="AiGenerateImage_Click" ToolTip="AI 生成图片"/>
-                                    <Button Content="+ 添加" FontFamily="Microsoft YaHei UI"
-                                            FontSize="11" Padding="6,3" Margin="0,0,6,0"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="AddImage_Click" ToolTip="添加图像素材"/>
-                                    <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
-                                            FontSize="12" Padding="4,2"
-                                            Style="{StaticResource SecondaryButtonStyle}"
-                                            Click="ToggleImage_Click" ToolTip="收起/展开"/>
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
-                                      AllowDrop="True"
+                        <!-- 展开状态：正常内容 -->
+                        <Grid x:Name="ImageContentGrid">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Grid.Row="0" Padding="10,6"
+                                    Background="{DynamicResource HoverBrush}"
+                                    CornerRadius="6,6,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                        <TextBlock Text="&#xE722;" FontFamily="Segoe MDL2 Assets"
+                                                   FontSize="14" Foreground="{DynamicResource AccentBrush}"
+                                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                        <TextBlock Text="图像素材" FontSize="13" FontWeight="Bold"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                        <Button x:Name="MultiSelectToggleBtn" Content="☐ 多选"
+                                                FontSize="11" Padding="6,3" Margin="0,0,4,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="ToggleMultiSelect_Click" ToolTip="开启多选模式"/>
+                                        <Button x:Name="CopySelectedBtn" Content="📋 复制选中"
+                                                FontSize="11" Padding="6,3" Margin="0,0,4,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="CopySelected_Click" ToolTip="复制选中的素材"
+                                                Visibility="Collapsed"/>
+                                        <Button x:Name="AiImageBtn" Content="🤖 AI 生图"
+                                                FontSize="11" Padding="6,3" Margin="0,0,4,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="AiGenerateImage_Click" ToolTip="AI 生成图片"/>
+                                        <Button Content="+ 添加" FontFamily="Microsoft YaHei UI"
+                                                FontSize="11" Padding="6,3" Margin="0,0,6,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="AddImage_Click" ToolTip="添加图像素材"/>
+                                        <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
+                                                FontSize="12" Padding="4,2"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="ToggleImage_Click" ToolTip="收起/展开"/>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                          AllowDrop="True"
+                                          Drop="ImageGrid_Drop" DragOver="ImageGrid_DragOver">
+                                <Grid x:Name="ImageGrid" AllowDrop="True"
                                       Drop="ImageGrid_Drop" DragOver="ImageGrid_DragOver">
-                            <Grid x:Name="ImageGrid" AllowDrop="True"
-                                  Drop="ImageGrid_Drop" DragOver="ImageGrid_DragOver">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                            </Grid>
-                        </ScrollViewer>
-                        <!-- 收起时显示的展开按钮 -->
-                        <Button x:Name="ImageExpandBtn" Grid.RowSpan="2"
-                                Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
-                                FontSize="14" Width="28" Height="28" Padding="0"
-                                HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Click="ToggleImage_Click" ToolTip="展开图像素材"
-                                Visibility="Collapsed"/>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                </Grid>
+                            </ScrollViewer>
+                        </Grid>
+
+                        <!-- 收起状态：干净竖条 -->
+                        <Grid x:Name="ImageCollapsedView" Visibility="Collapsed">
+                            <StackPanel Orientation="Vertical"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center">
+                                <TextBlock Text="&#xE722;" FontFamily="Segoe MDL2 Assets"
+                                           FontSize="16"
+                                           Foreground="{DynamicResource AccentBrush}"
+                                           HorizontalAlignment="Center"
+                                           Margin="0,0,0,4"
+                                           ToolTip="图像素材"/>
+                                <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
+                                        FontSize="12" Width="24" Height="24" Padding="0"
+                                        Style="{StaticResource SecondaryButtonStyle}"
+                                        Click="ToggleImage_Click" ToolTip="展开图像素材"/>
+                            </StackPanel>
+                        </Grid>
                     </Grid>
                 </Border>
+
+                <!-- GridSplitter 3：图像面板右边界拖拽 -->
+                <GridSplitter x:Name="Splitter3" Grid.Column="5" Width="4"
+                              HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                              Background="Transparent"
+                              DragDelta="Splitter3_DragDelta"
+                              DragCompleted="Splitter3_DragCompleted"
+                              PreviewMouseDoubleClick="Splitter_DoubleClick"/>
             </Grid>
         </Grid>
 

@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -9,6 +10,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using System.Windows.Documents;
 using YangzaiWorkshop.Models;
 using YangzaiWorkshop.Services;
@@ -27,17 +29,53 @@ public partial class ScriptPage : UserControl
     private double _savedOriginalWidth;
     private double _savedScriptWidth;
     private double _savedImageWidth;
+    private DispatcherTimer? _autoSaveTimer;
     private static string _lastImageSize = "1024x768";
     private bool _multiSelectMode;
     private readonly HashSet<string> _selectedFiles = new();
     private string _scriptText = "";
     private string _promptText = "";
+    private static string? _lastNovelId;
+    private static int _lastChapterIdx = -1;
 
     public ScriptPage()
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
         ChapterPopup.Closed += (_, _) => _chapterPopupOpen = false;
+    }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e)
+    {
+        _autoSaveTimer?.Stop();
+        // 页面卸载前强制保存当前内容（主题切换、导航离开等场景）
+        ForceSave();
+    }
+
+    /// <summary>强制保存当前内容（不受 AutoSave 开关限制，供 MainWindow 主题切换前调用）</summary>
+    public void ForceSave()
+    {
+        if (_currentNovel == null || _currentChapter == null) return;
+        try
+        {
+            // 先将 TextBox 中的实时编辑内容同步到字段
+            if (_isScriptMode)
+                _scriptText = ScriptEditBox.Text;
+            else
+                _promptText = ScriptEditBox.Text;
+
+            _currentChapter.ScriptContent = _scriptText;
+            _currentChapter.ScriptPrompt = _promptText;
+            // 保存小说原文（Base64 编码的 Xaml 格式，保留标红等富文本）
+            var range = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
+            using var ms = new MemoryStream();
+            range.Save(ms, DataFormats.Xaml);
+            var b64 = Convert.ToBase64String(ms.ToArray());
+            _currentChapter.OriginalContent = "$X:" + b64;
+            FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
+        }
+        catch { /* 保存失败静默 */ }
     }
 
     /// <summary>更新编辑框文本（剧本/提示词切换时）</summary>
@@ -51,6 +89,51 @@ public partial class ScriptPage : UserControl
     {
         ScriptEditBox.FontSize = fontSize;
         OriginalTextBox.FontSize = fontSize;
+        // 改字号后重新统一小说内容中的内联字体
+        NormalizeOriginalTextFormat();
+    }
+
+    /// <summary>统一小说内容格式：清除内联 Margin / Foreground，统一 FontFamily/FontSize（保留背景高亮标记）</summary>
+    private void NormalizeOriginalTextFormat()
+    {
+        if (!OriginalTextBox.IsLoaded || OriginalTextBox.Document == null) return;
+        var doc = OriginalTextBox.Document;
+        var defaultFontSize = OriginalTextBox.FontSize;
+        var defaultFontFamily = OriginalTextBox.FontFamily;
+        var defaultForeground = OriginalTextBox.Foreground;
+
+        // 1. 统一 FlowDocument 自身的默认字体和前景色
+        doc.FontFamily = defaultFontFamily;
+        doc.FontSize = defaultFontSize;
+        doc.Foreground = defaultForeground;
+
+        // 2. 递归遍历所有段落和内联元素，统一字体和前景色（保留 Background 高亮标记）
+        foreach (var block in doc.Blocks)
+        {
+            if (block is Paragraph para)
+            {
+                para.Margin = new Thickness(0);
+                para.FontFamily = defaultFontFamily;
+                para.FontSize = defaultFontSize;
+                para.Foreground = defaultForeground;
+                NormalizeInlineFormat(para.Inlines, defaultFontSize, defaultFontFamily, defaultForeground);
+            }
+        }
+    }
+
+    /// <summary>递归遍历 InlineCollection，统一 FontFamily / FontSize / Foreground（保留 Background 高亮标记）</summary>
+    private static void NormalizeInlineFormat(InlineCollection inlines, double defaultFontSize, FontFamily defaultFontFamily, Brush defaultForeground)
+    {
+        var items = inlines.ToList();
+        foreach (var inline in items)
+        {
+            inline.FontFamily = defaultFontFamily;
+            inline.FontSize = defaultFontSize;
+            inline.Foreground = defaultForeground; // 显式设为控件当前主题色（null 在 WPF 中会导致不可见）
+
+            if (inline is Span span)
+                NormalizeInlineFormat(span.Inlines, defaultFontSize, defaultFontFamily, defaultForeground);
+        }
     }
 
     /// <summary>文件还原后刷新当前章节的图像网格</summary>
@@ -69,25 +152,52 @@ public partial class ScriptPage : UserControl
     {
         if (_loaded) return;
         _loaded = true;
+
+        // 先加载字体设置（必须在内容加载前，否则 NormalizeOriginalTextFormat 用错值）
+        try
+        {
+            var config = FileService.LoadConfig(App.WorkRoot);
+            var fontSize = config.FontSize;
+            ScriptEditBox.FontSize = fontSize;
+            OriginalTextBox.FontSize = fontSize;
+        }
+        catch { }
+
         try
         {
             RefreshNovelList();
         }
         catch { /* 初始化静默失败 */ }
 
-        // 加载保存的字体大小
-        try
-        {
-            var config = FileService.LoadConfig(App.WorkRoot);
-            OriginalTextBox.FontSize = config.FontSize;
-        }
-        catch { }
-
         _savedOriginalWidth = 300;
         _savedScriptWidth = 300;
         _savedImageWidth = 300;
 
         FixRichTextBoxCarets();
+
+        // 自动保存定时器（输入停止 2 秒后保存）
+        _autoSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _autoSaveTimer.Tick += (_, _) =>
+        {
+            _autoSaveTimer.Stop();
+            SaveCurrentContent();
+        };
+        ScriptEditBox.TextChanged += (_, _) =>
+        {
+            if (_autoSaveTimer != null)
+            {
+                _autoSaveTimer.Stop();
+                _autoSaveTimer.Start();
+            }
+        };
+        OriginalTextBox.TextChanged += (_, _) =>
+        {
+            if (_autoSaveTimer != null)
+            {
+                _autoSaveTimer.Stop();
+                _autoSaveTimer.Start();
+            }
+        };
     }
 
     /// <summary>修复暗色模式下 RichTextBox 光标不可见问题（WPF RichTextBox 无 CaretBrush 属性）</summary>
@@ -141,7 +251,21 @@ public partial class ScriptPage : UserControl
         }
 
         if (_novels.Count > 0 && _currentNovel == null)
+        {
+            // 主题切换等页面重建时，恢复上次选中的小说和章节
+            if (_lastNovelId != null)
+            {
+                var prevNovel = _novels.Find(n => n.Id == _lastNovelId);
+                if (prevNovel != null)
+                {
+                    SelectNovel(prevNovel);
+                    if (_lastChapterIdx >= 0 && _lastChapterIdx < _chapters.Count)
+                        SelectChapter(_chapters[_lastChapterIdx]);
+                    return;
+                }
+            }
             SelectNovel(_novels[0]);
+        }
     }
 
     private Border CreateNovelCard(NovelInfo novel)
@@ -542,7 +666,17 @@ public partial class ScriptPage : UserControl
 
     private void SelectChapter(Chapter chapter)
     {
+        // 切换章节前先保存当前编辑内容
+        if (_currentChapter != null && _currentChapter != chapter)
+        {
+            if (_isScriptMode) _scriptText = ScriptEditBox.Text;
+            else _promptText = ScriptEditBox.Text;
+            SaveCurrentContent();
+        }
         _currentChapter = chapter;
+        // 记住当前选中状态，供主题切换后恢复
+        _lastNovelId = _currentNovel?.Id;
+        _lastChapterIdx = _chapters.IndexOf(chapter);
         foreach (Button btn in ChapterTabsPanel.Children.OfType<Button>())
         {
             if (btn.Tag is Chapter ch)
@@ -561,7 +695,38 @@ public partial class ScriptPage : UserControl
         {
             // 加载小说原文（RichTextBox）
             var textRange = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
-            textRange.Text = _currentChapter.OriginalContent ?? "";
+            var content = _currentChapter.OriginalContent ?? "";
+            if (!string.IsNullOrEmpty(content))
+            {
+                try
+                {
+                    if (content.StartsWith("$X:"))
+                    {
+                        // Base64 编码的 Xaml 格式（保留标红等富文本）
+                        var xaml = Encoding.UTF8.GetString(Convert.FromBase64String(content.Substring(3)));
+                        using var ms = new MemoryStream(Encoding.UTF8.GetBytes(xaml));
+                        textRange.Load(ms, DataFormats.Xaml);
+                    }
+                    else if (content.StartsWith("<Section"))
+                    {
+                        // 旧版纯 Xaml 格式
+                        using var ms = new MemoryStream(Encoding.UTF8.GetBytes(content));
+                        textRange.Load(ms, DataFormats.Xaml);
+                    }
+                    else if (IsLikelyBinaryGarbage(content))
+                    {
+                        textRange.Text = "";
+                    }
+                    else
+                    {
+                        textRange.Text = content;
+                    }
+                }
+                catch { textRange.Text = ""; }
+            }
+
+            // 统一小说内容格式（清除内联 Margin + 字号统一为控件默认值）
+            NormalizeOriginalTextFormat();
         }
         catch { }
 
@@ -580,11 +745,17 @@ public partial class ScriptPage : UserControl
         if (_toggling || _currentChapter == null) return;
         _toggling = true;
 
-        // 切换前保存当前编辑内容
+        // 切换前将 TextBox 实时编辑内容同步到字段并保存
         if (_isScriptMode)
+        {
+            _scriptText = ScriptEditBox.Text;
             _currentChapter.ScriptContent = _scriptText;
+        }
         else
+        {
+            _promptText = ScriptEditBox.Text;
             _currentChapter.ScriptPrompt = _promptText;
+        }
 
         // 翻转动画：缩小 → 切换内容 → 放大
         var shrinkAnim = new System.Windows.Media.Animation.DoubleAnimation(
@@ -1005,6 +1176,13 @@ public partial class ScriptPage : UserControl
         }
 
         int cols = 3;
+        // 根据可用宽度自适应列数
+        if (ImagePanel.IsLoaded && ImagePanel.ActualWidth > 0)
+        {
+            double availW = ImagePanel.ActualWidth - 16; // 减去内边距
+            if (availW < 260) cols = 1;      // 窄屏：单列大图
+            else if (availW < 460) cols = 2; // 中等：双列
+        }
         for (int i = 0; i < cols; i++)
             ImageGrid.ColumnDefinitions.Add(new ColumnDefinition());
 
@@ -1022,14 +1200,15 @@ public partial class ScriptPage : UserControl
                 using var msImg = new MemoryStream(data);
                 bmp.StreamSource = msImg;
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.DecodePixelWidth = 240;
+                bmp.DecodePixelWidth = cols == 1 ? 400 : (cols == 2 ? 300 : 240);
                 bmp.EndInit();
                 bmp.Freeze();
 
                 var img = new Image
                 {
                     Source = bmp, Stretch = Stretch.Uniform,
-                    MaxHeight = 170, Tag = imgPath,
+                    MaxHeight = cols == 1 ? 280 : (cols == 2 ? 200 : 170),
+                    Tag = imgPath,
                     Cursor = Cursors.Hand
                 };
 
@@ -1290,9 +1469,9 @@ public partial class ScriptPage : UserControl
         _isOriginalExpanded = !_isOriginalExpanded;
         if (_isOriginalExpanded)
         {
-            double w = _savedOriginalWidth > 80 ? _savedOriginalWidth : 300;
+            double w = _savedOriginalWidth > 200 ? _savedOriginalWidth : 300;
             OriginalCol.Width = new GridLength(w, GridUnitType.Pixel);
-            OriginalCol.MinWidth = 80;
+            OriginalCol.MinWidth = 200;
             OriginalPanel.Visibility = Visibility.Visible;
             Splitter1.Visibility = Visibility.Visible;
         }
@@ -1302,10 +1481,12 @@ public partial class ScriptPage : UserControl
             OriginalCol.Width = new GridLength(40, GridUnitType.Pixel);
             OriginalCol.MinWidth = 0;
             Splitter1.Visibility = Visibility.Collapsed;
-            OriginalExpandBtn.Visibility = Visibility.Visible;
+            OriginalContentGrid.Visibility = Visibility.Collapsed;
+            OriginalCollapsedView.Visibility = Visibility.Visible;
             return;
         }
-        OriginalExpandBtn.Visibility = Visibility.Collapsed;
+        OriginalContentGrid.Visibility = Visibility.Visible;
+        OriginalCollapsedView.Visibility = Visibility.Collapsed;
         FitColumnsToContainer();
     }
 
@@ -1314,9 +1495,9 @@ public partial class ScriptPage : UserControl
         _isScriptExpanded = !_isScriptExpanded;
         if (_isScriptExpanded)
         {
-            double w = _savedScriptWidth > 80 ? _savedScriptWidth : 300;
+            double w = _savedScriptWidth > 200 ? _savedScriptWidth : 300;
             ScriptCol.Width = new GridLength(w, GridUnitType.Pixel);
-            ScriptCol.MinWidth = 80;
+            ScriptCol.MinWidth = 200;
             ScriptPanel.Visibility = Visibility.Visible;
             Splitter2.Visibility = Visibility.Visible;
         }
@@ -1326,10 +1507,12 @@ public partial class ScriptPage : UserControl
             ScriptCol.Width = new GridLength(40, GridUnitType.Pixel);
             ScriptCol.MinWidth = 0;
             Splitter2.Visibility = Visibility.Collapsed;
-            ScriptExpandBtn.Visibility = Visibility.Visible;
+            ScriptContentGrid.Visibility = Visibility.Collapsed;
+            ScriptCollapsedView.Visibility = Visibility.Visible;
             return;
         }
-        ScriptExpandBtn.Visibility = Visibility.Collapsed;
+        ScriptContentGrid.Visibility = Visibility.Visible;
+        ScriptCollapsedView.Visibility = Visibility.Collapsed;
         FitColumnsToContainer();
     }
 
@@ -1338,20 +1521,24 @@ public partial class ScriptPage : UserControl
         _isImageExpanded = !_isImageExpanded;
         if (_isImageExpanded)
         {
-            double w = _savedImageWidth > 80 ? _savedImageWidth : 300;
+            double w = _savedImageWidth > 220 ? _savedImageWidth : 300;
             ImageCol.Width = new GridLength(w, GridUnitType.Pixel);
-            ImageCol.MinWidth = 80;
+            ImageCol.MinWidth = 220;
             ImagePanel.Visibility = Visibility.Visible;
+            Splitter3.Visibility = Visibility.Visible;
         }
         else
         {
             _savedImageWidth = ImageCol.ActualWidth > 40 ? ImageCol.ActualWidth : _savedImageWidth;
             ImageCol.Width = new GridLength(40, GridUnitType.Pixel);
             ImageCol.MinWidth = 0;
-            ImageExpandBtn.Visibility = Visibility.Visible;
+            ImageContentGrid.Visibility = Visibility.Collapsed;
+            ImageCollapsedView.Visibility = Visibility.Visible;
+            Splitter3.Visibility = Visibility.Collapsed;
             return;
         }
-        ImageExpandBtn.Visibility = Visibility.Collapsed;
+        ImageContentGrid.Visibility = Visibility.Visible;
+        ImageCollapsedView.Visibility = Visibility.Collapsed;
         FitColumnsToContainer();
     }
 
@@ -1377,14 +1564,20 @@ public partial class ScriptPage : UserControl
     /// </summary>
     private void ClampColumnsNow()
     {
-        // 始终从窗口尺寸计算可用空间，避免 ActualWidth 被子列撑大导致误判
-        double total = ActualWidth - NovelListCol.ActualWidth - 24;
+        double total = GetContentAvailableWidth();
         if (total <= 0) return;
         int visible = (_isOriginalExpanded ? 1 : 0) + (_isScriptExpanded ? 1 : 0) + (_isImageExpanded ? 1 : 0);
         if (visible == 0) return;
         double collapsed = (3 - visible) * 40;
-        double available = total - collapsed - 8;
-        if (available < visible * 80) return;
+        // splitter 宽度：每个展开的面板间有 1 个 splitter（共 2 个内部），图像右侧还有 1 个
+        int splitterCount = (_isOriginalExpanded && _isScriptExpanded ? 1 : 0)
+            + (_isScriptExpanded && _isImageExpanded ? 1 : 0)
+            + (_isImageExpanded ? 1 : 0);
+        double available = total - collapsed - splitterCount * 4;
+        // 各面板最小宽度：小说/剧本200，图像220
+        double minTotal = (_isOriginalExpanded ? 200.0 : 0)
+            + (_isScriptExpanded ? 200.0 : 0) + (_isImageExpanded ? 220.0 : 0);
+        if (available < minTotal) return;
 
         double[] saved = { _savedOriginalWidth, _savedScriptWidth, _savedImageWidth };
         bool[] show = { _isOriginalExpanded, _isScriptExpanded, _isImageExpanded };
@@ -1397,47 +1590,136 @@ public partial class ScriptPage : UserControl
 
         double ratio = available / savedSum;
         if (_isOriginalExpanded)
-            OriginalCol.Width = new GridLength(Math.Max(80, saved[0] * ratio), GridUnitType.Pixel);
+            OriginalCol.Width = new GridLength(Math.Max(200, saved[0] * ratio), GridUnitType.Pixel);
         if (_isScriptExpanded)
-            ScriptCol.Width = new GridLength(Math.Max(80, saved[1] * ratio), GridUnitType.Pixel);
+            ScriptCol.Width = new GridLength(Math.Max(200, saved[1] * ratio), GridUnitType.Pixel);
         if (_isImageExpanded)
-            ImageCol.Width = new GridLength(Math.Max(80, saved[2] * ratio), GridUnitType.Pixel);
+            ImageCol.Width = new GridLength(Math.Max(220, saved[2] * ratio), GridUnitType.Pixel);
+    }
+
+    /// <summary>计算三列内容区可用总宽度（窗口级，不受子列溢出影响）</summary>
+    private double GetContentAvailableWidth()
+    {
+        double w = ActualWidth - NovelListCol.ActualWidth - 24;
+        return w > 0 ? w : 800;
     }
 
     /// <summary>
-    /// 拖拽 Splitter1 时：不让脚本列缩到 80 以下，也不让图像列被挤出边界
+    /// 拖拽 Splitter1 时：不让脚本列缩到 200 以下，也不让图像列被挤出边界
     /// </summary>
     private void Splitter1_DragDelta(object sender, DragDeltaEventArgs e)
     {
+        double newOriginalW = OriginalCol.ActualWidth + e.HorizontalChange;
         double newScriptW = ScriptCol.ActualWidth - e.HorizontalChange;
-        // 脚本列最小 80
-        if (newScriptW < 80) { e.Handled = true; return; }
-        // 图像列不能被挤出：必须保留至少 80
-        double spaceForImage = ContentGrid.ActualWidth -
-            (OriginalCol.ActualWidth + e.HorizontalChange) - newScriptW - 8;
-        if (_isImageExpanded && spaceForImage < 80) e.Handled = true;
+        // 脚本列最小 200
+        if (newScriptW < 200) { e.Handled = true; return; }
+        // 图像列不能被挤出：必须保留至少 220
+        double collapsed = 0;
+        if (!_isScriptExpanded) collapsed += 40;
+        if (!_isImageExpanded) collapsed += 40;
+        double total = GetContentAvailableWidth();
+        double targetImgW = total - newOriginalW - newScriptW - collapsed - 8;
+        if (_isImageExpanded && targetImgW < 220) { e.Handled = true; return; }
+        // 约束图像列不溢出（设置 MaxWidth 防止实际渲染溢出）
+        if (_isImageExpanded && targetImgW > 0)
+            ImageCol.MaxWidth = targetImgW;
     }
 
     /// <summary>
-    /// 拖拽 Splitter2 时：图像列不超出容器，脚本列也不缩到 80 以下
+    /// 拖拽 Splitter2 时：图像列不超出容器，脚本列也不缩到 200 以下
     /// </summary>
     private void Splitter2_DragDelta(object sender, DragDeltaEventArgs e)
     {
         double newScriptW = ScriptCol.ActualWidth - e.HorizontalChange;
-        // 脚本列最小 80
-        if (newScriptW < 80) { e.Handled = true; return; }
+        // 脚本列最小 200
+        if (newScriptW < 200) { e.Handled = true; return; }
         // 图像列不超出右边界
-        double used = (_isOriginalExpanded ? OriginalCol.ActualWidth : 40) + newScriptW;
-        double maxImg = ContentGrid.ActualWidth - used - 8;
-        if (ImageCol.ActualWidth + e.HorizontalChange > maxImg) e.Handled = true;
+        double collapsed = 0;
+        if (!_isOriginalExpanded) collapsed += 40;
+        double origW = _isOriginalExpanded ? OriginalCol.ActualWidth : 40;
+        double total = GetContentAvailableWidth();
+        double maxImg = total - origW - newScriptW - collapsed - 8;
+        if (_isImageExpanded && ImageCol.ActualWidth + e.HorizontalChange > maxImg)
+            e.Handled = true;
+        // 约束图像列不溢出
+        if (_isImageExpanded && maxImg > 220)
+            ImageCol.MaxWidth = maxImg;
     }
 
     private void Splitter_DragCompleted(object sender, DragCompletedEventArgs e)
     {
+        // 清除拖拽中设置的 MaxWidth 约束，让 ClampColumnsNow 统一管理
         ImageCol.ClearValue(ColumnDefinition.MaxWidthProperty);
-        if (OriginalCol.ActualWidth > 80) _savedOriginalWidth = OriginalCol.ActualWidth;
-        if (ScriptCol.ActualWidth > 80) _savedScriptWidth = ScriptCol.ActualWidth;
-        if (ImageCol.ActualWidth > 80) _savedImageWidth = ImageCol.ActualWidth;
+        if (OriginalCol.ActualWidth > 200) _savedOriginalWidth = OriginalCol.ActualWidth;
+        if (ScriptCol.ActualWidth > 200) _savedScriptWidth = ScriptCol.ActualWidth;
+        if (ImageCol.ActualWidth > 220) _savedImageWidth = ImageCol.ActualWidth;
+        // 拖拽完成后做一次等比压缩，确保不溢出
+        ClampColumnsNow();
+    }
+
+    /// <summary>
+    /// 拖拽 Splitter3（图像面板右边界）时：完全手动控制列宽，阻止 GridSplitter 默认行为
+    /// </summary>
+    private void Splitter3_DragDelta(object sender, DragDeltaEventArgs e)
+    {
+        e.Handled = true; // 阻止 GridSplitter 默认列宽调整
+        if (!_isImageExpanded) return;
+        double newImgW = ImageCol.ActualWidth + e.HorizontalChange;
+        // 计算最大可用宽度
+        double collapsed = 0;
+        if (!_isOriginalExpanded) collapsed += 40;
+        if (!_isScriptExpanded) collapsed += 40;
+        double origW = _isOriginalExpanded ? OriginalCol.ActualWidth : 40;
+        double scriptW = _isScriptExpanded ? ScriptCol.ActualWidth : 40;
+        double total = GetContentAvailableWidth();
+        // splitter 宽度：Splitter1(4) + Splitter2(4) + Splitter3(4) = 12
+        double maxImgW = total - origW - scriptW - collapsed - 12;
+        // 钳制到 [220, maxImgW] 范围
+        if (newImgW < 220) newImgW = 220;
+        if (newImgW > maxImgW) newImgW = maxImgW;
+        ImageCol.Width = new GridLength(newImgW, GridUnitType.Pixel);
+    }
+
+    private void Splitter3_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        ImageCol.ClearValue(ColumnDefinition.MaxWidthProperty);
+        if (_isImageExpanded && ImageCol.ActualWidth > 220)
+            _savedImageWidth = ImageCol.ActualWidth;
+        ClampColumnsNow();
+    }
+
+    /// <summary>
+    /// 双击任意边界 → 将三个面板等分可用空间
+    /// </summary>
+    private void Splitter_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        int visible = (_isOriginalExpanded ? 1 : 0) + (_isScriptExpanded ? 1 : 0) + (_isImageExpanded ? 1 : 0);
+        if (visible == 0) return;
+        double total = GetContentAvailableWidth();
+        double collapsed = (3 - visible) * 40;
+        // splitter 数量：每个展开面板间 1 个 + 图像右侧 1 个（若展开）
+        int sc = (_isOriginalExpanded && _isScriptExpanded ? 1 : 0)
+               + (_isScriptExpanded && _isImageExpanded ? 1 : 0)
+               + (_isImageExpanded ? 1 : 0);
+        double available = total - collapsed - sc * 4;
+        double each = Math.Floor(available / visible);
+
+        if (_isOriginalExpanded)
+        {
+            OriginalCol.Width = new GridLength(each, GridUnitType.Pixel);
+            _savedOriginalWidth = each;
+        }
+        if (_isScriptExpanded)
+        {
+            ScriptCol.Width = new GridLength(each, GridUnitType.Pixel);
+            _savedScriptWidth = each;
+        }
+        if (_isImageExpanded)
+        {
+            ImageCol.Width = new GridLength(each, GridUnitType.Pixel);
+            _savedImageWidth = each;
+        }
+        e.Handled = true;
     }
 
     // ===== 导入小说 =====
@@ -1581,13 +1863,44 @@ public partial class ScriptPage : UserControl
         catch { /* 页面卸载时忽略 */ }
     }
 
+    /// <summary>检测字符串是否为二进制乱码（旧版 XamlPackage 残留数据）</summary>
+    private static bool IsLikelyBinaryGarbage(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        int bad = 0;
+        int limit = Math.Min(s.Length, 200);
+        for (int i = 0; i < limit; i++)
+        {
+            char c = s[i];
+            // 控制字符除了 \r \n \t 之外都是非正常可显文本
+            if (c < 0x20 && c != '\r' && c != '\n' && c != '\t') bad++;
+            // 替换字符 U+FFFD 或私有区 U+E000-U+F8FF
+            if (c == '\uFFFD' || (c >= '\uE000' && c <= '\uF8FF')) bad++;
+        }
+        return bad > limit / 10; // 异常字符超过 10%
+    }
+
     private void SaveCurrentContent()
     {
         if (_currentNovel == null || _currentChapter == null) return;
         var config = FileService.LoadConfig(App.WorkRoot);
         if (!config.AutoSaveScript) return;
+        // 同步 TextBox 实时编辑内容到字段
+        if (_isScriptMode) _scriptText = ScriptEditBox.Text;
+        else _promptText = ScriptEditBox.Text;
         _currentChapter.ScriptContent = _scriptText;
         _currentChapter.ScriptPrompt = _promptText;
+        // 也保存小说原文（自动保存需要）
+        try
+        {
+            var range = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
+            using var ms = new MemoryStream();
+            range.Save(ms, DataFormats.Xaml);
+            var b64 = Convert.ToBase64String(ms.ToArray());
+            _currentChapter.OriginalContent = "$X:" + b64;
+        }
+        catch { }
+
         try { FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters); }
         catch (Exception ex) { Debug.WriteLine($"[自动保存] {ex.Message}"); }
     }
@@ -1603,7 +1916,10 @@ public partial class ScriptPage : UserControl
         var config = FileService.LoadConfig(App.WorkRoot);
         if (!config.AutoSaveScript) return;
         var range = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
-        _currentChapter.OriginalContent = range.Text;
+        using var ms = new MemoryStream();
+        range.Save(ms, DataFormats.Xaml);
+        var b64 = Convert.ToBase64String(ms.ToArray());
+        _currentChapter.OriginalContent = "$X:" + b64;
         FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
     }
 
