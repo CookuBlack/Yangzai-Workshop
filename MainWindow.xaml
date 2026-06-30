@@ -66,6 +66,14 @@
                     <!-- 窗口控制按钮 -->
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
 
+                        <!-- AI 网站书签 -->
+                        <Button x:Name="AiBookmarkBtn"
+                                Style="{StaticResource WindowControlButtonStyle}"
+                                Click="AiBookmarkBtn_Click" ToolTip="常用 AI 网站"
+                                WindowChrome.IsHitTestVisibleInChrome="True">
+                            <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                        </Button>
+
                         <!-- 备忘录 -->
                         <Button Style="{StaticResource WindowControlButtonStyle}"
                                 Click="MemoButton_Click" ToolTip="备忘录"
@@ -253,6 +261,102 @@
                     </Grid>
                 </Border>
             </Grid>
+
+            <!-- AI 网站书签弹窗 -->
+            <Popup x:Name="AiBookmarkPopup" PlacementTarget="{Binding ElementName=AiBookmarkBtn}"
+                   Placement="Bottom" StaysOpen="False"
+                   AllowsTransparency="True" PopupAnimation="Slide">
+                <Border CornerRadius="10" MinWidth="280" MaxWidth="360"
+                        Background="{DynamicResource CardBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                        Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="AI 工具书签" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,10"/>
+                        <!-- 书签列表 -->
+                        <ItemsControl x:Name="BookmarkList" Background="Transparent"
+                                      PreviewMouseMove="BookmarkList_PreviewMouseMove"
+                                      PreviewMouseLeftButtonUp="BookmarkList_PreviewMouseUp"
+                                      MouseLeave="BookmarkList_MouseLeave">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,2,0,2" Padding="6,3"
+                                            Background="Transparent" CornerRadius="4"
+                                            BorderBrush="Transparent" BorderThickness="2"
+                                            Cursor="Hand"
+                                            Loaded="ItemBorder_Loaded">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <!-- 拖拽手柄 -->
+                                            <TextBlock Grid.Column="0" Text="⋮⋮" FontSize="15"
+                                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                                       VerticalAlignment="Center" Margin="0,0,8,0"
+                                                       IsHitTestVisible="False"/>
+                                            <!-- 名称按钮 -->
+                                            <Button Grid.Column="1" Content="{Binding Name}"
+                                                    FontSize="13" FontFamily="Microsoft YaHei UI"
+                                                    HorizontalContentAlignment="Left"
+                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                    Padding="10,6" Margin="0,0,4,0"
+                                                    Click="BookmarkItem_Click"/>
+                                            <!-- 删除 -->
+                                            <Button Grid.Column="2" Content="✕" FontSize="10"
+                                                    Width="24" Height="24" Padding="0"
+                                                    Background="Transparent"
+                                                    Foreground="{DynamicResource TextSecondaryBrush}"
+                                                    BorderThickness="0" Cursor="Hand"
+                                                    Click="DeleteBookmark_Click" ToolTip="移除"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <!-- 添加栏 -->
+                        <Border Margin="0,8,0,0" Padding="8" CornerRadius="6"
+                                Background="{DynamicResource WindowBackgroundBrush}">
+                            <StackPanel>
+                                <TextBlock Text="新增书签" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                           Margin="0,0,0,4"/>
+                                <Grid Margin="0,0,0,6">
+                                    <TextBox x:Name="NewBookmarkName" FontSize="12" FontFamily="Microsoft YaHei UI"
+                                         Padding="6,4"
+                                         Background="{DynamicResource CardBackgroundBrush}"
+                                         Foreground="{DynamicResource TextPrimaryBrush}"
+                                         BorderBrush="{DynamicResource BorderBrush}"
+                                         TextChanged="NewBookmarkName_TextChanged"/>
+                                    <TextBlock Text="输入名称（如：ChatGPT）" FontSize="12"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
+                                               IsHitTestVisible="False"
+                                               VerticalAlignment="Center" Margin="8,0"
+                                               x:Name="NamePlaceholder"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,6">
+                                    <TextBox x:Name="NewBookmarkUrl" FontSize="12" FontFamily="Microsoft YaHei UI"
+                                         Padding="6,4"
+                                         Background="{DynamicResource CardBackgroundBrush}"
+                                         Foreground="{DynamicResource TextPrimaryBrush}"
+                                         BorderBrush="{DynamicResource BorderBrush}"
+                                         TextChanged="NewBookmarkUrl_TextChanged"/>
+                                    <TextBlock Text="输入网址（如：chat.openai.com）" FontSize="12"
+                                               Foreground="{DynamicResource TextTertiaryBrush}"
+                                               IsHitTestVisible="False"
+                                               VerticalAlignment="Center" Margin="8,0"
+                                               x:Name="UrlPlaceholder"/>
+                                </Grid>
+                                <Button Content="+ 添加" FontSize="12" FontFamily="Microsoft YaHei UI"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Padding="10,4" Margin="0,0,0,2"
+                                        Click="AddBookmark_Click"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Border>
+            </Popup>
         </Grid>
     </Border>
 </Window>

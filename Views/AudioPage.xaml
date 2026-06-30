@@ -24,16 +24,24 @@
         <Border Grid.Row="1" Style="{StaticResource CardStyle}" Padding="8,6" Margin="0,0,0,8">
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <ScrollViewer x:Name="ChapterTabsScroller" Grid.Column="0"
+                <!-- 全局音频按钮（独立于章节列表） -->
+                <Button x:Name="GlobalAudioBtn" Grid.Column="0"
+                        Content="📁 全局音频"
+                        Style="{StaticResource PrimaryButtonStyle}"
+                        FontSize="12" Padding="10,6" MinHeight="28"
+                        Margin="0,0,8,0"
+                        Click="GlobalAudioBtn_Click"/>
+                <ScrollViewer x:Name="ChapterTabsScroller" Grid.Column="1"
                               HorizontalScrollBarVisibility="Hidden"
                               VerticalScrollBarVisibility="Disabled"
                               PreviewMouseWheel="ChapterTabsScroller_PreviewMouseWheel">
                     <StackPanel x:Name="ChapterTabsPanel" Orientation="Horizontal"/>
                 </ScrollViewer>
-                <Button x:Name="ChapterExpandBtn" Grid.Column="1"
+                <Button x:Name="ChapterExpandBtn" Grid.Column="2"
                         Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
                         FontSize="13" MinWidth="28" MinHeight="28"
                         Margin="4,0,0,0" Padding="0"

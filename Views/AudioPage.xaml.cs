@@ -17,6 +17,7 @@ public partial class AudioPage : UserControl
     private NovelInfo? _currentNovel;
     private List<Chapter> _chapters = new();
     private Chapter? _currentChapter;
+    private bool _isGlobalAudio;
 
     public AudioPage()
     {
@@ -31,6 +32,7 @@ public partial class AudioPage : UserControl
             var curNovelId = _currentNovel?.Id;
             var curChapterIndex = _currentChapter != null
                 ? _chapters.IndexOf(_currentChapter) : -1;
+            var wasGlobal = _isGlobalAudio;
             RefreshNovels();
             if (curNovelId != null)
             {
@@ -38,7 +40,9 @@ public partial class AudioPage : UserControl
                 if (novel != null)
                 {
                     SelectNovel(novel);
-                    if (curChapterIndex >= 0 && curChapterIndex < _chapters.Count)
+                    if (wasGlobal)
+                        SelectGlobalAudio();
+                    else if (curChapterIndex >= 0 && curChapterIndex < _chapters.Count)
                         SelectChapter(_chapters[curChapterIndex]);
                 }
             }
@@ -163,6 +167,7 @@ public partial class AudioPage : UserControl
             .ToList();
 
         ChapterTabsPanel.Children.Clear();
+
         foreach (var ch in displayOrder)
         {
             var btn = new Button
@@ -179,30 +184,40 @@ public partial class AudioPage : UserControl
         if (_chapters.Count > 0)
             SelectChapter(_chapters[0]);
         else
-        {
-            _currentChapter = null;
-            RefreshAudioGrid();
-        }
+            SelectGlobalAudio();
+    }
+
+    private void GlobalAudioBtn_Click(object sender, RoutedEventArgs e) => SelectGlobalAudio();
+
+    private void SelectGlobalAudio()
+    {
+        _isGlobalAudio = true;
+        _currentChapter = null;
+        GlobalAudioBtn.Style = (Style)FindResource("PrimaryButtonStyle");
+        HighlightTabButton(null); // 清除所有章节按钮高亮
+        RefreshAudioGrid();
     }
 
     private void SelectChapter(Chapter chapter)
     {
+        _isGlobalAudio = false;
         _currentChapter = chapter;
-        foreach (Button btn in ChapterTabsPanel.Children.OfType<Button>())
-        {
-            if (btn.Tag is Chapter ch)
-            {
-                btn.Background = ch == chapter
-                    ? (Brush)FindResource("PrimaryBrush")
-                    : Brushes.Transparent;
-                btn.Foreground = ch == chapter ? Brushes.White
-                    : (Brush)FindResource("TextPrimaryBrush");
-            }
-        }
+        GlobalAudioBtn.Style = (Style)FindResource("SecondaryButtonStyle");
+        HighlightTabButton(chapter);
         RefreshAudioGrid();
         var tab = ChapterTabsPanel.Children.OfType<Button>()
             .FirstOrDefault(b => b.Tag is Chapter cc && cc == chapter);
         tab?.BringIntoView();
+    }
+
+    private void HighlightTabButton(object? tag)
+    {
+        foreach (Button btn in ChapterTabsPanel.Children.OfType<Button>())
+        {
+            bool sel = tag != null && btn.Tag != null && btn.Tag.Equals(tag);
+            btn.Background = sel ? (Brush)FindResource("PrimaryBrush") : Brushes.Transparent;
+            btn.Foreground = sel ? Brushes.White : (Brush)FindResource("TextPrimaryBrush");
+        }
     }
 
     private void ChapterTabsScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
@@ -217,6 +232,7 @@ public partial class AudioPage : UserControl
         if (ChapterPopup.IsOpen) { ChapterPopup.IsOpen = false; return; }
 
         ChapterPopupList.Children.Clear();
+
         var displayOrder = _chapters
             .OrderBy(c => c.IsCompleted ? 1 : 0)
             .ThenBy(c => c.Index).ToList();
@@ -229,7 +245,7 @@ public partial class AudioPage : UserControl
 
         foreach (var ch in displayOrder)
         {
-            bool sel = ch == _currentChapter;
+            bool sel = ch == _currentChapter && !_isGlobalAudio;
             var btn = new Button
             {
                 Content = ch.DisplayName, Tag = ch,
@@ -254,15 +270,28 @@ public partial class AudioPage : UserControl
     {
         AudioGrid.Children.Clear();
 
-        if (_currentNovel == null || _currentChapter == null)
+        if (_currentNovel == null)
         {
-            AudioGrid.Children.Add(PlaceholderText("暂无章节\n请先选择有章节的小说"));
+            AudioGrid.Children.Add(PlaceholderText("请先选择小说"));
             return;
         }
 
-        var path = FileService.ChapterAudiosPath(
-            App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
-        // 确保目录存在（首次导入前可能不存在）
+        string path;
+        if (_isGlobalAudio)
+        {
+            path = FileService.NovelGlobalAudioPath(App.WorkRoot, _currentNovel.MediaFolder);
+        }
+        else
+        {
+            if (_currentChapter == null)
+            {
+                AudioGrid.Children.Add(PlaceholderText("暂无章节\n请先选择有章节的小说"));
+                return;
+            }
+            path = FileService.ChapterAudiosPath(
+                App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+        }
+
         FileService.EnsureDirectory(path);
         var audios = FileService.GetFiles(path, ".mp3", ".wav", ".flac", ".m4a", ".ogg", ".wma", ".aac");
 
@@ -605,7 +634,9 @@ public partial class AudioPage : UserControl
     // ===== 导入 + 拖拽 =====
     private void ImportAudio_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentNovel == null || _currentChapter == null) return;
+        if (_currentNovel == null) return;
+        if (!_isGlobalAudio && _currentChapter == null) return;
+
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Filter = "音频文件|*.mp3;*.wav;*.flac;*.m4a;*.ogg;*.wma;*.aac",
@@ -613,8 +644,9 @@ public partial class AudioPage : UserControl
         };
         if (dlg.ShowDialog() == true)
         {
-            var targetDir = FileService.ChapterAudiosPath(
-                App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+            var targetDir = _isGlobalAudio
+                ? FileService.NovelGlobalAudioPath(App.WorkRoot, _currentNovel.MediaFolder)
+                : FileService.ChapterAudiosPath(App.WorkRoot, _currentNovel.MediaFolder, _currentChapter!.FolderName);
             foreach (var file in dlg.FileNames)
                 FileService.CopyFile(file, targetDir);
             RefreshAudioGrid();
@@ -624,12 +656,14 @@ public partial class AudioPage : UserControl
 
     private void AudioGrid_Drop(object sender, DragEventArgs e)
     {
-        if (_currentNovel == null || _currentChapter == null) return;
+        if (_currentNovel == null) return;
+        if (!_isGlobalAudio && _currentChapter == null) return;
         if (e.Data.GetDataPresent(DataFormats.FileDrop))
         {
             var files = (string[])e.Data.GetData(DataFormats.FileDrop);
-            var targetDir = FileService.ChapterAudiosPath(
-                App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+            var targetDir = _isGlobalAudio
+                ? FileService.NovelGlobalAudioPath(App.WorkRoot, _currentNovel.MediaFolder)
+                : FileService.ChapterAudiosPath(App.WorkRoot, _currentNovel.MediaFolder, _currentChapter!.FolderName);
             var audioExts = new HashSet<string> { ".mp3", ".wav", ".flac", ".m4a", ".ogg", ".wma", ".aac" };
             foreach (var file in files)
             {

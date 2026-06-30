@@ -195,15 +195,75 @@ public partial class StatsPage : UserControl
         QuickPlot(CommentChart, dates, comments, WpfColors.MediumSeaGreen);
     }
 
+    /// <summary>检测当前是否为暗色主题</summary>
+    private bool IsDarkMode()
+    {
+        try
+        {
+            var brush = (Brush)FindResource("WindowBackgroundBrush");
+            if (brush is SolidColorBrush scb)
+                return (scb.Color.R < 128 || scb.Color.G < 128 || scb.Color.B < 128);
+        }
+        catch { }
+        return false; // 默认亮色
+    }
+
+    /// <summary>统一配置图表外观——自动适配亮/暗主题</summary>
+    private void ApplyChartTheme(WpfPlot chart)
+    {
+        var plt = chart.Plot;
+        bool dark = IsDarkMode();
+
+        // 奶白色背景（暖调白，柔和护眼）
+        var cream = new ScottPlot.Color(252, 250, 245);
+
+        if (dark)
+        {
+            plt.FigureBackground.Color = cream;
+            plt.DataBackground.Color = cream;
+
+            // 暖灰网格线
+            plt.Grid.MajorLineColor = new ScottPlot.Color(230, 227, 220);
+            plt.Grid.MinorLineColor = new ScottPlot.Color(240, 238, 233);
+            plt.Grid.MajorLineWidth = 0.6f;
+            plt.Grid.MinorLineWidth = 0.3f;
+        }
+        else
+        {
+            plt.FigureBackground.Color = cream;
+            plt.DataBackground.Color = cream;
+
+            plt.Grid.MajorLineColor = new ScottPlot.Color(232, 230, 225);
+            plt.Grid.MinorLineColor = new ScottPlot.Color(242, 240, 236);
+            plt.Grid.MajorLineWidth = 0.5f;
+            plt.Grid.MinorLineWidth = 0.3f;
+        }
+    }
+
     private void QuickPlot(WpfPlot chart, DateTime[] dates, double[] y, WpfColor lineColor)
     {
         var plt = chart.Plot;
         plt.Clear();
+
+        ApplyChartTheme(chart);
+
+        if (dates.Length == 0) { chart.Refresh(); return; }
+
         double[] xs = dates.Select(d => d.ToOADate()).ToArray();
+
+        // 主折线
         var line = plt.Add.ScatterLine(xs, y);
         line.Color = new ScottPlot.Color(lineColor.R, lineColor.G, lineColor.B);
-        line.MarkerSize = 4;
-        line.LineWidth = 2;
+        line.MarkerSize = 5f;
+        line.LineWidth = 2.2f;
+        line.MarkerShape = MarkerShape.FilledCircle;
+
+        // 数据点标记
+        var markers = plt.Add.Markers(xs, y);
+        markers.MarkerShape = MarkerShape.FilledCircle;
+        markers.MarkerSize = 5f;
+        markers.Color = new ScottPlot.Color(lineColor.R, lineColor.G, lineColor.B);
+
         plt.Axes.DateTimeTicksBottom();
         plt.Axes.AutoScale();
         chart.Refresh();
@@ -211,7 +271,22 @@ public partial class StatsPage : UserControl
 
     private void ClearChart(WpfPlot chart)
     {
-        chart.Plot.Clear();
+        var plt = chart.Plot;
+        plt.Clear();
+        ApplyChartTheme(chart);
+
+        bool dark = IsDarkMode();
+        var txtColor = dark ? new ScottPlot.Color(140, 142, 148) : new ScottPlot.Color(160, 164, 172);
+
+        // 空状态友好提示
+        var txt = plt.Add.Text("暂无数据", 0.5, 0.5);
+        txt.LabelFontSize = 14;
+        txt.LabelFontColor = txtColor;
+        txt.Alignment = Alignment.MiddleCenter;
+
+        // 去掉空图坐标轴
+        plt.Axes.SetLimitsX(-1, 1);
+        plt.Axes.SetLimitsY(-1, 1);
         chart.Refresh();
     }
 

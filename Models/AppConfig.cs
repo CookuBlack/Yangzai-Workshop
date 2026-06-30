@@ -30,6 +30,16 @@ public class AppConfig
     public string ScriptSkill { get; set; } = "你是一位专业的漫剧编剧。请将以下小说章节内容改编为漫剧剧本。\n要求：\n1. 采用分镜脚本格式，每个场景标注【场景X：地点 - 时间】\n2. 对话前标注角色名，例如「角色名：台词」\n3. 动作描述用括号括起，例如（推门走进房间）\n4. 保留原著的精彩对白和情节，适当精简描述性文字\n5. 输出完整的剧本，不要省略";
     /// <summary>生成提示词的 System Prompt（基于剧本内容生成场景提示词）</summary>
     public string PromptSkill { get; set; } = "你是一位专业的漫剧分镜提示词工程师。请根据以下剧本内容，为每个场景生成对应的创作提示词。\n要求：\n1. 为每个场景单独生成提示词，标注对应场景编号\n2. 每个提示词应包含：画面构图、角色位置与动作、表情神态、光影氛围、色彩倾向\n3. 提示词应具体详细，适合直接用于AI绘图\n4. 格式：【场景X提示词】\n画面构图：...\n角色动作：...\n光影氛围：...\n色彩倾向：...";
+    /// <summary>常用 AI 网站书签</summary>
+    public List<AiBookmark> AiBookmarks { get; set; } = new()
+    {
+        new() { Name = "ChatGPT", Url = "https://chat.openai.com" },
+        new() { Name = "Claude", Url = "https://claude.ai" },
+        new() { Name = "Gemini", Url = "https://gemini.google.com" },
+        new() { Name = "Midjourney", Url = "https://www.midjourney.com" },
+        new() { Name = "Stable Diffusion", Url = "https://stability.ai" },
+        new() { Name = "Hugging Face", Url = "https://huggingface.co" },
+    };
     public string LastUpdateDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
     public string Version { get; set; } = "3.1.0";
     public int GitHubStars { get; set; } = 128;

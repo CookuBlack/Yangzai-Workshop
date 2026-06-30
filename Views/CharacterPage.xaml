@@ -144,7 +144,7 @@
 
                             <Border x:Name="PersonalityDisplayBorder" Grid.Row="1"
                                     BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                    CornerRadius="6" MaxHeight="220"
+                                    CornerRadius="6" MaxHeight="180"
                                     Margin="0,0,0,8"
                                     Background="{DynamicResource CardBackgroundBrush}">
                                 <ScrollViewer x:Name="PersonalityInnerScroller"
@@ -166,7 +166,7 @@
                                 </Grid.RowDefinitions>
                                 <TextBox x:Name="PersonalityEditBox" Grid.Row="0"
                                          TextWrapping="Wrap" AcceptsReturn="True"
-                                         MinHeight="100" MaxHeight="220"
+                                         MinHeight="100" MaxHeight="180"
                                          Foreground="{DynamicResource TextPrimaryBrush}"
                                          FontSize="14" FontFamily="Microsoft YaHei UI"
                                          Padding="8" Margin="0,0,0,6"

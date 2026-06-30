@@ -7,6 +7,7 @@
     <Color x:Key="CardBackgroundColor">#383838</Color>
     <Color x:Key="TextPrimaryColor">#FFFFFF</Color>
     <Color x:Key="TextSecondaryColor">#AAAAAA</Color>
+    <Color x:Key="TextTertiaryColor">#777777</Color>
     <Color x:Key="PrimaryColor">#C07040</Color>
     <Color x:Key="PrimaryLightColor">#D49464</Color>
     <Color x:Key="BorderColor">#4A4A4A</Color>
@@ -22,6 +23,7 @@
     <SolidColorBrush x:Key="CardBackgroundBrush" Color="{StaticResource CardBackgroundColor}"/>
     <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimaryColor}"/>
     <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondaryColor}"/>
+    <SolidColorBrush x:Key="TextTertiaryBrush" Color="{StaticResource TextTertiaryColor}"/>
     <SolidColorBrush x:Key="PrimaryBrush" Color="{StaticResource PrimaryColor}"/>
     <SolidColorBrush x:Key="PrimaryLightBrush" Color="{StaticResource PrimaryLightColor}"/>
     <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}"/>

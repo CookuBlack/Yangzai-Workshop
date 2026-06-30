@@ -163,6 +163,9 @@ public static class FileService
     /// <summary>小说章节音频目录：WorkData\Audio\{mediaFolder}\{chapterFolder}</summary>
     public static string ChapterAudiosPath(string workRoot, string mediaFolder, string chapterFolder) =>
         ChapterAudioPath(workRoot, mediaFolder, chapterFolder);
+    /// <summary>小说全局音频目录：WorkData\Audio\{mediaFolder}（不绑定章节）</summary>
+    public static string NovelGlobalAudioPath(string workRoot, string mediaFolder) =>
+        Path.Combine(AudioRoot(workRoot), mediaFolder);
     public static string CharacterPath(string workRoot, string novelId, string charId) =>
         Path.Combine(NovelCharactersPath(workRoot, novelId), charId);
     public static string CharacterInfoFile(string workRoot, string novelId, string charId) =>
@@ -232,9 +235,10 @@ public static class FileService
         if (extensions.Length == 0)
             return Directory.GetFiles(path).ToList();
 
-        return extensions
-            .SelectMany(ext => Directory.GetFiles(path, $"*{ext}"))
-            .Distinct()
+        // 单次目录枚举 + 内存过滤，避免 N 次 GetFiles
+        var set = new HashSet<string>(extensions, StringComparer.OrdinalIgnoreCase);
+        return Directory.EnumerateFiles(path)
+            .Where(f => set.Contains(Path.GetExtension(f)))
             .ToList();
     }
 
@@ -405,17 +409,36 @@ public static class FileService
         }
     }
 
-    // ===== 配置读写 =====
+    // ===== 配置读写（带内存缓存，避免同一流程反复读磁盘） =====
+    private static AppConfig? _cachedConfig;
+    private static string? _cachedWorkRoot;
+
     public static AppConfig LoadConfig(string workRoot)
     {
+        // 命中缓存：同 workRoot 且缓存有效
+        if (_cachedConfig != null && _cachedWorkRoot == workRoot)
+            return _cachedConfig;
+
         var config = ReadJson<AppConfig>(SettingsFile(workRoot)) ?? new AppConfig();
         config.WorkDataPath = workRoot;
+        _cachedConfig = config;
+        _cachedWorkRoot = workRoot;
         return config;
     }
 
     public static void SaveConfig(string workRoot, AppConfig config)
     {
         WriteJson(SettingsFile(workRoot), config);
+        // 保存后同步更新缓存，避免后续操作重复读盘
+        _cachedConfig = config;
+        _cachedWorkRoot = workRoot;
+    }
+
+    /// <summary>主动刷新配置缓存（外部修改配置文件后调用）</summary>
+    public static void InvalidateConfigCache()
+    {
+        _cachedConfig = null;
+        _cachedWorkRoot = null;
     }
 
     public static void SaveAppSetting(string workRoot, string key, object value)

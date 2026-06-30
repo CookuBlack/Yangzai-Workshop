@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -37,6 +38,8 @@ public partial class ScriptPage : UserControl
     private string _promptText = "";
     private static string? _lastNovelId;
     private static int _lastChapterIdx = -1;
+    private bool _contentDirty;
+    private static readonly ConcurrentDictionary<string, BitmapSource> _imageCache = new();
 
     public ScriptPage()
     {
@@ -184,6 +187,7 @@ public partial class ScriptPage : UserControl
         };
         ScriptEditBox.TextChanged += (_, _) =>
         {
+            _contentDirty = true;
             if (_autoSaveTimer != null)
             {
                 _autoSaveTimer.Stop();
@@ -732,6 +736,7 @@ public partial class ScriptPage : UserControl
         }
         catch { }
 
+        _contentDirty = false;
         _scriptText = _currentChapter.ScriptContent ?? "";
         _promptText = _currentChapter.ScriptPrompt ?? "";
         UpdateScriptEditor();
@@ -951,6 +956,7 @@ public partial class ScriptPage : UserControl
             var color = (Color)ColorConverter.ConvertFromString(colorHex);
             OriginalTextBox.Selection.ApplyPropertyValue(TextElement.BackgroundProperty,
                 new SolidColorBrush(color) { Opacity = 0.3 });
+            _contentDirty = true;
         }
         catch { }
     }
@@ -960,6 +966,7 @@ public partial class ScriptPage : UserControl
         if (OriginalTextBox.Selection.IsEmpty) return;
         OriginalTextBox.Selection.ApplyPropertyValue(TextElement.BackgroundProperty,
             Brushes.Transparent);
+        _contentDirty = true;
     }
 
     // ===== 图像素材 =====
@@ -1195,16 +1202,25 @@ public partial class ScriptPage : UserControl
             string imgName = Path.GetFileName(imgPath);
             try
             {
-                // 使用 MemoryStream 加载，避免 Uri 路径编码问题
-                var data = File.ReadAllBytes(imgPath);
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                using var msImg = new MemoryStream(data);
-                bmp.StreamSource = msImg;
-                bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.DecodePixelWidth = cols == 1 ? 400 : (cols == 2 ? 300 : 240);
-                bmp.EndInit();
-                bmp.Freeze();
+                int decodeWidth = cols == 1 ? 400 : (cols == 2 ? 300 : 240);
+                // 图片缓存：同一文件同尺寸复用已解码对象，避免反复读盘+解码
+                var cacheKey = $"{imgPath}@{decodeWidth}w";
+                BitmapImage? bmp = null;
+                if (_imageCache.TryGetValue(cacheKey, out var cached))
+                    bmp = cached as BitmapImage;
+                if (bmp == null)
+                {
+                    var data = File.ReadAllBytes(imgPath);
+                    bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    using var msImg = new MemoryStream(data);
+                    bmp.StreamSource = msImg;
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.DecodePixelWidth = decodeWidth;
+                    bmp.EndInit();
+                    bmp.Freeze();
+                    _imageCache[cacheKey] = bmp;
+                }
 
                 var img = new Image
                 {
@@ -1892,16 +1908,20 @@ public partial class ScriptPage : UserControl
         else _promptText = ScriptEditBox.Text;
         _currentChapter.ScriptContent = _scriptText;
         _currentChapter.ScriptPrompt = _promptText;
-        // 也保存小说原文（自动保存需要）
-        try
+        // 仅在内容变更时才序列化 RichTextBox（Base64+Xaml 开销大）
+        if (_contentDirty)
         {
-            var range = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
-            using var ms = new MemoryStream();
-            range.Save(ms, DataFormats.Xaml);
-            var b64 = Convert.ToBase64String(ms.ToArray());
-            _currentChapter.OriginalContent = "$X:" + b64;
+            try
+            {
+                var range = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
+                using var ms = new MemoryStream();
+                range.Save(ms, DataFormats.Xaml);
+                var b64 = Convert.ToBase64String(ms.ToArray());
+                _currentChapter.OriginalContent = "$X:" + b64;
+                _contentDirty = false;
+            }
+            catch { }
         }
-        catch { }
 
         try { FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters); }
         catch (Exception ex) { Debug.WriteLine($"[自动保存] {ex.Message}"); }

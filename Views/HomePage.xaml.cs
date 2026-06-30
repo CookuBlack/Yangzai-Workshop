@@ -61,6 +61,8 @@ public partial class HomePage : UserControl
 
     // ===== 视频轮播（双 MediaElement 交叉淡入淡出） =====
     private bool _useVideo1 = true;
+    private RoutedEventHandler? _pendingMediaOpened;
+    private bool _isTransitioning;
 
     private void LoadBanners()
     {
@@ -102,18 +104,26 @@ public partial class HomePage : UserControl
         var nextMe = _useVideo1 ? BannerVideo2 : BannerVideo;
         _useVideo1 = !_useVideo1;
 
-        // 在新元素上准备视频
+        // 清除上个 MediaOpened 防止多次累积触发
+        if (_pendingMediaOpened != null)
+        {
+            BannerVideo.MediaOpened -= _pendingMediaOpened;
+            BannerVideo2.MediaOpened -= _pendingMediaOpened;
+        }
         nextMe.MediaEnded -= OnVideoEnded;
+
         nextMe.Source = new Uri(videoPath);
         nextMe.Position = TimeSpan.Zero;
         nextMe.Opacity = 0;
         nextMe.Play();
 
-        // 视频打开后触发交叉淡入淡出（带缓动过渡）
-        nextMe.MediaOpened += (s, e) =>
+        // 视频就绪后交叉淡入淡出（存引用以便后续清理）
+        _pendingMediaOpened = (s, e) =>
         {
             Dispatcher.Invoke(() =>
             {
+                _isTransitioning = true;
+
                 // 淡出旧视频（带缓动）
                 var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.5))
                 {
@@ -131,9 +141,11 @@ public partial class HomePage : UserControl
                 {
                     EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
                 };
+                fadeIn.Completed += (_, _) => _isTransitioning = false;
                 nextMe.BeginAnimation(UIElement.OpacityProperty, fadeIn);
             });
         };
+        nextMe.MediaOpened += _pendingMediaOpened;
 
         // 视频播放完毕事件
         nextMe.MediaEnded += OnVideoEnded;
@@ -152,10 +164,18 @@ public partial class HomePage : UserControl
         BannerVideo.Opacity = 1;
         BannerVideo2.Opacity = 0;
         _useVideo1 = true;
+        _isTransitioning = false;
+        if (_pendingMediaOpened != null)
+        {
+            BannerVideo.MediaOpened -= _pendingMediaOpened;
+            BannerVideo2.MediaOpened -= _pendingMediaOpened;
+            _pendingMediaOpened = null;
+        }
     }
 
     private void OnVideoEnded(object? sender, RoutedEventArgs e)
     {
+        if (_isTransitioning) return;
         Dispatcher.Invoke(() => NextBanner());
     }
 
@@ -179,6 +199,7 @@ public partial class HomePage : UserControl
 
     private void NextBanner()
     {
+        if (_isTransitioning) return;
         _autoPlayTimer?.Stop();
         ShowBanner(_currentBannerIndex + 1);
         _autoPlayTimer?.Start();
