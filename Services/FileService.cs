@@ -102,6 +102,8 @@ public static class FileService
     public static string ImageRoot(string workRoot) => Path.Combine(workRoot, "Image");
     /// <summary>顶层视频根目录：WorkData\Video</summary>
     public static string VideoRoot(string workRoot) => Path.Combine(workRoot, "Video");
+    /// <summary>顶层音频根目录：WorkData\Audio</summary>
+    public static string AudioRoot(string workRoot) => Path.Combine(workRoot, "Audio");
 
     /// <summary>清理名称中的非法文件名字符，转为合法的文件夹名</summary>
     public static string SanitizeFolderName(string name)
@@ -155,6 +157,12 @@ public static class FileService
     /// <summary>小说章节视频目录：WorkData\Video\{mediaFolder}\{chapterFolder}</summary>
     public static string ChapterVideosPath(string workRoot, string mediaFolder, string chapterFolder) =>
         ChapterVideoPath(workRoot, mediaFolder, chapterFolder);
+    /// <summary>小说章节音频目录：WorkData\Audio\{mediaFolder}\{chapterFolder}</summary>
+    public static string ChapterAudioPath(string workRoot, string mediaFolder, string chapterFolder) =>
+        Path.Combine(AudioRoot(workRoot), mediaFolder, chapterFolder);
+    /// <summary>小说章节音频目录：WorkData\Audio\{mediaFolder}\{chapterFolder}</summary>
+    public static string ChapterAudiosPath(string workRoot, string mediaFolder, string chapterFolder) =>
+        ChapterAudioPath(workRoot, mediaFolder, chapterFolder);
     public static string CharacterPath(string workRoot, string novelId, string charId) =>
         Path.Combine(NovelCharactersPath(workRoot, novelId), charId);
     public static string CharacterInfoFile(string workRoot, string novelId, string charId) =>
@@ -536,6 +544,11 @@ public static class FileService
         var oldVideo = Path.Combine(VideoRoot(workRoot), oldFolder);
         var newVideo = Path.Combine(VideoRoot(workRoot), newFolder);
         SafeMoveDir(oldVideo, newVideo);
+
+        // Audio\{old} → Audio\{new}
+        var oldAudio = Path.Combine(AudioRoot(workRoot), oldFolder);
+        var newAudio = Path.Combine(AudioRoot(workRoot), newFolder);
+        SafeMoveDir(oldAudio, newAudio);
     }
 
     private static void SafeMoveDir(string oldPath, string newPath)
@@ -598,6 +611,7 @@ public static class FileService
         EnsureDirectory(Path.Combine(ImageRoot(workRoot), "人物素材"));
         EnsureDirectory(Path.Combine(ImageRoot(workRoot), "小说"));
         EnsureDirectory(VideoRoot(workRoot));
+        EnsureDirectory(AudioRoot(workRoot));
 
         // 默认配置
         if (!File.Exists(SettingsFile(workRoot)))

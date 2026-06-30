@@ -64,6 +64,7 @@
                         <ColumnDefinition/>
                         <ColumnDefinition/>
                         <ColumnDefinition/>
+                        <ColumnDefinition/>
                     </Grid.ColumnDefinitions>
 
                     <!-- 根目录 -->
@@ -173,6 +174,42 @@
                                        VerticalAlignment="Center"/>
                         </Grid>
                     </Border>
+
+                    <!-- 音频目录 -->
+                    <Border x:Name="AudioDirCard" Grid.Column="3"
+                            Style="{StaticResource CardStyle}" Cursor="Hand" Padding="16,14"
+                            Margin="8,0,0,0"
+                            MouseLeftButtonDown="Card_MouseDown"
+                            MouseLeftButtonUp="Card_MouseUp"
+                            MouseEnter="Card_MouseEnter"
+                            MouseLeave="Card_MouseLeave"
+                            RenderTransformOrigin="0.5,0.5">
+                        <Border.RenderTransform>
+                            <ScaleTransform ScaleX="1" ScaleY="1"/>
+                        </Border.RenderTransform>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Width="36" Height="36" CornerRadius="8"
+                                    Background="#1A9C27B0" VerticalAlignment="Center">
+                                <TextBlock Text="&#xE767;" FontFamily="Segoe MDL2 Assets"
+                                           FontSize="18" Foreground="#E1BEE7"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
+                                <TextBlock Text="音频目录" FontSize="14" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                <TextBlock Text="浏览音频素材" FontSize="11"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0"/>
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="&#xE76C;" FontFamily="Segoe MDL2 Assets"
+                                       FontSize="14" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center"/>
+                        </Grid>
+                    </Border>
                 </Grid>
 
                 <!-- 一键开始 + GitHub -->
@@ -222,7 +259,8 @@
                                                 </Border>
                                                 <ControlTemplate.Triggers>
                                                     <Trigger Property="IsMouseOver" Value="True">
-                                                        <Setter TargetName="bd"
+                                                  
+                                                      <Setter TargetName="bd"
                                                                 Property="Background"
                                                                 Value="#FF8A65"/>
                                                     </Trigger>

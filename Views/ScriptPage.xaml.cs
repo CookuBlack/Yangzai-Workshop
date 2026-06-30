@@ -397,6 +397,7 @@ public partial class ScriptPage : UserControl
     {
         NavigationService.Instance.ClearPage("Character");
         NavigationService.Instance.ClearPage("Video");
+        NavigationService.Instance.ClearPage("Audio");
     }
 
     private void ChangeNovelCover(NovelInfo novel)
@@ -428,10 +429,11 @@ public partial class ScriptPage : UserControl
                 UpdateNovelCardCover(novel.Id, frozen);
                 if (_currentNovel?.Id == novel.Id)
                     _currentNovel.HasCoverImage = true;
-                // 清除人物素材和视频文件页面缓存，确保下次访问时重新加载封面
+                // 清除人物素材、视频文件和音频文件页面缓存，确保下次访问时重新加载封面
                 var nav = NavigationService.Instance;
                 nav.ClearPage("Character");
                 nav.ClearPage("Video");
+                nav.ClearPage("Audio");
                 // 如果用户当前正在这些页面，刷新内容
                 var currentPage = nav.CurrentPageName;
                 Dispatcher.BeginInvoke(new Action(() =>

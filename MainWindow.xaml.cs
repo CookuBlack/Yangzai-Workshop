@@ -39,6 +39,7 @@ public partial class MainWindow : Window
                 NavigationService.Instance.ClearPage("Script");
                 NavigationService.Instance.ClearPage("Character");
                 NavigationService.Instance.ClearPage("Video");
+                NavigationService.Instance.ClearPage("Audio");
             }
             else if (path.Contains("/Image/"))
             {
@@ -63,6 +64,15 @@ public partial class MainWindow : Window
                 {
                     if (current == "Video" && NavigationService.Instance.CurrentPage is Views.VideoPage vp)
                         vp.RefreshContent();
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
+            else if (path.Contains("/Audio/"))
+            {
+                NavigationService.Instance.ClearPage("Audio");
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (current == "Audio" && NavigationService.Instance.CurrentPage is Views.AudioPage ap)
+                        ap.RefreshContent();
                 }), System.Windows.Threading.DispatcherPriority.Loaded);
             }
         };

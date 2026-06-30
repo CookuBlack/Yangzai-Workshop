@@ -164,6 +164,15 @@
                                 </StackPanel>
                             </ListBoxItem>
 
+                            <ListBoxItem Tag="Audio" Style="{StaticResource NavItemStyle}">
+                                <StackPanel>
+                                    <TextBlock Text="&#xE767;" FontFamily="Segoe MDL2 Assets"
+                                               FontSize="20" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="音频文件" FontSize="11" HorizontalAlignment="Center"
+                                               Margin="0,5,0,0"/>
+                                </StackPanel>
+                            </ListBoxItem>
+
                             <ListBoxItem Tag="Stats" Style="{StaticResource NavItemStyle}">
                                 <StackPanel>
                                     <TextBlock Text="&#xE9D2;" FontFamily="Segoe MDL2 Assets"

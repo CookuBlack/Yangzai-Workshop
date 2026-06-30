@@ -307,6 +307,7 @@ public partial class HomePage : UserControl
         if (sender == RootDirCard) OpenDir(App.WorkRoot);
         else if (sender == ImageDirCard) OpenImageDir();
         else if (sender == VideoDirCard) OpenVideoDir();
+        else if (sender == AudioDirCard) OpenAudioDir();
     }
 
     private void OpenImageDir()
@@ -317,6 +318,11 @@ public partial class HomePage : UserControl
     private void OpenVideoDir()
     {
         OpenDir(FileService.VideoRoot(App.WorkRoot));
+    }
+
+    private void OpenAudioDir()
+    {
+        OpenDir(FileService.AudioRoot(App.WorkRoot));
     }
 
     private void StartButton_Click(object sender, RoutedEventArgs e)

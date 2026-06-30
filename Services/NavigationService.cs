@@ -40,6 +40,7 @@ public class NavigationService
         "Script" => new Views.ScriptPage(),
         "Character" => new Views.CharacterPage(),
         "Video" => new Views.VideoPage(),
+        "Audio" => new Views.AudioPage(),
         "Stats" => new Views.StatsPage(),
         "Toolbox" => new Views.ToolboxPage(),
         "Settings" => new Views.SettingsPage(),
