@@ -175,6 +175,9 @@ public static class FileService
     /// <summary>角色图片目录：WorkData\Image\人物素材\{mediaFolder}\{charId}</summary>
     public static string CharacterImagesPath(string workRoot, string mediaFolder, string charId) =>
         CharacterMaterialPath(workRoot, mediaFolder, charId);
+    /// <summary>角色音频目录：WorkData\Audio\人物素材\{mediaFolder}\{charId}</summary>
+    public static string CharacterAudioPath(string workRoot, string mediaFolder, string charId) =>
+        Path.Combine(AudioRoot(workRoot), "人物素材", mediaFolder, charId);
     public static string BannerPath(string workRoot) => Path.Combine(ConfigPath(workRoot), "banners");
     public static string NoticeFile(string workRoot) => Path.Combine(ConfigPath(workRoot), "notice.txt");
     public static string SettingsFile(string workRoot) => Path.Combine(ConfigPath(workRoot), "appsettings.json");

@@ -19,12 +19,13 @@ public partial class App : Application
     private const string CurrentVersion = "3.2.0";
     public static string AppVersion => CurrentVersion;
 
-    /// <summary>版本信息 JSON 地址（GitHub 直连优先，CDN 备用）</summary>
-    private static readonly string[] VersionInfoUrls = new[]
+    /// <summary>版本信息 JSON 地址（CDN 优先，GitHub 直连备用）</summary>
+    private static string[] GetVersionInfoUrls()
     {
-        "https://raw.githubusercontent.com/CookuBlack/Yangzai-Workshop/main/version.json",
-        "https://cdn.jsdelivr.net/gh/CookuBlack/Yangzai-Workshop@main/version.json",
-    };
+        // jsDelivr CDN 全球加速（国内秒开），加 t 参数破坏缓存
+        var cdn = $"https://cdn.jsdelivr.net/gh/CookuBlack/Yangzai-Workshop@main/version.json?t={DateTime.UtcNow:yyyyMMddHH}";
+        return new[] { cdn, "https://raw.githubusercontent.com/CookuBlack/Yangzai-Workshop/main/version.json" };
+    }
 
     // 缓存：避免频繁启动时耗尽 API 速率
     private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
@@ -34,6 +35,7 @@ public partial class App : Application
     /// <summary>最近一次更新检查失败的详细错误信息</summary>
     public static string LastUpdateError => _lastUpdateError;
     private static string _lastUpdateError = "";
+    private static string? _msiMirrorUrl = null;
 
     private static System.Windows.Threading.DispatcherTimer? _backupTimer;
     private static DateTime _lastBackupTime;
@@ -207,7 +209,7 @@ public partial class App : Application
 
         // ---- 第一步：多源获取版本信息 ----
         var errors = new System.Collections.Generic.List<string>();
-        foreach (var url in VersionInfoUrls)
+        foreach (var url in GetVersionInfoUrls())
         {
             try
             {
@@ -232,6 +234,11 @@ public partial class App : Application
                 msiUrl = !string.IsNullOrEmpty(rawMsi)
                     ? rawMsi
                     : $"https://github.com/{GitHubRepo}/releases/download/v{tag}/YangzaiWorkshop-windows-x64-v{tag}.msi";
+
+                // 镜像地址：可指定更快下载源（如云盘、自建 CDN）
+                var rawMirror = root.TryGetProperty("msi_mirror", out var mrp)
+                    ? mrp.GetString() : null;
+                _msiMirrorUrl = !string.IsNullOrEmpty(rawMirror) ? rawMirror : null;
 
                 if (!string.IsNullOrEmpty(tag))
                     break;
@@ -318,113 +325,154 @@ public partial class App : Application
         var tempFile = Path.Combine(FileService.AppBasePath,
             $"YangzaiWorkshop_Update_{newTag}.msi");
 
-        var progressWindow = new UpdateProgressWindow("正在下载更新",
-            $"Yangzai Workshop v{newTag} 下载中...");
+        // 多源下载：镜像优先 → GitHub 直连兜底
+        var urls = new List<string>();
+        if (!string.IsNullOrEmpty(_msiMirrorUrl)) urls.Add(_msiMirrorUrl);
+        urls.Add(downloadUrl);
 
-        try
+        Exception? lastEx = null;
+        foreach (var url in urls)
         {
-            TryDeleteFile(tempFile);
-
-            // 显示进度窗口
-            progressWindow.Show();
-
-            using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("YangzaiWorkshop");
-
-            using var response = await client.GetAsync(downloadUrl,
-                HttpCompletionOption.ResponseHeadersRead);
-
-            // 404 → MSI 未上传，引导用户去 GitHub 手动下载
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            var isMirror = url != downloadUrl;
+            try
             {
-                progressWindow.Close();
-                var openBrowser = await Current.Dispatcher.InvokeAsync(() =>
-                    MessageDialog.Confirm("MSI 未上传",
-                        $"v{newTag} 的安装包尚未上传到 GitHub。\n\n是否前往 GitHub Releases 手动下载？"));
-                if (openBrowser)
+                var source = isMirror ? "镜像源" : "GitHub";
+                var progressWindow = new UpdateProgressWindow("正在下载更新",
+                    $"Yangzai Workshop v{newTag} 下载中... ({source})");
+                TryDeleteFile(tempFile);
+                progressWindow.Show();
+
+                using var handler = new HttpClientHandler();
+                using var client = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(30) };
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("YangzaiWorkshop");
+
+                using var response = await client.GetAsync(url,
+                    HttpCompletionOption.ResponseHeadersRead);
+
+                if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
-                    var url = $"https://github.com/{GitHubRepo}/releases/tag/v{newTag}";
-                    try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
-                }
-                return;
-            }
-            response.EnsureSuccessStatusCode();
-
-            var totalBytes = response.Content.Headers.ContentLength ?? -1;
-            using var stream = await response.Content.ReadAsStreamAsync();
-            using var fs = File.Create(tempFile);
-
-            var buffer = new byte[8192];
-            long totalRead = 0;
-            int bytesRead;
-            int lastPercent = -1;
-
-            while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
-            {
-                await fs.WriteAsync(buffer, 0, bytesRead);
-                totalRead += bytesRead;
-
-                if (totalBytes > 0)
-                {
-                    var percent = (int)(totalRead * 100 / totalBytes);
-                    if (percent != lastPercent)
+                    progressWindow.Close();
+                    if (!isMirror)
                     {
-                        lastPercent = percent;
-                        var mb = totalRead / (1024.0 * 1024.0);
-                        var totalMb = totalBytes / (1024.0 * 1024.0);
-                        progressWindow.Report(percent,
-                            $"已下载 {mb:F1} MB / {totalMb:F1} MB");
+                        var openBrowser = await Current.Dispatcher.InvokeAsync(() =>
+                            MessageDialog.Confirm("MSI 未上传",
+                                $"v{newTag} 的安装包尚未上传。\n\n是否前往 GitHub Releases 手动下载？"));
+                        if (openBrowser)
+                        {
+                            var releaseUrl = $"https://github.com/{GitHubRepo}/releases/tag/v{newTag}";
+                            try { Process.Start(new ProcessStartInfo(releaseUrl) { UseShellExecute = true }); } catch { }
+                        }
                     }
+                    lastEx = new HttpRequestException($"{source} 返回 404");
+                    continue;
                 }
-                else
+                response.EnsureSuccessStatusCode();
+
+                await DownloadWithProgress(response, tempFile, progressWindow);
+
+                progressWindow.Report(100, "下载完成，正在安装...");
+                progressWindow.Close();
+                break; // 下载成功，退出循环
+            }
+            catch (Exception ex)
+            {
+                lastEx = ex;
+                // 镜像失败则尝试下一个源
+                continue;
+            }
+        }
+
+        if (lastEx != null && !File.Exists(tempFile))
+        {
+            throw lastEx;
+        }
+
+        await InstallUpdate(tempFile, newTag);
+    }
+
+    /// <summary>大缓冲区流式下载 + 进度回调</summary>
+    private static async Task DownloadWithProgress(
+        HttpResponseMessage response, string tempFile, UpdateProgressWindow progressWindow)
+    {
+        var totalBytes = response.Content.Headers.ContentLength ?? -1;
+        using var stream = await response.Content.ReadAsStreamAsync();
+        using var fs = new FileStream(tempFile, FileMode.Create, FileAccess.Write,
+            FileShare.None, bufferSize: 65536, useAsync: true);
+
+        var buffer = new byte[65536];
+        long totalRead = 0;
+        int bytesRead;
+        int lastPercent = -1;
+
+        while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+        {
+            await fs.WriteAsync(buffer, 0, bytesRead);
+            totalRead += bytesRead;
+
+            if (totalBytes > 0)
+            {
+                var percent = (int)(totalRead * 100 / totalBytes);
+                if (percent != lastPercent)
                 {
-                    // 无法获取总大小时，简单闪烁
+                    lastPercent = percent;
                     var mb = totalRead / (1024.0 * 1024.0);
-                    progressWindow.Report(0, $"已下载 {mb:F1} MB...");
+                    var totalMb = totalBytes / (1024.0 * 1024.0);
+                    progressWindow.Report(percent,
+                        $"已下载 {mb:F1} MB / {totalMb:F1} MB");
                 }
             }
-
-            await fs.FlushAsync();
-
-            progressWindow.Report(100, "下载完成，正在安装...");
-            progressWindow.Close();
-
-            // 先确保 UI 关闭，再创建安装脚本
-            await Current.Dispatcher.InvokeAsync(() => Current.Shutdown());
-
-            // 等待应用完全退出
-            await Task.Delay(2000);
-
-            // 创建安装脚本：等旧进程退出 → 安装新 MSI → 启动新版本 → 清理
-            var cleanupBat = Path.Combine(FileService.AppBasePath, "_update_cleanup.bat");
-            var exePath = Path.Combine(FileService.AppBasePath, "YangzaiWorkshop.exe");
-            File.WriteAllText(cleanupBat,
-                "@echo off\r\n" +
-                "echo Installing Yangzai Workshop...\r\n" +
-                $"msiexec /i \"{tempFile}\" INSTALL_FOLDER=\"{FileService.AppBasePath}\" /qb!- /norestart\r\n" +
-                "echo Starting Yangzai Workshop...\r\n" +
-                $"start \"\" \"{exePath}\"\r\n" +
-                $"del /f /q \"{tempFile}\" 2>nul\r\n" +
-                $"del /f /q \"%~f0\" 2>nul\r\n",
-                System.Text.Encoding.GetEncoding(936)); // GBK 编码兼容中文路径
-
-            Process.Start(new ProcessStartInfo
+            else
             {
-                FileName = "cmd.exe",
-                Arguments = $"/c \"{cleanupBat}\"",
-                UseShellExecute = true,
-                WindowStyle = ProcessWindowStyle.Normal
-            });
+                var mb = totalRead / (1024.0 * 1024.0);
+                progressWindow.Report(0, $"已下载 {mb:F1} MB...");
+            }
         }
-        catch (Exception ex)
+
+        await fs.FlushAsync();
+    }
+
+    /// <summary>执行安装：启动 MSI → 关闭应用（让安装程序接管）</summary>
+    private static async Task InstallUpdate(string tempFile, string newTag)
+    {
+        // 方案：先启动 msiexec 安装（Windows 会弹出 UAC），再关闭当前应用
+        // 这样安装进程独立于应用进程，不会随应用退出而中断
+
+        // 创建自清理安装脚本（等当前进程退出后安装 → 启动新版本 → 清理 MSI）
+        var cleanupBat = Path.Combine(FileService.AppBasePath, "_update_cleanup.bat");
+        var exePath = Path.Combine(FileService.AppBasePath, "YangzaiWorkshop.exe");
+        var currentPid = Environment.ProcessId;
+
+        File.WriteAllText(cleanupBat,
+            "@echo off\r\n" +
+            "echo Waiting for old process to exit...\r\n" +
+            $":waitloop\r\n" +
+            $"tasklist /fi \"PID eq {currentPid}\" 2>nul | find \"{currentPid}\" >nul\r\n" +
+            "if not errorlevel 1 (\r\n" +
+            "    timeout /t 1 /nobreak >nul\r\n" +
+            "    goto waitloop\r\n" +
+            ")\r\n" +
+            "echo Installing Yangzai Workshop v{newTag}...\r\n" +
+            $"msiexec /i \"{tempFile}\" /qb!- /norestart\r\n" +
+            "echo Starting Yangzai Workshop...\r\n" +
+            $"start \"\" \"{exePath}\"\r\n" +
+            $"del /f /q \"{tempFile}\" 2>nul\r\n" +
+            $"del /f /q \"%~f0\" 2>nul\r\n",
+            System.Text.Encoding.GetEncoding(936));
+
+        // 以独立窗口启动批处理（不受父进程退出影响）
+        Process.Start(new ProcessStartInfo
         {
-            TryDeleteFile(tempFile);
-            progressWindow.Close();
-            await Current.Dispatcher.InvokeAsync(() =>
-            {
-                MessageDialog.Show("更新失败", $"下载或安装失败：\n{ex.Message}");
-            });
-        }
+            FileName = "cmd.exe",
+            Arguments = $"/c start \"\" /min cmd.exe /c \"{cleanupBat}\"",
+            UseShellExecute = true,
+            CreateNoWindow = true
+        });
+
+        // 等待批处理进程启动
+        await Task.Delay(500);
+
+        // 关闭当前应用
+        await Current.Dispatcher.InvokeAsync(() => Current.Shutdown());
     }
 
     // ==================== 缓存 ====================

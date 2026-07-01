@@ -29,7 +29,7 @@
                     </CheckBox>
 
                     <StackPanel x:Name="ThemeManualPanel" Orientation="Horizontal">
-                        <RadioButton x:Name="LightRadio" GroupName="Theme" Margin="0,0,20,0"
+                        <RadioButton x:Name="LightRadio" GroupName="Theme" Margin="0,0,8,0"
                                      FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
                                      Checked="LightRadio_Checked">
                             <RadioButton.Template>
@@ -62,7 +62,7 @@
                                 </ControlTemplate>
                             </RadioButton.Template>
                         </RadioButton>
-                        <RadioButton x:Name="DarkRadio" GroupName="Theme"
+                        <RadioButton x:Name="DarkRadio" GroupName="Theme" Margin="0,0,8,0"
                                      FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
                                      Checked="DarkRadio_Checked">
                             <RadioButton.Template>
@@ -95,7 +95,257 @@
                                 </ControlTemplate>
                             </RadioButton.Template>
                         </RadioButton>
+                        <RadioButton x:Name="GlassRadio" GroupName="Theme" Margin="0,0,8,0"
+                                     FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
+                                     Checked="GlassRadio_Checked">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="bd" Background="{DynamicResource CardBackgroundBrush}"
+                                            CornerRadius="8" Padding="14,10" Cursor="Hand"
+                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Width="20" Height="20" CornerRadius="10"
+                                                    Background="{DynamicResource HoverBrush}"
+                                                    BorderBrush="Transparent" BorderThickness="2">
+                                                <Ellipse x:Name="dot" Fill="{DynamicResource PrimaryBrush}"
+                                                         Width="10" Height="10" Visibility="Collapsed"/>
+                                            </Border>
+                                            <TextBlock Text="&#xE7C6;" FontFamily="Segoe MDL2 Assets"
+                                                       FontSize="14" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                            <TextBlock Text=" 天空之蓝" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="bd" Property="BorderBrush"
+                                                    Value="{DynamicResource PrimaryBrush}"/>
+                                            <Setter TargetName="bd" Property="Background"
+                                                    Value="{DynamicResource PrimaryLowBrush}"/>
+                                            <Setter TargetName="dot" Property="Visibility" Value="Visible"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
+                        <RadioButton x:Name="CustomRadio" GroupName="Theme"
+                                     FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
+                                     Checked="CustomRadio_Checked">
+                            <RadioButton.Template>
+                                <ControlTemplate TargetType="RadioButton">
+                                    <Border x:Name="bd" Background="{DynamicResource CardBackgroundBrush}"
+                                            CornerRadius="8" Padding="14,10" Cursor="Hand"
+                                            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Border Width="20" Height="20" CornerRadius="10"
+                                                    Background="{DynamicResource HoverBrush}"
+                                                    BorderBrush="Transparent" BorderThickness="2">
+                                                <Ellipse x:Name="dot" Fill="{DynamicResource PrimaryBrush}"
+                                                         Width="10" Height="10" Visibility="Collapsed"/>
+                                            </Border>
+                                            <TextBlock Text="&#xE771;" FontFamily="Segoe MDL2 Assets"
+                                                       FontSize="14" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                            <TextBlock Text=" 自定义" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsChecked" Value="True">
+                                            <Setter TargetName="bd" Property="BorderBrush"
+                                                    Value="{DynamicResource PrimaryBrush}"/>
+                                            <Setter TargetName="bd" Property="Background"
+                                                    Value="{DynamicResource PrimaryLowBrush}"/>
+                                            <Setter TargetName="dot" Property="Visibility" Value="Visible"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </RadioButton.Template>
+                        </RadioButton>
                     </StackPanel>
+
+                    <!-- ===== 自定义主题配置面板 ===== -->
+                    <Border x:Name="CustomThemePanel" Visibility="Collapsed"
+                            Background="{DynamicResource CardBackgroundBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1" CornerRadius="8"
+                            Padding="16" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="自定义主题 — 选择一个背景色或上传背景图"
+                                       FontSize="14" FontWeight="Bold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,6"/>
+                            <TextBlock Text="点击色块选背景色，色/图为同一优先级（选色清图）"
+                                       FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}"
+                                       Margin="0,0,0,12"/>
+
+                            <!-- 预设颜色调色板 -->
+                            <Border Background="{DynamicResource WindowBackgroundBrush}"
+                                    CornerRadius="8" Padding="8" Margin="0,0,0,12">
+                                <WrapPanel x:Name="ColorPalettePanel"/>
+                            </Border>
+
+                            <!-- 背景图片 -->
+                            <Border BorderBrush="{DynamicResource BorderBrush}"
+                                    BorderThickness="0,1,0,0" Margin="0,8,0,0" Padding="0,12,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="背景图片" FontSize="13" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4"/>
+                                    <TextBlock Text="上传一张图片作为窗口背景（可调节透明度和模糊度）"
+                                               FontSize="10" Foreground="{DynamicResource TextSecondaryBrush}"
+                                               Margin="0,0,0,10"/>
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- 左侧：预览缩略图 + 操作按钮 -->
+                                        <Grid Grid.Column="0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <!-- 预览缩略图 -->
+                                            <Border Grid.Column="0" Width="72" Height="48" CornerRadius="6"
+                                                    Background="{DynamicResource WindowBackgroundBrush}"
+                                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                    ClipToBounds="True" Margin="0,0,10,0">
+                                                <Image x:Name="BgPreviewImage" Stretch="UniformToFill"/>
+                                            </Border>
+                                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                                    <Button x:Name="SelectBgImageBtn"
+                                                            Style="{StaticResource SecondaryButtonStyle}"
+                                                            FontSize="11" Padding="10,4"
+                                                            Click="SelectBgImage_Click">
+                                                        <TextBlock>
+                                                            <Run Text="&#xE8B9;" FontFamily="Segoe MDL2 Assets"/>
+                                                            <Run Text=" 选择图片"/>
+                                                        </TextBlock>
+                                                    </Button>
+                                                    <Button Style="{StaticResource SecondaryButtonStyle}"
+                                                            FontSize="11" Padding="10,4" Margin="6,0,0,0"
+                                                            Click="ClearBgImage_Click">
+                                                        <TextBlock>
+                                                            <Run Text="&#xE894;" FontFamily="Segoe MDL2 Assets"/>
+                                                            <Run Text=" 清除"/>
+                                                        </TextBlock>
+                                                    </Button>
+                                                </StackPanel>
+                                                <TextBlock x:Name="BgImagePathText" FontSize="10"
+                                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                                           TextTrimming="CharacterEllipsis" Text="未选择图片"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <!-- 右侧：前景 UI 风格（右对齐） -->
+                                        <Border Grid.Column="1" Background="{DynamicResource WindowBackgroundBrush}"
+                                                CornerRadius="8" Padding="12,8"
+                                                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                                VerticalAlignment="Top" Margin="16,0,0,0">
+                                            <StackPanel Orientation="Vertical">
+                                                <TextBlock Text="前景风格" FontSize="11" FontWeight="Medium"
+                                                           Foreground="{DynamicResource TextSecondaryBrush}"
+                                                           HorizontalAlignment="Right" Margin="0,0,0,6"/>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <RadioButton x:Name="ImgFgLightRadio" GroupName="ImgForeground"
+                                                                 FontSize="11" Foreground="{DynamicResource TextPrimaryBrush}"
+                                                                 Margin="0,0,14,0" Checked="ImgForeground_Changed">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Border Width="18" Height="18" CornerRadius="4"
+                                                                    Background="#F5F0E6" Margin="0,0,5,0"
+                                                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"/>
+                                                            <TextBlock Text="奶白色" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </RadioButton>
+                                                    <RadioButton x:Name="ImgFgDarkRadio" GroupName="ImgForeground"
+                                                                 FontSize="11" Foreground="{DynamicResource TextPrimaryBrush}"
+                                                                 Checked="ImgForeground_Changed">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <Border Width="18" Height="18" CornerRadius="4"
+                                                                    Background="#2D2D2D" Margin="0,0,5,0"
+                                                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"/>
+                                                            <TextBlock Text="暗色" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                    </RadioButton>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
+
+                                    <!-- 透明度 -->
+                                    <TextBlock Text="💡 透明度越高图像越清晰，模糊度越低图像越清晰"
+                                               FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}"
+                                               Margin="0,12,0,6"/>
+                                    <Grid Margin="0,0,0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="透明度" FontSize="11"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <Slider x:Name="BgOpacitySlider" Grid.Column="1"
+                                                Minimum="0.05" Maximum="1" SmallChange="0.05"
+                                                ValueChanged="BgOpacity_Changed" Margin="4,0"/>
+                                        <Border Grid.Column="2" Background="{DynamicResource HoverBrush}"
+                                                CornerRadius="4" Padding="6,2" MinWidth="40">
+                                            <TextBlock x:Name="BgOpacityLabel" Text="35%" FontSize="11"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       HorizontalAlignment="Center"/>
+                                        </Border>
+                                    </Grid>
+
+                                    <!-- 模糊度 -->
+                                    <Grid Margin="0,4,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="60"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="模糊度" FontSize="11"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                                   VerticalAlignment="Center"/>
+                                        <Slider x:Name="BgBlurSlider" Grid.Column="1"
+                                                Minimum="0" Maximum="50" SmallChange="1"
+                                                ValueChanged="BgBlur_Changed" Margin="4,0"/>
+                                        <Border Grid.Column="2" Background="{DynamicResource HoverBrush}"
+                                                CornerRadius="4" Padding="6,2" MinWidth="40">
+                                            <TextBlock x:Name="BgBlurLabel" Text="15px" FontSize="11"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       HorizontalAlignment="Center"/>
+                                        </Border>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 提示文字 -->
+                            <TextBlock FontSize="10" Foreground="{DynamicResource TextTertiaryBrush}"
+                                       Margin="0,12,0,6" TextWrapping="Wrap"
+                                       Text="调整透明度和模糊度后，点击下方按钮应用效果。更改将在重启后完全生效。"/>
+
+                            <!-- 操作按钮 -->
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
+                                <Button Style="{StaticResource SecondaryButtonStyle}"
+                                        FontSize="12" Padding="14,6" Margin="0,0,8,0"
+                                        Click="ResetCustomTheme_Click">
+                                    <TextBlock>
+                                        <Run Text="&#xE777;" FontFamily="Segoe MDL2 Assets"/>
+                                        <Run Text=" 恢复默认"/>
+                                    </TextBlock>
+                                </Button>
+                                <Button Style="{StaticResource PrimaryButtonStyle}"
+                                        FontSize="12" Padding="16,6"
+                                        Click="ApplyBgEffect_Click">
+                                    <TextBlock>
+                                        <Run Text="&#xE930;" FontFamily="Segoe MDL2 Assets"/>
+                                        <Run Text=" 应用效果并重启"/>
+                                    </TextBlock>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
             </Border>
 

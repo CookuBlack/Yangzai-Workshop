@@ -1,13 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using YangzaiWorkshop;
 using YangzaiWorkshop.Models;
 using YangzaiWorkshop.Services;
 
@@ -17,6 +21,31 @@ public partial class SettingsPage : UserControl
 {
     private AppConfig _config = null!;
     private bool _isLoading;
+
+    // ====== 自定义主题：单一背景色调色板 ======
+    private static readonly string[] PaletteColors =
+    {
+        // 灰白系
+        "#FFFFFF","#F8F8F8","#F0F0F0","#EDEDED","#E8E8E8","#E0E0E0","#D6D6D6",
+        "#CCCCCC","#BDBDBD","#AAAAAA","#999999","#777777","#555555","#333333","#222222",
+        // 暖色系
+        "#FFF8E1","#FFECB3","#FFE0B2","#FFCC80","#FFB74D","#FFA726","#FF9800","#F57C00",
+        "#FBE9E7","#FFCCBC","#FFAB91","#FF8A65","#FF7043","#FF5722","#E64A19",
+        "#FCE4EC","#F8BBD0","#F48FB1","#EC407A","#E91E63","#C2185B",
+        "#FFF3E0","#FFCCBC","#FFAB91","#FF7043","#FF5722","#BF360C",
+        // 冷色系
+        "#E3F2FD","#BBDEFB","#90CAF9","#64B5F6","#42A5F5","#2196F3","#1976D2","#0D47A1",
+        "#E8EAF6","#C5CAE9","#9FA8DA","#7986CB","#5C6BC0","#3F51B5","#303F9F",
+        "#E0F7FA","#B2EBF2","#80DEEA","#4DD0E1","#00BCD4","#0097A7","#006064",
+        "#E8F5E9","#C8E6C9","#A5D6A7","#81C784","#66BB6A","#4CAF50","#388E3C","#2E7D32",
+        "#F1F8E9","#DCEDC8","#C5E1A5","#AED581","#9CCC65","#8BC34A","#689F38",
+        "#E0E0E0","#B0BEC5","#90A4AE","#78909C","#607D8B","#455A64","#263238",
+        // 特色
+        "#F5F0E6","#EFE9DC","#E8D5B7","#D4C5A9","#C8B896",
+        "#E6EEF5","#D8E4F0","#C8D8E8","#B0C8E0","#A0B8D8",
+        "#EDE7F6","#D1C4E9","#B39DDB","#9575CD","#7E57C2",
+        "#FCE4EC","#F8BBD0","#F48FB1","#F06292","#EC407A",
+    };
 
     public SettingsPage()
     {
@@ -33,14 +62,16 @@ public partial class SettingsPage : UserControl
         _loaded = true;
         _isLoading = true;
         _config = FileService.LoadConfig(App.WorkRoot);
+
+        // 生成调色板
+        GenerateColorPalette();
+
         RefreshSettings();
 
         if (_config.FollowSystemTheme)
             SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
 
-        // 加载关于图标
         LoadAboutIcon();
-
         _isLoading = false;
     }
 
@@ -74,8 +105,22 @@ public partial class SettingsPage : UserControl
         FollowSystemCheck.IsChecked = _config.FollowSystemTheme;
         LightRadio.IsChecked = _config.Theme == "Light";
         DarkRadio.IsChecked = _config.Theme == "Dark";
+        GlassRadio.IsChecked = _config.Theme == "Glass";
+        CustomRadio.IsChecked = _config.Theme == "Custom";
+        CustomThemePanel.Visibility = _config.Theme == "Custom" ? Visibility.Visible : Visibility.Collapsed;
         ThemeManualPanel.Visibility = _config.FollowSystemTheme
             ? Visibility.Collapsed : Visibility.Visible;
+
+        // 自定义主题
+        _selectedColor = _config.CustomBgColor;
+        HighlightSelectedSwatch();
+        ImgFgLightRadio.IsChecked = _config.ImageForeground == "Light";
+        ImgFgDarkRadio.IsChecked = _config.ImageForeground == "Dark";
+        BgOpacitySlider.Value = _config.CustomBgOpacity;
+        BgOpacityLabel.Text = $"{_config.CustomBgOpacity * 100:F0}%";
+        BgBlurSlider.Value = _config.CustomBgBlur;
+        BgBlurLabel.Text = $"{_config.CustomBgBlur:F0}px";
+        RefreshBgPreview();
 
         // 工作目录（显示相对路径）
         WorkPathText.Text = GetRelativePath(App.WorkRoot);
@@ -128,6 +173,7 @@ public partial class SettingsPage : UserControl
         _config.Theme = "Light";
         SaveAndApplyTheme("Light");
         SaveConfig();
+        CustomThemePanel.Visibility = Visibility.Collapsed;
     }
 
     private void DarkRadio_Checked(object sender, RoutedEventArgs e)
@@ -136,6 +182,215 @@ public partial class SettingsPage : UserControl
         _config.Theme = "Dark";
         SaveAndApplyTheme("Dark");
         SaveConfig();
+        CustomThemePanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void GlassRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.Theme = "Glass";
+        SaveAndApplyTheme("Glass");
+        SaveConfig();
+        CustomThemePanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void CustomRadio_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.Theme = "Custom";
+        SaveConfig();
+        CustomThemePanel.Visibility = Visibility.Visible;
+        // 立即应用自定义主题
+        SaveAndApplyTheme("Custom");
+    }
+
+    // ==================== 自定义主题：单一背景色或背景图 ====================
+
+    private string _selectedColor = "#EDEDED";
+
+    /// <summary>在 ColorPalettePanel 中生成色块网格</summary>
+    private void GenerateColorPalette()
+    {
+        ColorPalettePanel.Children.Clear();
+        foreach (var hex in PaletteColors)
+        {
+            var swatch = new Border
+            {
+                Width = 22, Height = 22,
+                CornerRadius = new CornerRadius(4),
+                Cursor = Cursors.Hand,
+                ToolTip = hex,
+                Background = HexToBrush(hex),
+                Margin = new Thickness(3),
+                BorderBrush = (Brush)FindResource("BorderBrush"),
+                BorderThickness = new Thickness(hex == _selectedColor ? 2 : 1)
+            };
+            var capturedHex = hex;
+            swatch.MouseLeftButtonDown += (_, _) =>
+            {
+                _selectedColor = capturedHex;
+                _config.CustomBgColor = capturedHex;
+                _config.CustomBgImagePath = string.Empty;
+                SaveConfig();
+                RefreshBgPreview();
+                HighlightSelectedSwatch();
+                LivePreviewTheme();
+            };
+
+            ColorPalettePanel.Children.Add(swatch);
+        }
+        HighlightSelectedSwatch();
+    }
+
+    /// <summary>高亮当前选中的色块</summary>
+    private void HighlightSelectedSwatch()
+    {
+        foreach (var child in ColorPalettePanel.Children)
+        {
+            if (child is Border b && b.Background is SolidColorBrush scb)
+            {
+                // Color.ToString() 返回 #AARRGGBB，取后6位
+                var hexStr = scb.Color.ToString();
+                bool match = hexStr.Length >= 7
+                    && string.Equals(hexStr[^6..], _selectedColor.TrimStart('#'),
+                        StringComparison.OrdinalIgnoreCase);
+                b.BorderThickness = new Thickness(match ? 2 : 1);
+            }
+        }
+    }
+
+    // ====== 背景图片 ======
+
+    private void SelectBgImage_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "图片文件|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.webp",
+            Title = "选择背景图片"
+        };
+        var window = Window.GetWindow(this);
+        if (dlg.ShowDialog(window) == true)
+        {
+            _config.CustomBgImagePath = dlg.FileName;
+            SaveConfig();
+            RefreshBgPreview();
+
+            // 重建主题
+            LivePreviewTheme();
+
+            // 提示用户重启生效
+            if (MessageDialog.Confirm("提示",
+                "背景图片已保存。\n更换背景图需要重启应用才能完全生效，是否立即重启？"))
+            {
+                Process.Start(Environment.ProcessPath!);
+                Application.Current.Shutdown();
+            }
+        }
+    }
+
+    private void ClearBgImage_Click(object sender, RoutedEventArgs e)
+    {
+        _config.CustomBgImagePath = string.Empty;
+        SaveConfig();
+        RefreshBgPreview();
+        // 清除图片后需重建主题（切换回纯色 alpha=255 模式）
+        LivePreviewTheme();
+    }
+
+    private void RefreshBgPreview()
+    {
+        if (!string.IsNullOrEmpty(_config.CustomBgImagePath) && File.Exists(_config.CustomBgImagePath))
+        {
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(_config.CustomBgImagePath);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 72;
+                bmp.EndInit();
+                bmp.Freeze();
+                BgPreviewImage.Source = bmp;
+                BgImagePathText.Text = Path.GetFileName(_config.CustomBgImagePath);
+                return;
+            }
+            catch { }
+        }
+        BgPreviewImage.Source = null;
+        BgImagePathText.Text = "未选择图片";
+    }
+
+    private void BgOpacity_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.CustomBgOpacity = Math.Round(e.NewValue, 2);
+        BgOpacityLabel.Text = $"{_config.CustomBgOpacity * 100:F0}%";
+    }
+
+    private void BgBlur_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.CustomBgBlur = Math.Round(e.NewValue, 0);
+        BgBlurLabel.Text = $"{_config.CustomBgBlur:F0}px";
+    }
+
+    private void ImgForeground_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.ImageForeground = ImgFgLightRadio.IsChecked == true ? "Light" : "Dark";
+        SaveConfig();
+        // 立即预览切换
+        LivePreviewTheme();
+    }
+
+    /// <summary>实时预览：立即刷新窗口外观（ApplyTheme 内部已调用 ApplyCustomBackground）</summary>
+    private static void LivePreviewTheme()
+    {
+        ThemeService.ApplyTheme("Custom", App.WorkRoot);
+    }
+
+    // ====== 应用背景效果并重启 ======
+
+    private void ApplyBgEffect_Click(object sender, RoutedEventArgs e)
+    {
+        SaveConfig();
+        if (MessageDialog.Confirm("应用背景效果",
+            "透明度和模糊度已保存。\n效果需要重启应用才能完全生效。\n\n是否立即重启？"))
+        {
+            Process.Start(Environment.ProcessPath!);
+            Application.Current.Shutdown();
+        }
+    }
+
+    // ====== 重置 ======
+
+    private void ResetCustomTheme_Click(object sender, RoutedEventArgs e)
+    {
+        _selectedColor = "#EDEDED";
+        _config.CustomBgColor = "#EDEDED";
+        _config.CustomBgImagePath = string.Empty;
+        _config.CustomBgOpacity = 0.35;
+        _config.CustomBgBlur = 15;
+        _config.ImageForeground = "Light";
+        BgOpacitySlider.Value = 0.35;
+        BgOpacityLabel.Text = "35%";
+        BgBlurSlider.Value = 15;
+        BgBlurLabel.Text = "15px";
+        ImgFgLightRadio.IsChecked = true;
+        ImgFgDarkRadio.IsChecked = false;
+        HighlightSelectedSwatch();
+        RefreshBgPreview();
+        SaveConfig();
+        if (ThemeService.CurrentTheme == "Custom")
+            LivePreviewTheme();
+    }
+
+    // ====== 辅助 ======
+
+    private static SolidColorBrush HexToBrush(string hex)
+    {
+        try { return new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)); }
+        catch { return new SolidColorBrush(Colors.Gray); }
     }
 
     private void FollowSystemCheck_Checked(object sender, RoutedEventArgs e)

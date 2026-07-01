@@ -43,4 +43,13 @@ public class AppConfig
     public string LastUpdateDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
     public string Version { get; set; } = "3.2.0";
     public int GitHubStars { get; set; } = 128;
+
+    // ====== 自定义主题：单一背景色或背景图 ======
+    /// <summary>自定义背景色（HEX，例如 #EDEDED）</summary>
+    public string CustomBgColor { get; set; } = "#EDEDED";
+    public string CustomBgImagePath { get; set; } = string.Empty;
+    public double CustomBgOpacity { get; set; } = 0.35;
+    public double CustomBgBlur { get; set; } = 15;
+    /// <summary>背景图模式下前景风格：Light=奶白 / Dark=暗色</summary>
+    public string ImageForeground { get; set; } = "Light";
 }

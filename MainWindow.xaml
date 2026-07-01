@@ -31,11 +31,20 @@
                               Color="#35000000"/>
         </Border.Effect>
 
+        <!-- 自定义主题背景图（默认隐藏，ZIndex=-1 置于底层） -->
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="40"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
+
+            <!-- 背景图片层（自定义主题时显示） -->
+            <Grid x:Name="BgImageGrid" Visibility="Collapsed" ClipToBounds="True"
+                  Panel.ZIndex="-1" Grid.RowSpan="2"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <Image x:Name="BgImage" Stretch="UniformToFill"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Grid>
 
             <!-- ===== 顶部标题栏 ===== -->
             <Border Grid.Row="0" Background="{DynamicResource SidebarBackgroundBrush}"
@@ -83,10 +92,11 @@
 
                         <!-- 主题切换 -->
                         <Button Style="{StaticResource WindowControlButtonStyle}"
-                                Click="ThemeToggle_Click" ToolTip="切换亮色/暗色主题"
+                                Click="ThemeToggle_Click" ToolTip="切换主题（亮色 → 暗色 → 天空之蓝 → 自定义）"
                                 WindowChrome.IsHitTestVisibleInChrome="True">
                             <TextBlock x:Name="ThemeIcon" Text="&#xE706;"
-                                       FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                                       FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       Margin="0,0,0,1"/>
                         </Button>
 
                         <!-- 最小化 -->

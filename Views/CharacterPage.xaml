@@ -71,11 +71,12 @@
                               PreviewMouseWheel="DetailScroll_PreviewMouseWheel">
                     <StackPanel x:Name="DetailPanel">
 
-                        <!-- 头像 + 名称 -->
+                        <!-- 头像 + 名称 + 音频 -->
                         <Grid Margin="0,0,0,12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto" MinWidth="420"/>
                             </Grid.ColumnDefinitions>
 
                             <Border x:Name="AvatarBorder" Grid.Column="0" Width="72" Height="72"
@@ -107,6 +108,102 @@
                                             Click="DeleteCharacter_Click"/>
                                 </StackPanel>
                             </StackPanel>
+
+                            <!-- 角色音频素材（头像行右侧，竖线分割） -->
+                            <Grid Grid.Column="2" MinWidth="420" MaxWidth="500" Margin="16,0,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <!-- 标题栏 -->
+                                <StackPanel Grid.Row="0" Orientation="Horizontal"
+                                            Margin="0,0,0,6">
+                                    <TextBlock Text="🎵 音频素材" FontSize="11" FontWeight="Bold"
+                                               Foreground="{DynamicResource TextPrimaryBrush}"
+                                               VerticalAlignment="Center"/>
+                                    <Button Content="+" FontSize="10" Padding="4,0"
+                                            Margin="6,0,0,0"
+                                            Style="{StaticResource SecondaryButtonStyle}"
+                                            Click="UploadAudio_Click"
+                                            ToolTip="添加音频文件"/>
+                                    <TextBlock x:Name="AudioCountText" Text="" FontSize="9"
+                                               Foreground="{DynamicResource TextSecondaryBrush}"
+                                               VerticalAlignment="Center" Margin="4,0,0,0"/>
+                                </StackPanel>
+                                <!-- 竖线分隔 + 列表 -->
+                                <Grid Grid.Row="1">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <!-- 竖线分隔符 -->
+                                    <Rectangle Grid.Column="0" Width="1"
+                                               Fill="{DynamicResource BorderBrush}"
+                                               VerticalAlignment="Stretch" HorizontalAlignment="Left"/>
+                                    <!-- 音频列表（无滚动条） -->
+                                    <ScrollViewer Grid.Column="1"
+                                                  VerticalScrollBarVisibility="Hidden"
+                                                  HorizontalScrollBarVisibility="Disabled"
+                                                  MaxHeight="90" Margin="12,0,0,0"
+                                                  AllowDrop="True"
+                                                  Drop="CharAudio_Drop" DragOver="CharAudio_DragOver">
+                                        <ItemsControl x:Name="CharAudioList">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,3" Cursor="Hand">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <!-- 播放按钮 -->
+                                                        <Button Grid.Column="0" Content="▶" FontSize="9"
+                                                                Width="22" Height="22" Padding="0"
+                                                                Tag="{Binding FilePath}"
+                                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                                Click="PlayAudio_Click"
+                                                                ToolTip="播放音频" Margin="0,0,6,0"/>
+                                                        <!-- 文件信息 -->
+                                                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding FileName}"
+                                                                       FontSize="10"
+                                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       MaxWidth="320"/>
+                                                            <TextBlock Text="{Binding Size}" FontSize="8"
+                                                                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+                                                        </StackPanel>
+                                                        <!-- 操作按钮（hover 显示） -->
+                                                        <StackPanel Grid.Column="2" x:Name="AudioActionPanel"
+                                                                    Orientation="Horizontal"
+                                                                    VerticalAlignment="Center">
+                                                            <Button Content="✎" FontSize="8"
+                                                                    Width="20" Height="18" Padding="0"
+                                                                    Tag="{Binding FilePath}"
+                                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                                    Click="RenameAudio_Click"
+                                                                    ToolTip="重命名" Margin="0,0,2,0"/>
+                                                            <Button Content="📋" FontSize="8"
+                                                                    Width="20" Height="18" Padding="0"
+                                                                    Tag="{Binding FilePath}"
+                                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                                    Click="CopyAudio_Click"
+                                                                    ToolTip="复制文件" Margin="0,0,2,0"/>
+                                                            <Button Content="✕" FontSize="8"
+                                                                    Width="20" Height="18" Padding="0"
+                                                                    Tag="{Binding FilePath}"
+                                                                    Foreground="{DynamicResource DangerBrush}"
+                                                                    Style="{StaticResource SecondaryButtonStyle}"
+                                                                    Click="DeleteAudio_Click"
+                                                                    ToolTip="删除"/>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Grid>
                         </Grid>
 
                         <Border Height="1" Background="{DynamicResource BorderBrush}"

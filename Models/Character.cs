@@ -7,4 +7,5 @@ public class CharacterInfo
     public string Personality { get; set; } = string.Empty;
     public string AvatarPath { get; set; } = string.Empty;
     public List<string> ImagePaths { get; set; } = new();
+    public List<string> AudioPaths { get; set; } = new();
 }

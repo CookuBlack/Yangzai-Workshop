@@ -7,7 +7,7 @@
   "targets": {
     ".NETCoreApp,Version=v8.0": {},
     ".NETCoreApp,Version=v8.0/win-x64": {
-      "YangzaiWorkshop/3.1.0": {
+      "YangzaiWorkshop/3.2.0": {
         "dependencies": {
           "Markdig": "0.40.0",
           "ScottPlot.WPF": "5.0.54"
@@ -278,7 +278,7 @@
     }
   },
   "libraries": {
-    "YangzaiWorkshop/3.1.0": {
+    "YangzaiWorkshop/3.2.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

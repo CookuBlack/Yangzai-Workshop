@@ -295,6 +295,7 @@ public partial class CharacterPage : UserControl
         PersonalityDisplayBorder.Visibility = Visibility.Visible;
         RefreshCharacterAvatar();
         RefreshCharacterImages();
+        RefreshCharacterAudios();
         foreach (Border c in CharacterPanel.Children)
         {
             if (c.Tag is CharacterInfo ci)
@@ -805,6 +806,392 @@ public partial class CharacterPage : UserControl
         Toast("✓ 已添加");
     }
 
+    // ===== 角色音频素材 =====
+
+    private void RefreshCharacterAudios()
+    {
+        CharAudioList.ItemsSource = null;
+        if (_currentNovel == null || _currentCharacter == null)
+        {
+            AudioCountText.Text = "";
+            return;
+        }
+        var dir = FileService.CharacterAudioPath(App.WorkRoot, _currentNovel.MediaFolder, _currentCharacter.Id);
+        var files = FileService.GetFiles(dir, ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma");
+        var items = files.Select(f =>
+        {
+            var fileName = Path.GetFileName(f);
+            var fileSize = new FileInfo(f).Length;
+            return new { FilePath = f, FileName = fileName, Size = FormatFileSize(fileSize) };
+        }).ToList();
+        CharAudioList.ItemsSource = items;
+        AudioCountText.Text = items.Count > 0 ? $"({items.Count})" : "";
+    }
+
+    private void UploadAudio_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "音频文件|*.mp3;*.wav;*.ogg;*.m4a;*.flac;*.aac;*.wma",
+            Multiselect = true,
+            Title = "选择角色音频文件"
+        };
+        if (dlg.ShowDialog() != true) return;
+        var targetDir = FileService.CharacterAudioPath(App.WorkRoot, _currentNovel.MediaFolder, _currentCharacter.Id);
+        foreach (var f in dlg.FileNames)
+            FileService.CopyFile(f, targetDir);
+        RefreshCharacterAudios();
+        Toast("✓ 音频已添加");
+    }
+
+    private void PlayAudio_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string filePath && File.Exists(filePath))
+        {
+            ShowAudioPlayerPopup(Path.GetFileName(filePath), filePath);
+        }
+    }
+
+    /// <summary>显示内联音频播放弹窗</summary>
+    private void ShowAudioPlayerPopup(string title, string filePath)
+    {
+        var win = new Window
+        {
+            Title = $"正在播放：{title}",
+            Width = 420,
+            Height = 160,
+            MinWidth = 360,
+            MinHeight = 120,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = Window.GetWindow(this),
+            ResizeMode = ResizeMode.CanResizeWithGrip,
+            Background = (Brush)FindResource("WindowBackgroundBrush"),
+            WindowStyle = WindowStyle.ToolWindow,
+            ShowInTaskbar = false
+        };
+
+        var mainGrid = new Grid { Margin = new Thickness(16, 12, 16, 12) };
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 标题
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) }); // 间距
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 进度条
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });  // 间距
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 控制按钮
+
+        // 标题行
+        var titleRow = new DockPanel();
+        var titleIcon = new TextBlock { Text = "🎵", FontSize = 14, VerticalAlignment = VerticalAlignment.Center };
+        var titleTb = new TextBlock
+        {
+            Text = title,
+            FontSize = 13, FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(6, 0, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        DockPanel.SetDock(titleIcon, Dock.Left);
+        titleRow.Children.Add(titleIcon);
+        titleRow.Children.Add(titleTb);
+        Grid.SetRow(titleRow, 0);
+        mainGrid.Children.Add(titleRow);
+
+        // 进度条区域
+        var progressArea = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        var timeCurrent = new TextBlock
+        {
+            Text = "0:00",
+            FontSize = 11,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Width = 38
+        };
+
+        var progressSlider = new Slider
+        {
+            Minimum = 0, Maximum = 100, Value = 0,
+            IsMoveToPointEnabled = true,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(6, 0, 6, 0),
+            Foreground = (Brush)FindResource("PrimaryBrush"),
+            Width = 240
+        };
+
+        var timeTotal = new TextBlock
+        {
+            Text = "--:--",
+            FontSize = 11,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Width = 38
+        };
+        progressArea.Children.Add(timeCurrent);
+        progressArea.Children.Add(progressSlider);
+        progressArea.Children.Add(timeTotal);
+        Grid.SetRow(progressArea, 2);
+        mainGrid.Children.Add(progressArea);
+
+        // 控制按钮行
+        var controlRow = new StackPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Center
+        };
+
+        var btnPlay = new Button
+        {
+            Content = "⏸",
+            FontSize = 18,
+            Width = 42, Height = 36, Padding = new Thickness(0),
+            Style = (Style)FindResource("PrimaryButtonStyle"),
+            ToolTip = "暂停/继续"
+        };
+
+        var btnStop = new Button
+        {
+            Content="⏹",
+            FontSize = 14,
+            Width = 36, Height = 30, Padding = new Thickness(0),
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            Margin = new Thickness(4, 0, 0, 0),
+            ToolTip = "停止"
+        };
+
+        var volSlider = new Slider
+        {
+            Minimum = 0, Maximum = 1, Value = 0.8,
+            Width = 80, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("PrimaryBrush"),
+            Margin = new Thickness(12, 0, 0, 0),
+            ToolTip = "音量"
+        };
+
+        controlRow.Children.Add(btnPlay);
+        controlRow.Children.Add(btnStop);
+        controlRow.Children.Add(volSlider);
+        Grid.SetRow(controlRow, 4);
+        mainGrid.Children.Add(controlRow);
+
+        // MediaElement（不可见）
+        var mediaElement = new MediaElement
+        {
+            LoadedBehavior = MediaState.Manual,
+            UnloadedBehavior = MediaState.Stop,
+            Visibility = Visibility.Collapsed
+        };
+        mediaElement.Volume = volSlider.Value;
+        mediaElement.Source = new Uri(filePath);
+        mainGrid.RowDefinitions.Add(new RowDefinition()); // 隐藏的 MediaElement 行
+        mediaElement.SetValue(Grid.RowProperty, 5);
+        mainGrid.Children.Add(mediaElement);
+
+        win.Content = mainGrid;
+
+        bool isPlaying = true;
+        bool isDragging = false;
+
+        // 播放/暂停
+        btnPlay.Click += (_, _) =>
+        {
+            try
+            {
+                if (isPlaying)
+                {
+                    mediaElement.Pause();
+                    btnPlay.Content = "▶";
+                }
+                else
+                {
+                    mediaElement.Play();
+                    btnPlay.Content = "⏸";
+                }
+                isPlaying = !isPlaying;
+            }
+            catch { }
+        };
+
+        // 停止
+        btnStop.Click += (_, _) =>
+        {
+            try
+            {
+                mediaElement.Stop();
+                mediaElement.Position = TimeSpan.Zero;
+                isPlaying = false;
+                btnPlay.Content = "▶";
+                progressSlider.Value = 0;
+                timeCurrent.Text = "0:00";
+            }
+            catch { }
+        };
+
+        // 音量
+        volSlider.ValueChanged += (_, _) =>
+        {
+            try { mediaElement.Volume = volSlider.Value; } catch { }
+        };
+
+        // 进度条拖拽
+        progressSlider.PreviewMouseLeftButtonDown += (_, _) => isDragging = true;
+        progressSlider.PreviewMouseLeftButtonUp += (_, _) =>
+        {
+            try
+            {
+                if (mediaElement.NaturalDuration.HasTimeSpan)
+                {
+                    double ratio = progressSlider.Value / progressSlider.Maximum;
+                    mediaElement.Position = mediaElement.NaturalDuration.TimeSpan * ratio;
+                }
+            }
+            catch { }
+            isDragging = false;
+        };
+
+        // 定时更新进度
+        System.Windows.Threading.DispatcherTimer? timer = null;
+        timer = new System.Windows.Threading.DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(300)
+        };
+        timer.Tick += (_, _) =>
+        {
+            try
+            {
+                if (mediaElement.NaturalDuration.HasTimeSpan && mediaElement.NaturalDuration.TimeSpan.TotalSeconds > 0)
+                {
+                    timeTotal.Text = FormatDuration(mediaElement.NaturalDuration.TimeSpan);
+                    if (!isDragging && isPlaying)
+                        progressSlider.Value = (mediaElement.Position.TotalSeconds / mediaElement.NaturalDuration.TimeSpan.TotalSeconds) * progressSlider.Maximum;
+                    timeCurrent.Text = FormatDuration(mediaElement.Position);
+                }
+            }
+            catch { }
+        };
+
+        mediaElement.MediaEnded += (_, _) =>
+        {
+            isPlaying = false;
+            btnPlay.Content = "▶";
+            progressSlider.Value = 0;
+            timeCurrent.Text = "0:00";
+        };
+
+        mediaElement.MediaOpened += (_, _) =>
+        {
+            try
+            {
+                if (mediaElement.NaturalDuration.HasTimeSpan)
+                    timeTotal.Text = FormatDuration(mediaElement.NaturalDuration.TimeSpan);
+                mediaElement.Play();
+                isPlaying = true;
+                btnPlay.Content = "⏸";
+                timer.Start();
+            }
+            catch { }
+        };
+
+        win.Closed += (_, _)=>
+        {
+            try
+            {
+                timer?.Stop();
+                mediaElement.Close();
+            }
+            catch { }
+        };
+
+        win.Show();
+    }
+
+    private static string FormatDuration(TimeSpan ts) => $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
+
+    private void AudioItem_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (sender is FrameworkElement fe)
+        {
+            var panel = fe.FindName("AudioActionPanel");
+            if (panel is UIElement el) el.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void AudioItem_MouseLeave(object sender, MouseEventArgs e)
+    {
+        if (sender is FrameworkElement fe)
+        {
+            var panel = fe.FindName("AudioActionPanel");
+            if (panel is UIElement el) el.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void RenameAudio_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        if (sender is not Button btn || btn.Tag is not string filePath) return;
+        var name = Path.GetFileNameWithoutExtension(filePath);
+        var ext = Path.GetExtension(filePath);
+        var win = CreateRenameDialog("重命名音频", name, newName =>
+        {
+            var newPath = Path.Combine(Path.GetDirectoryName(filePath)!, newName + ext);
+            if (!string.Equals(filePath, newPath, StringComparison.OrdinalIgnoreCase))
+                File.Move(filePath, newPath);
+            RefreshCharacterAudios();
+        });
+        win.Owner = Window.GetWindow(this);
+        win.ShowDialog();
+    }
+
+    private void CopyAudio_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string filePath)
+        {
+            try
+            {
+                Clipboard.SetFileDropList(new System.Collections.Specialized.StringCollection { filePath });
+                Toast("✓ 已复制到剪贴板");
+            }
+            catch { Toast("✗ 复制失败"); }
+        }
+    }
+
+    private void DeleteAudio_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button btn && btn.Tag is string filePath)
+        {
+            try
+            {
+                FileService.DeleteFile(filePath);
+                RefreshCharacterAudios();
+                Toast("✓ 已删除");
+            }
+            catch { Toast("✗ 删除失败"); }
+        }
+    }
+
+    private void CharAudio_Drop(object sender, DragEventArgs e)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+            var targetDir = FileService.CharacterAudioPath(App.WorkRoot, _currentNovel.MediaFolder, _currentCharacter.Id);
+            var allowedExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                { ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac", ".wma" };
+            foreach (var file in files)
+            {
+                if (allowedExts.Contains(Path.GetExtension(file)))
+                    FileService.CopyFile(file, targetDir);
+            }
+            RefreshCharacterAudios();
+            Toast("✓ 音频已导入");
+        }
+    }
+
+    private void CharAudio_DragOver(object sender, DragEventArgs e)
+    {
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
     private void CharAiGenerateImage_Click(object sender, RoutedEventArgs e)
     {
         if (_currentNovel == null || _currentCharacter == null) return;
@@ -1099,4 +1486,46 @@ public partial class CharacterPage : UserControl
         FileService.WriteJson(Path.Combine(cp, "info.json"), nc);
         RefreshCharacterList(); SelectCharacter(nc);
     }
+
+    /// <summary>简易重命名弹窗</summary>
+    private static Window CreateRenameDialog(string title, string currentName, Action<string> onConfirm)
+    {
+        var win = new Window
+        {
+            Title = title, Width = 360, Height = 160,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            Background = System.Windows.Media.Brushes.Transparent
+        };
+        var grid = new Grid { Margin = new Thickness(16) };
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var box = new TextBox { Text = currentName, FontSize = 13, Padding = new Thickness(8) };
+        Grid.SetRow(box, 0);
+        grid.Children.Add(box);
+
+        var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var cancelBtn = new Button { Content = "取消", Width = 70, Height = 28, Margin = new Thickness(0, 0, 8, 0) };
+        var okBtn = new Button { Content = "确定", Width = 70, Height = 28 };
+        cancelBtn.Click += (_, _) => win.Close();
+        okBtn.Click += (_, _) => { onConfirm(box.Text.Trim()); win.Close(); };
+        footer.Children.Add(cancelBtn);
+        footer.Children.Add(okBtn);
+        Grid.SetRow(footer, 2);
+        grid.Children.Add(footer);
+
+        win.Content = grid;
+        box.Focus();
+        box.SelectAll();
+        return win;
+    }
+
+    private static string FormatFileSize(long bytes) => bytes switch
+    {
+        < 1024 => $"{bytes} B",
+        < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+        _ => $"{bytes / (1024.0 * 1024):F1} MB"
+    };
 }

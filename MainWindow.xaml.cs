@@ -14,6 +14,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
+using System.Windows.Media.Imaging;
 using YangzaiWorkshop.Models;
 using YangzaiWorkshop.Views;
 using YangzaiWorkshop.Services;
@@ -31,6 +32,10 @@ public partial class MainWindow : Window
         {
             var source = PresentationSource.FromVisual(this) as HwndSource;
             source?.AddHook(WndProc);
+
+            // Custom 主题启动时应用背景图（窗口句柄就绪后才能设置）
+            if (ThemeService.CurrentTheme == "Custom")
+                ThemeService.ApplyCustomBackground(this, "Custom", App.WorkRoot);
         };
 
         NavigationService.Instance.PageChanged += OnPageChanged;
@@ -95,6 +100,7 @@ public partial class MainWindow : Window
             SelectNavItem(current);
             UpdateStatusBar();
             LoadNavAvatar();
+            UpdateThemeIcon();
         };
 
         _ = NavigateToPage("Home");
@@ -555,17 +561,61 @@ public partial class MainWindow : Window
 
     private void ThemeToggle_Click(object sender, RoutedEventArgs e)
     {
-        // 切换主题前，先保存当前页面内容（防止 FlowDocument 在资源切换时损坏）
         if (NavigationService.Instance.CurrentPage is Views.ScriptPage sp)
             sp.ForceSave();
 
-        var newTheme = ThemeService.CurrentTheme == "Light" ? "Dark" : "Light";
+        // 四向循环：Light → Dark → 天空之蓝 → Custom → Light
+        var themes = ThemeService.ThemeCycle;
+        var idx = Array.IndexOf(themes, ThemeService.CurrentTheme);
+        var newTheme = themes[(idx + 1) % themes.Length];
         ThemeService.ApplyTheme(newTheme, App.WorkRoot);
         UpdateThemeIcon();
     }
 
     private void UpdateThemeIcon() =>
-        ThemeIcon.Text = ThemeService.CurrentTheme == "Light" ? "\uE706" : "\uE708";
+        ThemeIcon.Text = ThemeService.CurrentTheme switch
+        {
+            "Custom" => "\uE771",  // 调色板图标
+            "Glass" => "\uE7C6",   // 亚克力图标
+            "Light" => "\uE706",  // 太阳
+            _ => "\uE708"         // 月亮
+        };
+
+    /// <summary>天空之蓝主题无需 DWM 特效，仅确保投影正常</summary>
+    public void UpdateAcrylicEffect(string themeName)
+    {
+        // 天空之蓝主题用纯白背景，不需要 DWM 亚克力效果
+        // 保留此方法供 ThemeService 反射调用（不做额外操作）
+    }
+
+    /// <summary>滑块实时调整背景图透明度和模糊度（无需重建主题，图片缺失则自动加载）</summary>
+    public void UpdateBgImageLive(double opacity, double blur)
+    {
+        // 确保图片已加载
+        if (BgImage.Source == null)
+        {
+            try
+            {
+                var config = FileService.LoadConfig(App.WorkRoot);
+                if (string.IsNullOrEmpty(config.CustomBgImagePath) || !File.Exists(config.CustomBgImagePath))
+                    return;
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(config.CustomBgImagePath, UriKind.Absolute);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 1920; // 限制解码尺寸提升性能
+                bmp.EndInit();
+                bmp.Freeze();
+                BgImage.Source = bmp;
+            }
+            catch { return; }
+        }
+        BgImageGrid.Visibility = Visibility.Visible;
+        BgImage.Opacity = Math.Clamp(opacity, 0.05, 1);
+        BgImage.Effect = blur > 0
+            ? new BlurEffect { Radius = Math.Clamp(blur, 0, 50), RenderingBias = RenderingBias.Performance }
+            : null;
+    }
 
     private void GitHubLink_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
