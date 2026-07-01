@@ -450,142 +450,232 @@ public partial class AudioPage : UserControl
         var name = Path.GetFileName(path);
         var win = new Window
         {
-            Title = $"▶ {name}",
-            Width = 520, Height = 240,
+            Title = $"正在播放：{name}",
+            Width = 580,
+            Height = 360,
+            MinWidth = 460,
+            MinHeight = 280,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = Window.GetWindow(this),
             Background = (Brush)FindResource("WindowBackgroundBrush"),
-            ResizeMode = ResizeMode.CanResizeWithGrip,
-            MinWidth = 380, MinHeight = 180
+            ResizeMode = ResizeMode.CanResizeWithGrip
         };
 
-        var root = new Grid { Margin = new Thickness(20) };
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(14) });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        var root = new Grid { VerticalAlignment = VerticalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch };
+        root.Margin = new Thickness(24, 24, 24, 18);
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 0: 标题
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(14) }); // 1: 间距
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 2: 进度条行
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 3: 弹性空间（推到底部）
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 4: 控制栏卡片
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) }); // 5: 间距
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 6: 提示文字
 
-        // 文件名
-        root.Children.Add(new TextBlock
+        // 标题行（图标 + 文件名）
+        var titleRow = new DockPanel();
+        var titleIcon = new TextBlock { Text = "\uEC4F", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 15, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)FindResource("PrimaryBrush") };
+        var titleTb = new TextBlock
         {
             Text = name, FontSize = 14, FontWeight = FontWeights.SemiBold,
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis
-        });
+        };
+        DockPanel.SetDock(titleIcon, Dock.Left);
+        titleRow.Children.Add(titleIcon);
+        titleRow.Children.Add(titleTb);
+        root.Children.Add(titleRow);
 
-        // 进度条
+        // 进度条区域（撑满宽度）
+        var progressArea = new Grid();
+        progressArea.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        progressArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        progressArea.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var timeCurrent = new TextBlock
+        {
+            Text = "0:00", FontSize = 11,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center, Width = 42
+        };
+
         var slider = new Slider
         {
             Minimum = 0, Maximum = 100, Value = 0,
-            IsMoveToPointEnabled = true
+            IsMoveToPointEnabled = true,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 8, 0),
+            Foreground = (Brush)FindResource("PrimaryBrush")
         };
-        Grid.SetRow(slider, 2);
-        root.Children.Add(slider);
 
-        // 控制栏（卡片容器，居中按钮组）
+        var timeTotal = new TextBlock
+        {
+            Text = "--:--", FontSize = 11,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center, Width = 42
+        };
+
+        Grid.SetColumn(timeCurrent, 0); Grid.SetRow(progressArea, 2);
+        Grid.SetColumn(slider, 1);
+        Grid.SetColumn(timeTotal, 2);
+        progressArea.Children.Add(timeCurrent);
+        progressArea.Children.Add(slider);
+        progressArea.Children.Add(timeTotal);
+        root.Children.Add(progressArea);
+
+        // 控制栏卡片（撑满宽度）
         var controlBar = new Border
         {
             Background = (Brush)FindResource("CardBackgroundBrush"),
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12),
-            Margin = new Thickness(0, 8, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Center
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14, 10, 14, 10),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            BorderThickness = new Thickness(1),
+            BorderBrush = (Brush)FindResource("BorderBrush")
         };
         Grid.SetRow(controlBar, 4);
         root.Children.Add(controlBar);
 
-        var controlStack = new StackPanel { Orientation = Orientation.Vertical, HorizontalAlignment = HorizontalAlignment.Center };
-        controlBar.Child = controlStack;
+        // 控制栏内部：左右布局（用 Star 行将内容推到底部）
+        var controlInner = new Grid();
+        controlInner.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 0: 弹性空间
+        controlInner.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 1: 控制内容行
+        controlInner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        controlInner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        controlInner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        controlBar.Child = controlInner;
 
-        // 按钮行
-        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-        var rwBtn = MakeBtn("⏪", "后退10秒", false);
-        var ppBtn = MakeBtn("▶", "播放/暂停", true);
-        var ffBtn = MakeBtn("⏩", "前进10秒", false);
+        // 左侧按钮组
+        var btnPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var rwBtn = MakePlayerBtn("\uE892", "后退5秒", 34);
+        var ppBtn = MakePlayerBtn("\uE768", "播放/暂停", 40);
+        var ffBtn = MakePlayerBtn("\uE893", "前进5秒", 34);
         btnPanel.Children.Add(rwBtn);
         btnPanel.Children.Add(ppBtn);
         btnPanel.Children.Add(ffBtn);
-        controlStack.Children.Add(btnPanel);
+        Grid.SetRow(btnPanel, 1);
+        Grid.SetColumn(btnPanel, 0);
+        controlInner.Children.Add(btnPanel);
 
-        // 时间标签
-        var timeLabel = new TextBlock
+        // 右侧音量控制
+        var volPanel = new StackPanel
         {
-            Text = "00:00 / 00:00", FontSize = 12,
-            Foreground = (Brush)FindResource("TextSecondaryBrush"),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 8, 0, 0)
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0)
         };
-        controlStack.Children.Add(timeLabel);
+        var volIcon = new TextBlock
+        {
+            Text = "\uE767",
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            FontSize = 13,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        var volSlider = new Slider
+        {
+            Minimum = 0, Maximum = 1, Value = 1,
+            Width = 90, VerticalAlignment = VerticalAlignment.Center,
+            Foreground = (Brush)FindResource("PrimaryBrush"),
+            Margin = new Thickness(6, 0, 0, 0),
+            ToolTip = "音量"
+        };
+        volPanel.Children.Add(volIcon);
+        volPanel.Children.Add(volSlider);
+        Grid.SetRow(volPanel, 1);
+        Grid.SetColumn(volPanel, 2);
+        controlInner.Children.Add(volPanel);
 
         // 底部提示
         var tip = new TextBlock
         {
             Text = "空格键 播放/暂停  ·  Esc 关闭",
-            FontSize = 11, Foreground = (Brush)FindResource("TextSecondaryBrush"),
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center
+            FontSize = 10,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Opacity = 0.65
         };
-        Grid.SetRow(tip, 5);
+        Grid.SetRow(tip, 6);
         root.Children.Add(tip);
 
-        // 音频播放器（1x1 隐藏，确保在视觉树中）
+        // MediaElement
         var me = new MediaElement
         {
             Source = new Uri(path),
             LoadedBehavior = MediaState.Manual,
             UnloadedBehavior = MediaState.Stop,
-            Volume = 1, Width = 1, Height = 1,
-            Visibility = Visibility.Hidden
+            Volume = 1, Visibility = Visibility.Hidden
         };
-        Grid.SetRow(me, 5);
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(me, 7);
         root.Children.Add(me);
 
         win.Content = root;
 
-        bool isPlaying = false, sliderDragging = false;
-        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        bool isPlaying = false, sliderDragging = false, started = false;
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
 
         me.MediaOpened += (_, _) =>
         {
+            started = true;
             if (me.NaturalDuration.HasTimeSpan)
             {
                 slider.Maximum = me.NaturalDuration.TimeSpan.TotalSeconds;
-                timeLabel.Text = $"00:00 / {FormatTime(me.NaturalDuration.TimeSpan)}";
+                timeTotal.Text = FormatTime(me.NaturalDuration.TimeSpan);
             }
-            me.Play(); ppBtn.Content = "⏸"; isPlaying = true;
+            me.Play(); ppBtn.Content = "\uE769"; isPlaying = true;
             if (!timer.IsEnabled) timer.Start();
+        };
+
+        // 兜底：窗口就绪后再次尝试播放（防止 MediaOpened 早于窗口加载完毕）
+        win.Loaded += (_, _) =>
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (started) return;
+                if (me.NaturalDuration.HasTimeSpan)
+                {
+                    slider.Maximum = me.NaturalDuration.TimeSpan.TotalSeconds;
+                    timeTotal.Text = FormatTime(me.NaturalDuration.TimeSpan);
+                }
+                me.Play(); ppBtn.Content = "\uE769"; isPlaying = true;
+                if (!timer.IsEnabled) timer.Start();
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
         };
         me.MediaEnded += (_, _) =>
         {
-            isPlaying = false; ppBtn.Content = "▶"; me.Stop(); me.Position = TimeSpan.Zero;
+            isPlaying = false; ppBtn.Content = "\uE768"; me.Stop(); me.Position = TimeSpan.Zero;
             slider.Value = 0; timer.Stop();
-            timeLabel.Text = me.NaturalDuration.HasTimeSpan
-                ? $"00:00 / {FormatTime(me.NaturalDuration.TimeSpan)}" : "00:00 / 00:00";
+            timeCurrent.Text = "0:00";
         };
         timer.Tick += (_, _) =>
         {
             if (!sliderDragging && isPlaying && me.NaturalDuration.HasTimeSpan)
-            { slider.Value = me.Position.TotalSeconds; timeLabel.Text = $"{FormatTime(me.Position)} / {FormatTime(me.NaturalDuration.TimeSpan)}"; }
+            {
+                slider.Value = me.Position.TotalSeconds;
+                timeCurrent.Text = FormatTime(me.Position);
+            }
         };
         ppBtn.Click += (_, _) =>
         {
-            if (isPlaying) { me.Pause(); ppBtn.Content = "▶"; } else { me.Play(); ppBtn.Content = "⏸"; if (!timer.IsEnabled) timer.Start(); }
+            if (isPlaying) { me.Pause(); ppBtn.Content = "\uE768"; }
+            else { me.Play(); ppBtn.Content = "\uE769"; if (!timer.IsEnabled) timer.Start(); }
             isPlaying = !isPlaying;
         };
-        rwBtn.Click += (_, _) => { var p = me.Position - TimeSpan.FromSeconds(10); me.Position = p > TimeSpan.Zero ? p : TimeSpan.Zero; };
+        rwBtn.Click += (_, _) => { var p = me.Position - TimeSpan.FromSeconds(5); me.Position = p > TimeSpan.Zero ? p : TimeSpan.Zero; };
         ffBtn.Click += (_, _) =>
         {
             if (me.NaturalDuration.HasTimeSpan)
-            { var p = me.Position + TimeSpan.FromSeconds(10); me.Position = p < me.NaturalDuration.TimeSpan ? p : me.NaturalDuration.TimeSpan; }
+            { var p = me.Position + TimeSpan.FromSeconds(5); me.Position = p < me.NaturalDuration.TimeSpan ? p : me.NaturalDuration.TimeSpan; }
         };
+        volSlider.ValueChanged += (_, _) => { try { me.Volume = volSlider.Value; } catch { } };
         slider.PreviewMouseDown += (_, _) => sliderDragging = true;
         slider.PreviewMouseUp += (_, _) => { me.Position = TimeSpan.FromSeconds(slider.Value); sliderDragging = false; };
-        slider.ValueChanged += (s, _) =>
-        {
-            if (sliderDragging && me.NaturalDuration.HasTimeSpan)
-                timeLabel.Text = $"{FormatTime(TimeSpan.FromSeconds(slider.Value))} / {FormatTime(me.NaturalDuration.TimeSpan)}";
-        };
         win.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Escape) win.Close();
@@ -593,6 +683,26 @@ public partial class AudioPage : UserControl
         };
         win.Closed += (_, _) => { timer.Stop(); me.Stop(); me.Close(); };
         win.Show();
+    }
+
+    /// <summary>创建播放器按钮（Segoe MDL2 图标风格）</summary>
+    private Button MakePlayerBtn(string symbol, string toolTip, double size)
+    {
+        return new Button
+        {
+            Content = symbol,
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            FontSize = size * 0.55,
+            Width = size, Height = size, Padding = new Thickness(0),
+            Cursor = Cursors.Hand,
+            Background = Brushes.Transparent,
+            Foreground = (SolidColorBrush)Application.Current.FindResource("TextPrimaryBrush") ?? Brushes.White,
+            BorderThickness = new Thickness(0),
+            ToolTip = toolTip,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(2, 0, 2, 0)
+        };
     }
 
     private Button MakeBtn(string text, string tip, bool primary) => new()

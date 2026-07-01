@@ -142,7 +142,11 @@ public partial class SettingsPage : UserControl
         ImageModelBox.Text = _config.ImageModel;
         VideoModelBox.Text = _config.VideoModel;
 
-        // 通用设置
+        // 音乐播放器
+        MusicAutoPlayCheck.IsChecked = _config.MusicAutoPlay;
+        RefreshSettingsMusicList();
+
+        // 版本信息
         VersionLabel.Text = $"v{App.AppVersion}";
         UpdateDateLabel.Text = _config.LastUpdateDate;
         VersionSubText.Text = $"版本 v{App.AppVersion} · 更新于 {_config.LastUpdateDate}";
@@ -555,6 +559,53 @@ public partial class SettingsPage : UserControl
             24 => "24小时（1天）",
             _ => $"{hours}小时（{hours / 24}天{hours % 24}小时）"
         };
+    }
+
+    // ===== 音乐播放器 =====
+
+    private void RefreshSettingsMusicList()
+    {
+        var svc = MusicPlayerService.Instance;
+        var items = svc.Playlist.Select(f => new { Path = f, Name = Path.GetFileName(f) }).ToList();
+        SettingsMusicList.ItemsSource = items;
+        SettingsMusicCount.Text = items.Count > 0 ? $"共 {items.Count} 首曲目" : "暂无音乐文件";
+    }
+
+    private void MusicAutoPlayCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.MusicAutoPlay = MusicAutoPlayCheck.IsChecked == true;
+        SaveConfig();
+    }
+
+    private void SettingsMusicAdd_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Filter = "音频文件|*.mp3;*.wav;*.ogg;*.m4a;*.flac;*.aac;*.wma",
+            Multiselect = true,
+            Title = "添加音乐文件"
+        };
+        if (dlg.ShowDialog() == true && dlg.FileNames.Length > 0)
+        {
+            MusicPlayerService.Instance.AddFiles(dlg.FileNames, FileService.MusicPath(App.WorkRoot));
+            RefreshSettingsMusicList();
+        }
+    }
+
+    private void SettingsOpenMusicDir_Click(object sender, RoutedEventArgs e)
+    {
+        var dir = FileService.MusicPath(App.WorkRoot);
+        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+        Process.Start(new ProcessStartInfo(dir) { UseShellExecute = true });
+    }
+
+    private void SettingsMusicDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.DataContext == null) return;
+        var path = (string)btn.DataContext.GetType().GetProperty("Path")!.GetValue(btn.DataContext)!;
+        MusicPlayerService.Instance.DeleteFile(path);
+        RefreshSettingsMusicList();
     }
 
     private void IntervalSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)

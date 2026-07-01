@@ -460,6 +460,70 @@
                 </StackPanel>
             </Border>
 
+            <!-- ===== 音乐播放器 ===== -->
+            <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock FontSize="16" FontWeight="Bold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4">
+                        <Run Text="&#xEC4F;" FontFamily="Segoe MDL2 Assets"/>
+                        <Run Text=" 音乐播放器"/>
+                    </TextBlock>
+                    <TextBlock Text="添加背景音乐，创作时随时播放"
+                               FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
+                               Margin="0,0,0,12"/>
+
+                    <!-- 启动时自动播放 -->
+                    <CheckBox x:Name="MusicAutoPlayCheck" Content="启动时自动播放音乐"
+                              FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
+                              Margin="0,0,0,10"
+                              Checked="MusicAutoPlayCheck_Changed"
+                              Unchecked="MusicAutoPlayCheck_Changed"/>
+
+                    <!-- 管理音乐按钮 -->
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="+ 上传音乐" FontSize="12"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Padding="12,4" Margin="0,0,12,0"
+                                Click="SettingsMusicAdd_Click"/>
+                        <Button Content="打开音乐文件夹" FontSize="12"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Padding="12,4"
+                                Click="SettingsOpenMusicDir_Click"/>
+                    </StackPanel>
+
+                    <!-- 音乐列表 -->
+                    <TextBlock x:Name="SettingsMusicCount" Text="暂无音乐文件"
+                               FontSize="12" Foreground="{DynamicResource TextTertiaryBrush}"
+                               Margin="0,10,0,6"/>
+                    <ItemsControl x:Name="SettingsMusicList" Background="Transparent">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,2" Padding="8,6" CornerRadius="6"
+                                        Background="{DynamicResource WindowBackgroundBrush}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                   FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <Button Grid.Column="1" Content="&#xE74D;"
+                                                FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                                Width="24" Height="24" Padding="0"
+                                                Background="Transparent"
+                                                Foreground="{DynamicResource TextSecondaryBrush}"
+                                                BorderThickness="0" Cursor="Hand"
+                                                Click="SettingsMusicDelete_Click" ToolTip="删除"/>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
             <!-- ===== 自动更新 ===== -->
             <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12">
                 <StackPanel>

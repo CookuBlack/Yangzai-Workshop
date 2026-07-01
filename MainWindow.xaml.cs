@@ -24,6 +24,16 @@ namespace YangzaiWorkshop;
 public partial class MainWindow : Window
 {
     private bool _isNavigating;
+    private string? _pendingNavigation;
+    private bool _musicUpdating;
+    private AppConfig? _configCache;
+    private readonly DispatcherTimer _volumeSaveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) };
+    private string _lastTrackName = "";
+    private double _lastPosition = -1;
+    private bool _lastIsPlaying;
+    private string _lastPlayMode = "";
+    private bool _lastIsMuted;
+    private double _lastVolume = -1;
 
     public MainWindow()
     {
@@ -48,7 +58,6 @@ public partial class MainWindow : Window
 
             if (path.Contains("/Novels/"))
             {
-                // 还原的是整本小说
                 NavigationService.Instance.ClearPage("Script");
                 NavigationService.Instance.ClearPage("Character");
                 NavigationService.Instance.ClearPage("Video");
@@ -92,6 +101,7 @@ public partial class MainWindow : Window
 
         ThemeService.ThemeChanged += () =>
         {
+            _configCache = null; // 主题变化时刷新配置缓存
             var current = NavigationService.Instance.CurrentPageName;
             NavigationService.Instance.ClearCache();
             NavigationService.Instance.NavigateTo(current);
@@ -103,10 +113,67 @@ public partial class MainWindow : Window
             UpdateThemeIcon();
         };
 
+        // ===== 初始化（Config 缓存复用，避免反复 LoadConfig） =====
+        _configCache = FileService.LoadConfig(App.WorkRoot);
+        MusicPlayerService.Instance.Initialize(MusicMedia);
+        MusicPlayerService.Instance.LoadSettings(_configCache);
+        MusicPlayerService.Instance.LoadPlaylist(FileService.MusicPath(App.WorkRoot));
+        MusicPlayerService.Instance.StateChanged += UpdateMusicUI;
+
+        // 音量保存去抖动：拖拽停止 600ms 后才写入磁盘
+        _volumeSaveTimer.Tick += (_, _) =>
+        {
+            _volumeSaveTimer.Stop();
+            _configCache ??= FileService.LoadConfig(App.WorkRoot);
+            _configCache.MusicVolume = MusicPlayerService.Instance.Volume;
+            FileService.SaveConfig(App.WorkRoot, _configCache);
+        };
+
         _ = NavigateToPage("Home");
         UpdateThemeIcon();
         UpdateStatusBar();
         LoadAvatars();
+        StyleSliderThumbs();
+
+        if (_configCache.MusicAutoPlay && MusicPlayerService.Instance.Playlist.Count > 0)
+            MusicPlayerService.Instance.Play(0);
+    }
+
+    /// <summary>代码设置圆形 Thumb，避免 XAML 模板冲突</summary>
+    private void StyleSliderThumbs()
+    {
+        // 进度条：10px 圆点
+        MusicProgressSlider.ApplyTemplate();
+        var pt = MusicProgressSlider.Template.FindName("PART_Track", MusicProgressSlider)
+            as System.Windows.Controls.Primitives.Track;
+        if (pt?.Thumb != null)
+        {
+            pt.Thumb.Style = null;
+            pt.Thumb.Template = CreateCircleThumbTemplate(10);
+        }
+
+        // 音量条：8px 圆点
+        MusicVolumeSlider.ApplyTemplate();
+        var vt = MusicVolumeSlider.Template.FindName("PART_Track", MusicVolumeSlider)
+            as System.Windows.Controls.Primitives.Track;
+        if (vt?.Thumb != null)
+        {
+            vt.Thumb.Style = null;
+            vt.Thumb.Template = CreateCircleThumbTemplate(8);
+        }
+    }
+
+    private static ControlTemplate CreateCircleThumbTemplate(double d)
+    {
+        var t = new ControlTemplate(typeof(System.Windows.Controls.Primitives.Thumb));
+        var b = new FrameworkElementFactory(typeof(Border));
+        b.SetValue(Border.WidthProperty, d);
+        b.SetValue(Border.HeightProperty, d);
+        b.SetValue(Border.CornerRadiusProperty, new CornerRadius(d / 2));
+        b.SetValue(Border.BackgroundProperty, Application.Current.Resources["PrimaryBrush"]);
+        b.SetValue(Border.SnapsToDevicePixelsProperty, true);
+        t.VisualTree = b;
+        return t;
     }
 
     private void LoadAvatars()
@@ -151,27 +218,40 @@ public partial class MainWindow : Window
 
     private void UpdateStatusBar()
     {
-        var config = FileService.LoadConfig(App.WorkRoot);
+        _configCache ??= FileService.LoadConfig(App.WorkRoot);
         VersionText.Text = $"v{App.AppVersion}";
-        UpdateDateText.Text = config.LastUpdateDate;
+        UpdateDateText.Text = _configCache.LastUpdateDate;
     }
 
     // ===== 页面导航（带淡入淡出过渡动画） =====
     private async Task NavigateToPage(string pageName)
     {
-        if (_isNavigating) return;
+        // 正在导航中 → 记录最新请求，等当前完成后处理
+        if (_isNavigating)
+        {
+            if (NavigationService.Instance.CurrentPageName != pageName)
+                _pendingNavigation = pageName;
+            return;
+        }
         if (ContentArea.Content != null
             && NavigationService.Instance.CurrentPageName == pageName)
             return;
 
         _isNavigating = true;
+        _pendingNavigation = null;
 
         bool animate = ContentArea.Content != null;
 
         if (animate)
         {
-            // 淡出当前页面
             await AnimateOpacityTo(ContentArea, 0, 150);
+        }
+
+        // 再次检查：等待淡出期间可能被追加了新导航请求
+        if (_pendingNavigation != null)
+        {
+            pageName = _pendingNavigation;
+            _pendingNavigation = null;
         }
 
         // 切换内容
@@ -181,7 +261,6 @@ public partial class MainWindow : Window
 
         if (animate)
         {
-            // 淡入新页面
             await AnimateOpacityTo(ContentArea, 1, 150);
         }
         else
@@ -190,6 +269,14 @@ public partial class MainWindow : Window
         }
 
         _isNavigating = false;
+
+        // 处理在导航期间积压的最新请求
+        if (_pendingNavigation != null)
+        {
+            var next = _pendingNavigation;
+            _pendingNavigation = null;
+            _ = NavigateToPage(next);
+        }
     }
 
     /// <summary>淡入淡出核心方法</summary>
@@ -321,8 +408,8 @@ public partial class MainWindow : Window
     private void AiBookmarkBtn_Click(object sender, RoutedEventArgs e)
     {
         if (AiBookmarkPopup.IsOpen) { AiBookmarkPopup.IsOpen = false; return; }
-        var config = FileService.LoadConfig(App.WorkRoot);
-        BookmarkList.ItemsSource = config.AiBookmarks;
+        _configCache = FileService.LoadConfig(App.WorkRoot);
+        BookmarkList.ItemsSource = _configCache.AiBookmarks;
         NewBookmarkName.Text = "";
         NewBookmarkUrl.Text = "";
         NamePlaceholder.Visibility = Visibility.Visible;
@@ -347,15 +434,14 @@ public partial class MainWindow : Window
     {
         if (sender is Button btn && btn.DataContext is AiBookmark bm)
         {
-            var config = FileService.LoadConfig(App.WorkRoot);
-            // 用 Name + Url 匹配而非引用比较，因为每次 LoadConfig 创建新 List
-            var match = config.AiBookmarks.FirstOrDefault(x => x.Name == bm.Name && x.Url == bm.Url);
+            _configCache ??= FileService.LoadConfig(App.WorkRoot);
+            var match = _configCache.AiBookmarks.FirstOrDefault(x => x.Name == bm.Name && x.Url == bm.Url);
             if (match != null)
             {
-                config.AiBookmarks.Remove(match);
-                FileService.SaveConfig(App.WorkRoot, config);
+                _configCache.AiBookmarks.Remove(match);
+                FileService.SaveConfig(App.WorkRoot, _configCache);
                 BookmarkList.ItemsSource = null;
-                BookmarkList.ItemsSource = config.AiBookmarks;
+                BookmarkList.ItemsSource = _configCache.AiBookmarks;
             }
         }
     }
@@ -370,11 +456,11 @@ public partial class MainWindow : Window
             !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             url = "https://" + url;
 
-        var config = FileService.LoadConfig(App.WorkRoot);
-        config.AiBookmarks.Add(new AiBookmark { Name = name, Url = url });
-        FileService.SaveConfig(App.WorkRoot, config);
+        _configCache ??= FileService.LoadConfig(App.WorkRoot);
+        _configCache.AiBookmarks.Add(new AiBookmark { Name = name, Url = url });
+        FileService.SaveConfig(App.WorkRoot, _configCache);
         BookmarkList.ItemsSource = null;
-        BookmarkList.ItemsSource = config.AiBookmarks;
+        BookmarkList.ItemsSource = _configCache.AiBookmarks;
         NewBookmarkName.Text = "";
         NewBookmarkUrl.Text = "";
         NamePlaceholder.Visibility = Visibility.Visible;
@@ -423,7 +509,7 @@ public partial class MainWindow : Window
 
     private int FindBookmarkIndex(string name, string url)
     {
-        _dragConfig ??= FileService.LoadConfig(App.WorkRoot);
+        _dragConfig ??= _configCache ?? FileService.LoadConfig(App.WorkRoot);
         return _dragConfig.AiBookmarks.FindIndex(x => x.Name == name && x.Url == url);
     }
 
@@ -440,7 +526,7 @@ public partial class MainWindow : Window
         if (!_isDragging)
         {
             _isDragging = true;
-            _dragConfig = FileService.LoadConfig(App.WorkRoot);
+            _dragConfig = _configCache ?? FileService.LoadConfig(App.WorkRoot);
             Mouse.OverrideCursor = Cursors.ScrollAll;
             ApplySourceDim();
         }
@@ -459,17 +545,14 @@ public partial class MainWindow : Window
         var list = _dragConfig.AiBookmarks;
         if (_dragIndex >= list.Count || newIndex >= list.Count) return;
 
-        // 移动
         var item = list[_dragIndex];
         list.RemoveAt(_dragIndex);
         int insertAt = newIndex > _dragIndex ? newIndex - 1 : newIndex;
         list.Insert(insertAt, item);
 
-        // 刷新列表视图 → 所有容器重建
-        BookmarkList.ItemsSource = null;
+        // 直接重设（跳过 null 清除，减少一次布局计算）
         BookmarkList.ItemsSource = list;
 
-        // 更新拖拽项新位置
         _dragIndex = insertAt;
         _sourceBorder = null;
         _targetBorder = null;
@@ -596,12 +679,12 @@ public partial class MainWindow : Window
         {
             try
             {
-                var config = FileService.LoadConfig(App.WorkRoot);
-                if (string.IsNullOrEmpty(config.CustomBgImagePath) || !File.Exists(config.CustomBgImagePath))
+                _configCache ??= FileService.LoadConfig(App.WorkRoot);
+                if (string.IsNullOrEmpty(_configCache.CustomBgImagePath) || !File.Exists(_configCache.CustomBgImagePath))
                     return;
                 var bmp = new BitmapImage();
                 bmp.BeginInit();
-                bmp.UriSource = new Uri(config.CustomBgImagePath, UriKind.Absolute);
+                bmp.UriSource = new Uri(_configCache.CustomBgImagePath, UriKind.Absolute);
                 bmp.CacheOption = BitmapCacheOption.OnLoad;
                 bmp.DecodePixelWidth = 1920; // 限制解码尺寸提升性能
                 bmp.EndInit();
@@ -656,10 +739,207 @@ public partial class MainWindow : Window
         return IntPtr.Zero;
     }
 
+    // ===== 音乐播放器控件事件 =====
+
+    private bool _isSliderDragging;
+
+    private void UpdateMusicUI()
+    {
+        _musicUpdating = true;
+        try
+        {
+            var svc = MusicPlayerService.Instance;
+            if (!svc.IsActive) return;
+
+            MusicBar.Visibility = Visibility.Visible;
+
+            // ===== 只在值变化时更新 Text，减少 Layout 重排 =====
+            var trackName = svc.CurrentTrackName ?? "";
+            if (trackName != _lastTrackName)
+            {
+                MusicTrackName.Text = trackName;
+                _lastTrackName = trackName;
+            }
+
+            double dur = svc.Duration;
+            if (!_isSliderDragging && dur > 0)
+            {
+                MusicProgressSlider.Maximum = dur;
+                MusicProgressSlider.Value = svc.Position;
+                MusicTimeText.Text = $"{FormatMusicTime(svc.Position)} / {FormatMusicTime(dur)}";
+                _lastPosition = svc.Position;
+            }
+            else if (dur <= 0)
+            {
+                MusicTimeText.Text = "--:-- / --:--";
+            }
+
+            bool isPlaying = svc.IsPlaying;
+            if (isPlaying != _lastIsPlaying)
+            {
+                MusicPlayIcon.Text = isPlaying ? "\uE769" : "\uE768";
+                _lastIsPlaying = isPlaying;
+            }
+
+            var playMode = svc.PlayMode;
+            if (playMode != _lastPlayMode)
+            {
+                MusicModeIcon.Text = playMode switch
+                {
+                    "Shuffle" => "\uE8B1",
+                    "RepeatOne" => "\uE8ED",
+                    _ => "\uE8EE"
+                };
+                MusicModeBtn.ToolTip = playMode switch
+                {
+                    "Shuffle" => "随机播放",
+                    "RepeatOne" => "单曲循环",
+                    _ => "列表循环"
+                };
+                _lastPlayMode = playMode;
+            }
+
+            bool isMuted = svc.IsMuted;
+            if (isMuted != _lastIsMuted)
+            {
+                MusicMuteIcon.Text = isMuted ? "\uE74F" : "\uE767";
+                _lastIsMuted = isMuted;
+            }
+
+            double volume = svc.Volume;
+            if (Math.Abs(volume - _lastVolume) > 0.01)
+            {
+                MusicVolumeSlider.Value = volume;
+                _lastVolume = volume;
+            }
+        }
+        finally { _musicUpdating = false; }
+    }
+
+    private static string FormatMusicTime(double seconds)
+    {
+        int totalSeconds = (int)Math.Floor(seconds);
+        int m = totalSeconds / 60;
+        int s = totalSeconds % 60;
+        return $"{m}:{s:D2}";
+    }
+
+    private void MusicPlay_Click(object sender, RoutedEventArgs e)
+        => MusicPlayerService.Instance.TogglePlayPause();
+
+    private void MusicStop_Click(object sender, RoutedEventArgs e)
+    {
+        MusicPlayerService.Instance.Stop();
+        MusicBar.Visibility = Visibility.Collapsed;
+    }
+
+    private void MusicNext_Click(object sender, RoutedEventArgs e)
+        => MusicPlayerService.Instance.Next();
+
+    private void MusicMode_Click(object sender, RoutedEventArgs e)
+    {
+        MusicPlayerService.Instance.TogglePlayMode();
+        _configCache ??= FileService.LoadConfig(App.WorkRoot);
+        _configCache.MusicPlayMode = MusicPlayerService.Instance.PlayMode;
+        FileService.SaveConfig(App.WorkRoot, _configCache);
+    }
+
+    private void MusicMute_Click(object sender, RoutedEventArgs e)
+        => MusicPlayerService.Instance.ToggleMute();
+
+    private void MusicVolume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_musicUpdating) return;
+        MusicPlayerService.Instance.SetVolume(e.NewValue);
+        // 去抖动：拖拽停止 600ms 后一次性写入磁盘
+        _volumeSaveTimer.Stop();
+        _volumeSaveTimer.Start();
+    }
+
+    // ===== 顺滑进度条拖拽 =====
+    private void MusicProgressSlider_PreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        _isSliderDragging = true;
+    }
+
+    private void MusicProgressSlider_PreviewMouseUp(object sender, MouseButtonEventArgs e)
+    {
+        if (_isSliderDragging)
+        {
+            var svc = MusicPlayerService.Instance;
+            if (svc.Duration > 0)
+                svc.Position = MusicProgressSlider.Value;
+        }
+        _isSliderDragging = false;
+    }
+
+    private void MusicProgressSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (!_isSliderDragging) return;
+        // 拖拽过程中实时更新时间显示
+        var dur = MusicProgressSlider.Maximum;
+        if (dur > 0)
+            MusicTimeText.Text = $"{FormatMusicTime(e.NewValue)} / {FormatMusicTime(dur)}";
+    }
+
+    private void MusicListBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (MusicListPopup.IsOpen) { MusicListPopup.IsOpen = false; return; }
+        RefreshMusicPlaylistUI();
+        MusicListPopup.IsOpen = true;
+    }
+
+    private void RefreshMusicPlaylistUI()
+    {
+        int i = 0;
+        var items = MusicPlayerService.Instance.Playlist
+            .Select(f => new MusicEntry { Index = i++, Path = f, Name = Path.GetFileName(f) })
+            .ToList();
+        MusicPlaylistItems.ItemsSource = items;
+    }
+
+    private void MusicItem_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is Border { DataContext: MusicEntry entry })
+        {
+            MusicPlayerService.Instance.Play(entry.Index);
+            MusicListPopup.IsOpen = false;
+        }
+    }
+
+    private void MusicDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: MusicEntry entry })
+        {
+            MusicPlayerService.Instance.DeleteFile(entry.Path);
+            RefreshMusicPlaylistUI();
+            UpdateMusicUI();
+        }
+    }
+
+    private void MusicAdd_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Filter = "音频文件|*.mp3;*.wav;*.ogg;*.m4a;*.flac;*.aac;*.wma",
+            Multiselect = true,
+            Title = "添加音乐文件"
+        };
+        if (dlg.ShowDialog() == true)
+        {
+            MusicPlayerService.Instance.AddFiles(dlg.FileNames, FileService.MusicPath(App.WorkRoot));
+            RefreshMusicPlaylistUI();
+        }
+    }
+
     protected override void OnClosing(CancelEventArgs e)
     {
         base.OnClosing(e);
         NavigationService.Instance.PageChanged -= OnPageChanged;
+        // 保存音乐设置
+        var config = FileService.LoadConfig(App.WorkRoot);
+        MusicPlayerService.Instance.SaveSettings(config);
+        FileService.SaveConfig(App.WorkRoot, config);
     }
 
     private static T? FindParent<T>(DependencyObject? child) where T : DependencyObject
@@ -669,4 +949,12 @@ public partial class MainWindow : Window
             current = VisualTreeHelper.GetParent(current);
         return current as T;
     }
+}
+
+/// <summary>音乐列表条目（避免反射）</summary>
+internal sealed class MusicEntry
+{
+    public int Index { get; init; }
+    public string Path { get; init; } = "";
+    public string Name { get; init; } = "";
 }

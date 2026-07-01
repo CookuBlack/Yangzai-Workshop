@@ -38,6 +38,11 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
+            <!-- 音乐播放器（隐藏） -->
+            <MediaElement x:Name="MusicMedia" LoadedBehavior="Manual"
+                          UnloadedBehavior="Stop" Visibility="Hidden"
+                          Width="0" Height="0" Grid.RowSpan="2"/>
+
             <!-- 背景图片层（自定义主题时显示） -->
             <Grid x:Name="BgImageGrid" Visibility="Collapsed" ClipToBounds="True"
                   Panel.ZIndex="-1" Grid.RowSpan="2"
@@ -51,6 +56,7 @@
                     CornerRadius="12,12,0,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
@@ -72,8 +78,96 @@
                                    VerticalAlignment="Center"/>
                     </StackPanel>
 
+                    <!-- 居中：音乐播放控件条（仅播放时显示） -->
+                    <StackPanel x:Name="MusicBar" Grid.Column="1" Orientation="Horizontal"
+                                VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Visibility="Visible">
+
+                        <!-- 曲目名称 -->
+                        <TextBlock x:Name="MusicTrackName" Text="暂无曲目"
+                                   FontSize="11" FontWeight="Medium"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   MaxWidth="100" TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+
+                        <!-- 进度条 -->
+                        <Slider x:Name="MusicProgressSlider"
+                                Minimum="0" Maximum="100" Value="0"
+                                IsMoveToPointEnabled="True" Width="120"
+                                VerticalAlignment="Center" Margin="0,0,4,0"
+                                PreviewMouseDown="MusicProgressSlider_PreviewMouseDown"
+                                PreviewMouseUp="MusicProgressSlider_PreviewMouseUp"
+                                ValueChanged="MusicProgressSlider_ValueChanged"/>
+
+                        <!-- 时间显示 -->
+                        <TextBlock x:Name="MusicTimeText" Text="0:00 / 0:00"
+                                   FontSize="9" Foreground="{DynamicResource TextTertiaryBrush}"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+
+                        <!-- 分隔线 -->
+                        <Border Width="1" Height="16"
+                                Background="{DynamicResource BorderBrush}"
+                                VerticalAlignment="Center" Margin="0,0,6,0"/>
+
+                        <!-- 播放/暂停 -->
+                        <Button x:Name="MusicPlayBtn" Width="28" Height="28"
+                                Style="{StaticResource WindowControlButtonStyle}"
+                                Click="MusicPlay_Click" ToolTip="播放/暂停"
+                                Padding="0">
+                            <TextBlock x:Name="MusicPlayIcon" Text="&#xE768;"
+                                       FontFamily="Segoe MDL2 Assets" FontSize="13"/>
+                        </Button>
+
+                        <!-- 终止（停止并隐藏栏） -->
+                        <Button x:Name="MusicStopBtn" Width="28" Height="28"
+                                Style="{StaticResource WindowControlButtonStyle}"
+                                Click="MusicStop_Click" ToolTip="终止播放"
+                                Padding="0">
+                            <TextBlock Text="&#xE71A;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                        </Button>
+
+                        <!-- 下一首 -->
+                        <Button x:Name="MusicNextBtn" Width="28" Height="28"
+                                Style="{StaticResource WindowControlButtonStyle}"
+                                Click="MusicNext_Click" ToolTip="下一首"
+                                Padding="0">
+                            <TextBlock Text="&#xE893;" FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                        </Button>
+
+                        <!-- 循环模式 -->
+                        <Button x:Name="MusicModeBtn" Width="28" Height="28"
+                                Style="{StaticResource WindowControlButtonStyle}"
+                                Click="MusicMode_Click" ToolTip="循环模式"
+                                Padding="0">
+                            <TextBlock x:Name="MusicModeIcon" Text="&#xE8EE;"
+                                       FontFamily="Segoe MDL2 Assets" FontSize="12"/>
+                        </Button>
+
+                        <!-- 静音 + 音量（组合） -->
+                        <Button x:Name="MusicMuteBtn" Width="26" Height="26"
+                                Style="{StaticResource WindowControlButtonStyle}"
+                                Click="MusicMute_Click" ToolTip="静音"
+                                Padding="0" Margin="4,0,0,0">
+                            <TextBlock x:Name="MusicMuteIcon" Text="&#xE767;"
+                                       FontFamily="Segoe MDL2 Assets" FontSize="11"/>
+                        </Button>
+                        <Slider x:Name="MusicVolumeSlider"
+                                Minimum="0" Maximum="1" Value="0.7"
+                                Width="50" VerticalAlignment="Center"
+                                Margin="2,0,0,0"
+                                ValueChanged="MusicVolume_Changed"/>
+                    </StackPanel>
+
                     <!-- 窗口控制按钮 -->
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+
+                        <!-- 音乐列表 -->
+                        <Button x:Name="MusicListBtn"
+                                Style="{StaticResource WindowControlButtonStyle}"
+                                Click="MusicListBtn_Click" ToolTip="音乐列表"
+                                WindowChrome.IsHitTestVisibleInChrome="True">
+                            <TextBlock Text="&#xEC4F;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                        </Button>
 
                         <!-- AI 网站书签 -->
                         <Button x:Name="AiBookmarkBtn"
@@ -123,6 +217,64 @@
                     </StackPanel>
                 </Grid>
             </Border>
+
+            <!-- 音乐列表弹窗 -->
+            <Popup x:Name="MusicListPopup" PlacementTarget="{Binding ElementName=MusicListBtn}"
+                   Placement="Bottom" StaysOpen="False"
+                   AllowsTransparency="True">
+                <Border CornerRadius="10" MinWidth="280" MaxWidth="360" MaxHeight="360"
+                        Background="{DynamicResource CardBackgroundBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                        Padding="10">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Text="音乐列表" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8"/>
+
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" MaxHeight="280">
+                            <ItemsControl x:Name="MusicPlaylistItems" Background="Transparent">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="0,1" Padding="6,4" CornerRadius="4"
+                                                Background="Transparent" Cursor="Hand"
+                                                MouseLeftButtonDown="MusicItem_Click">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{Binding Name}"
+                                                           FontSize="12"
+                                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <Button Grid.Column="1" Content="&#xE74D;"
+                                                        FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                                        Width="22" Height="22" Padding="0"
+                                                        Background="Transparent"
+                                                        Foreground="{DynamicResource TextSecondaryBrush}"
+                                                        BorderThickness="0" Cursor="Hand"
+                                                        Click="MusicDelete_Click" ToolTip="删除"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <Button Grid.Row="2" Content="+ 添加音乐" FontSize="12"
+                                Style="{StaticResource PrimaryButtonStyle}"
+                                Margin="0,8,0,0" Padding="8,4"
+                                Click="MusicAdd_Click"/>
+                    </Grid>
+                </Border>
+            </Popup>
 
             <!-- ===== 主体区域 ===== -->
             <Grid Grid.Row="1">
@@ -275,7 +427,7 @@
             <!-- AI 网站书签弹窗 -->
             <Popup x:Name="AiBookmarkPopup" PlacementTarget="{Binding ElementName=AiBookmarkBtn}"
                    Placement="Bottom" StaysOpen="False"
-                   AllowsTransparency="True" PopupAnimation="Slide">
+                   AllowsTransparency="True">
                 <Border CornerRadius="10" MinWidth="280" MaxWidth="360"
                         Background="{DynamicResource CardBackgroundBrush}"
                         BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"

@@ -397,38 +397,114 @@ public partial class CharacterPage : UserControl
         {
             if (string.IsNullOrWhiteSpace(name)) return;
         var nn = name.Trim();
+        var oldName = _currentCharacter.Name;
         var oldCharId = _currentCharacter.Id;
         var sid = Sanitize(nn);
-        var old = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, oldCharId);
-        var np = Path.Combine(Path.GetDirectoryName(old)!, sid);
-        if (!string.Equals(old, np, StringComparison.OrdinalIgnoreCase))
-        {
-            if (Directory.Exists(np))
-            { sid += "_" + System.Guid.NewGuid().ToString()[..6];
-              np = Path.Combine(Path.GetDirectoryName(old)!, sid); }
-            try { Directory.Move(old, np); }
-            catch
-            { Toast("✗ 重命名失败"); return; }
-        }
-        _currentCharacter.Name = nn; _currentCharacter.Id = sid;
-        FileService.WriteJson(Path.Combine(np, "info.json"), _currentCharacter);
 
-        // 同步移动 Image/人物素材 文件夹
-        var oldImgDir = FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, oldCharId);
-        if (Directory.Exists(oldImgDir))
+        // 仅名称实际变化时才执行重命名
+        if (string.Equals(oldCharId, sid, StringComparison.OrdinalIgnoreCase))
         {
-            var newImgDir = FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, sid);
+            _currentCharacter.Name = nn;
+            // 更新卡片显示文字
+            foreach (Border card in CharacterPanel.Children)
+            {
+                if (card.Tag is CharacterInfo ci && ci.Id == oldCharId && card.Child is Grid g)
+                {
+                    if (g.Children.Count > 1 && g.Children[1] is TextBlock tb)
+                        tb.Text = nn;
+                    break;
+                }
+            }
+            return;
+        }
+
+        // 处理名称冲突
+        var dataParent = Path.GetDirectoryName(
+            FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, oldCharId))!;
+        var newDataDir = Path.Combine(dataParent, sid);
+        if (Directory.Exists(newDataDir))
+        { sid += "_" + System.Guid.NewGuid().ToString()[..6];
+          newDataDir = Path.Combine(dataParent, sid); }
+
+        var imgMoved = false;
+        var audioMoved = false;
+        var dataMoved = false;
+
+        try
+        {
+            // 1. 先移动多媒体目录（这些可能很大，失败了可以安全回滚）
+            var oldImgDir = FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, oldCharId);
+            if (Directory.Exists(oldImgDir))
+            {
+                var newImgDir = FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, sid);
+                FileService.EnsureDirectory(Path.GetDirectoryName(newImgDir)!);
+                MoveOrMergeDir(oldImgDir, newImgDir);
+                imgMoved = true;
+            }
+
+            var oldAudioDir = FileService.CharacterAudioPath(App.WorkRoot, _currentNovel.MediaFolder, oldCharId);
+            if (Directory.Exists(oldAudioDir))
+            {
+                var newAudioDir = FileService.CharacterAudioPath(App.WorkRoot, _currentNovel.MediaFolder, sid);
+                FileService.EnsureDirectory(Path.GetDirectoryName(newAudioDir)!);
+                MoveOrMergeDir(oldAudioDir, newAudioDir);
+                audioMoved = true;
+            }
+
+            // 2. 最后移动角色数据目录（最关键的一步）
+            var oldDataDir = FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, oldCharId);
+            if (!Directory.Exists(oldDataDir))
+                throw new IOException($"角色数据目录不存在: {oldDataDir}");
+            Directory.Move(oldDataDir, newDataDir);
+            dataMoved = true;
+
+            // 3. 全部成功 → 更新内存状态
+            _currentCharacter.Name = nn;
+            _currentCharacter.Id = sid;
+            FileService.WriteJson(Path.Combine(newDataDir, "info.json"), _currentCharacter);
+        }
+        catch (Exception ex)
+        {
+            // 回滚已执行的文件操作
             try
             {
-                FileService.EnsureDirectory(Path.GetDirectoryName(newImgDir)!);
-                if (Directory.Exists(newImgDir))
-                    Directory.Delete(newImgDir, true);
-                Directory.Move(oldImgDir, newImgDir);
+                if (dataMoved)
+                    Directory.Move(newDataDir, FileService.CharacterPath(App.WorkRoot, _currentNovel.Id, oldCharId));
+                if (audioMoved)
+                    MoveOrMergeDir(
+                        FileService.CharacterAudioPath(App.WorkRoot, _currentNovel.MediaFolder, sid),
+                        FileService.CharacterAudioPath(App.WorkRoot, _currentNovel.MediaFolder, oldCharId));
+                if (imgMoved)
+                    MoveOrMergeDir(
+                        FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, sid),
+                        FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, oldCharId));
             }
-            catch { /* 移动失败不阻断流程 */ }
+            catch { /* 尽力回滚 */ }
+            Toast($"✗ 重命名失败：{ex.Message}");
+            return;
         }
 
-        RefreshCharacterList(); SelectCharacter(_currentCharacter);
+        // 更新列表中的角色信息（保持原位置不变）
+        var oldChar = _characters.FirstOrDefault(c => c.Id == oldCharId);
+        if (oldChar != null)
+        {
+            oldChar.Name = nn;
+            oldChar.Id = sid;
+        }
+        // 更新对应卡片上的显示文字及 Tag
+        foreach (Border card in CharacterPanel.Children)
+        {
+            if (card.Tag is CharacterInfo ci && ci.Id == oldCharId && card.Child is Grid g)
+            {
+                ci.Name = nn;
+                ci.Id = sid;
+                card.Tag = ci;
+                if (g.Children.Count > 1 && g.Children[1] is TextBlock tb)
+                    tb.Text = nn;
+                break;
+            }
+        }
+        SelectCharacter(_currentCharacter);
         Toast("✓ 重命名成功");
         };
         dlg.Show();
@@ -439,6 +515,37 @@ public partial class CharacterPage : UserControl
         var inv = Path.GetInvalidFileNameChars();
         var s = new string(n.Select(c => inv.Contains(c) ? '_' : c).ToArray());
         return string.IsNullOrWhiteSpace(s) ? "unnamed" : s;
+    }
+
+    /// <summary>移动目录，如果目标已存在则合并文件后删除源目录</summary>
+    private static void MoveOrMergeDir(string srcDir, string dstDir)
+    {
+        if (!Directory.Exists(srcDir)) return;
+        if (!Directory.Exists(dstDir))
+        {
+            Directory.Move(srcDir, dstDir);
+            return;
+        }
+        // 目标存在 → 合并源文件到目标
+        foreach (var f in Directory.GetFiles(srcDir))
+        {
+            var dest = Path.Combine(dstDir, Path.GetFileName(f));
+            int cnt = 1;
+            while (File.Exists(dest))
+            {
+                var nameOnly = Path.GetFileNameWithoutExtension(f);
+                var ext = Path.GetExtension(f);
+                dest = Path.Combine(dstDir, $"{nameOnly}_{cnt++}{ext}");
+            }
+            File.Move(f, dest);
+        }
+        // 递归处理子目录
+        foreach (var sub in Directory.GetDirectories(srcDir))
+        {
+            var subDest = Path.Combine(dstDir, Path.GetFileName(sub));
+            MoveOrMergeDir(sub, subDest);
+        }
+        Directory.Delete(srcDir, true);
     }
 
     private void DeleteCharacter_Click(object sender, RoutedEventArgs e)
@@ -859,10 +966,10 @@ public partial class CharacterPage : UserControl
         var win = new Window
         {
             Title = $"正在播放：{title}",
-            Width = 420,
-            Height = 160,
-            MinWidth = 360,
-            MinHeight = 120,
+            Width = 580,
+            Height = 360,
+            MinWidth = 460,
+            MinHeight = 280,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = Window.GetWindow(this),
             ResizeMode = ResizeMode.CanResizeWithGrip,
@@ -871,23 +978,26 @@ public partial class CharacterPage : UserControl
             ShowInTaskbar = false
         };
 
-        var mainGrid = new Grid { Margin = new Thickness(16, 12, 16, 12) };
-        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 标题
-        mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) }); // 间距
-        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 进度条
-        mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });  // 间距
-        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 控制按钮
+        var mainGrid = new Grid { VerticalAlignment = VerticalAlignment.Stretch, HorizontalAlignment = HorizontalAlignment.Stretch };
+        mainGrid.Margin = new Thickness(24, 24, 24, 18);
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 0: 标题
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(14) }); // 1: 间距
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 2: 进度条行
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 3: 弹性空间（推到底部）
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 4: 控制栏卡片
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) }); // 5: 间距
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // 6: 提示文字
 
         // 标题行
         var titleRow = new DockPanel();
-        var titleIcon = new TextBlock { Text = "🎵", FontSize = 14, VerticalAlignment = VerticalAlignment.Center };
+        var titleIcon = new TextBlock { Text = "\uEC4F", FontFamily = new FontFamily("Segoe MDL2 Assets"), FontSize = 15, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)FindResource("PrimaryBrush") };
         var titleTb = new TextBlock
         {
             Text = title,
-            FontSize = 13, FontWeight = FontWeights.SemiBold,
+            FontSize = 14, FontWeight = FontWeights.SemiBold,
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(6, 0, 0, 0),
+            Margin = new Thickness(8, 0, 0, 0),
             TextTrimming = TextTrimming.CharacterEllipsis
         };
         DockPanel.SetDock(titleIcon, Dock.Left);
@@ -896,15 +1006,19 @@ public partial class CharacterPage : UserControl
         Grid.SetRow(titleRow, 0);
         mainGrid.Children.Add(titleRow);
 
-        // 进度条区域
-        var progressArea = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        // 进度条区域（撑满宽度）
+        var progressArea = new Grid();
+        progressArea.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        progressArea.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        progressArea.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
         var timeCurrent = new TextBlock
         {
             Text = "0:00",
             FontSize = 11,
             Foreground = (Brush)FindResource("TextSecondaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
-            Width = 38
+            Width = 42
         };
 
         var progressSlider = new Slider
@@ -912,9 +1026,8 @@ public partial class CharacterPage : UserControl
             Minimum = 0, Maximum = 100, Value = 0,
             IsMoveToPointEnabled = true,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(6, 0, 6, 0),
-            Foreground = (Brush)FindResource("PrimaryBrush"),
-            Width = 240
+            Margin = new Thickness(8, 0, 8, 0),
+            Foreground = (Brush)FindResource("PrimaryBrush")
         };
 
         var timeTotal = new TextBlock
@@ -923,72 +1036,121 @@ public partial class CharacterPage : UserControl
             FontSize = 11,
             Foreground = (Brush)FindResource("TextSecondaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
-            Width = 38
+            Width = 42
         };
+
+        Grid.SetColumn(timeCurrent, 0);
+        Grid.SetColumn(progressSlider, 1);
+        Grid.SetColumn(timeTotal, 2);
         progressArea.Children.Add(timeCurrent);
         progressArea.Children.Add(progressSlider);
         progressArea.Children.Add(timeTotal);
         Grid.SetRow(progressArea, 2);
         mainGrid.Children.Add(progressArea);
 
-        // 控制按钮行
-        var controlRow = new StackPanel
+        // 控制栏卡片（撑满宽度，圆角背景）
+        var controlBar = new Border
+        {
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(14, 10, 14, 10),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            BorderThickness = new Thickness(1),
+            BorderBrush = (Brush)FindResource("BorderBrush")
+        };
+        Grid.SetRow(controlBar, 4);
+        mainGrid.Children.Add(controlBar);
+
+        // 控制栏内部：左右布局（用 Star 行将内容推到底部）
+        var controlInner = new Grid();
+        controlInner.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 0: 弹性空间（推到底部）
+        controlInner.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 1: 控制内容行
+        controlInner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 按钮组
+        controlInner.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // 弹性空间
+        controlInner.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); // 音量组
+        controlBar.Child = controlInner;
+
+        // 左侧：控制按钮组
+        var btnPanel = new StackPanel
         {
             Orientation = System.Windows.Controls.Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center
         };
 
-        var btnPlay = new Button
+        var btnRewind = MakePlayerBtn("\uE892", "后退5秒", 34);
+        var btnPlay = MakePlayerBtn("\uE768", "暂停/继续", 40);
+        var btnForward = MakePlayerBtn("\uE893", "前进5秒", 34);
+
+        btnPanel.Children.Add(btnRewind);
+        btnPanel.Children.Add(btnPlay);
+        btnPanel.Children.Add(btnForward);
+        Grid.SetRow(btnPanel, 1);
+        Grid.SetColumn(btnPanel, 0);
+        controlInner.Children.Add(btnPanel);
+
+        // 右侧：音量控制
+        var volPanel = new StackPanel
         {
-            Content = "⏸",
-            FontSize = 18,
-            Width = 42, Height = 36, Padding = new Thickness(0),
-            Style = (Style)FindResource("PrimaryButtonStyle"),
-            ToolTip = "暂停/继续"
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(4, 0, 0, 0)
         };
 
-        var btnStop = new Button
+        var volIcon = new TextBlock
         {
-            Content="⏹",
-            FontSize = 14,
-            Width = 36, Height = 30, Padding = new Thickness(0),
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            Margin = new Thickness(4, 0, 0, 0),
-            ToolTip = "停止"
+            Text = "\uE767",
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            FontSize = 13,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center
         };
 
         var volSlider = new Slider
         {
             Minimum = 0, Maximum = 1, Value = 0.8,
-            Width = 80, VerticalAlignment = VerticalAlignment.Center,
+            Width = 90, VerticalAlignment = VerticalAlignment.Center,
             Foreground = (Brush)FindResource("PrimaryBrush"),
-            Margin = new Thickness(12, 0, 0, 0),
+            Margin = new Thickness(6, 0, 0, 0),
             ToolTip = "音量"
         };
 
-        controlRow.Children.Add(btnPlay);
-        controlRow.Children.Add(btnStop);
-        controlRow.Children.Add(volSlider);
-        Grid.SetRow(controlRow, 4);
-        mainGrid.Children.Add(controlRow);
+        volPanel.Children.Add(volIcon);
+        volPanel.Children.Add(volSlider);
+        Grid.SetRow(volPanel, 1);
+        Grid.SetColumn(volPanel, 2);
+        controlInner.Children.Add(volPanel);
+
+        // 底部提示文字
+        var tipText = new TextBlock
+        {
+            Text = "空格键 播放/暂停  ·  Esc 关闭",
+            FontSize = 10,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Opacity = 0.65
+        };
+        Grid.SetRow(tipText, 6);
+        mainGrid.Children.Add(tipText);
 
         // MediaElement（不可见）
         var mediaElement = new MediaElement
         {
             LoadedBehavior = MediaState.Manual,
             UnloadedBehavior = MediaState.Stop,
-            Visibility = Visibility.Collapsed
+            Visibility = Visibility.Hidden,
+            Width = 0, Height = 0
         };
         mediaElement.Volume = volSlider.Value;
         mediaElement.Source = new Uri(filePath);
-        mainGrid.RowDefinitions.Add(new RowDefinition()); // 隐藏的 MediaElement 行
-        mediaElement.SetValue(Grid.RowProperty, 5);
+        mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        mediaElement.SetValue(Grid.RowProperty, 7);
         mainGrid.Children.Add(mediaElement);
 
         win.Content = mainGrid;
 
-        bool isPlaying = true;
+        bool isPlaying = false;
         bool isDragging = false;
+        bool started = false;
 
         // 播放/暂停
         btnPlay.Click += (_, _) =>
@@ -998,29 +1160,40 @@ public partial class CharacterPage : UserControl
                 if (isPlaying)
                 {
                     mediaElement.Pause();
-                    btnPlay.Content = "▶";
+                    btnPlay.Content = "\uE768";
                 }
                 else
                 {
                     mediaElement.Play();
-                    btnPlay.Content = "⏸";
+                    btnPlay.Content = "\uE769";
                 }
                 isPlaying = !isPlaying;
             }
             catch { }
         };
 
-        // 停止
-        btnStop.Click += (_, _) =>
+        // 后退 5 秒
+        btnRewind.Click += (_, _) =>
         {
             try
             {
-                mediaElement.Stop();
-                mediaElement.Position = TimeSpan.Zero;
-                isPlaying = false;
-                btnPlay.Content = "▶";
-                progressSlider.Value = 0;
-                timeCurrent.Text = "0:00";
+                var newPos = mediaElement.Position.TotalSeconds - 5;
+                mediaElement.Position = TimeSpan.FromSeconds(System.Math.Max(0, newPos));
+            }
+            catch { }
+        };
+
+        // 前进 5 秒
+        btnForward.Click += (_, _) =>
+        {
+            try
+            {
+                if (mediaElement.NaturalDuration.HasTimeSpan)
+                {
+                    var newPos = mediaElement.Position.TotalSeconds + 5;
+                    var max = mediaElement.NaturalDuration.TimeSpan.TotalSeconds - 1;
+                    mediaElement.Position = TimeSpan.FromSeconds(System.Math.Min(max, newPos));
+                }
             }
             catch { }
         };
@@ -1071,7 +1244,7 @@ public partial class CharacterPage : UserControl
         mediaElement.MediaEnded += (_, _) =>
         {
             isPlaying = false;
-            btnPlay.Content = "▶";
+            btnPlay.Content = "\uE768";
             progressSlider.Value = 0;
             timeCurrent.Text = "0:00";
         };
@@ -1080,14 +1253,49 @@ public partial class CharacterPage : UserControl
         {
             try
             {
+                started = true;
                 if (mediaElement.NaturalDuration.HasTimeSpan)
                     timeTotal.Text = FormatDuration(mediaElement.NaturalDuration.TimeSpan);
                 mediaElement.Play();
                 isPlaying = true;
-                btnPlay.Content = "⏸";
+                btnPlay.Content = "\uE769";
                 timer.Start();
             }
             catch { }
+        };
+
+        // 兜底：窗口就绪后再次尝试播放（防止 MediaOpened 早于窗口加载完毕）
+        win.Loaded += (_, _) =>
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (started) return;
+                try
+                {
+                    if (mediaElement.NaturalDuration.HasTimeSpan)
+                        timeTotal.Text = FormatDuration(mediaElement.NaturalDuration.TimeSpan);
+                    mediaElement.Play();
+                    isPlaying = true;
+                    btnPlay.Content = "\uE769";
+                    timer.Start();
+                }
+                catch { }
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
+        };
+
+        // 键盘快捷键
+        win.PreviewKeyDown += (s, e) =>
+        {
+            if (e.Key == Key.Space)
+            {
+                btnPlay.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                win.Close();
+                e.Handled = true;
+            }
         };
 
         win.Closed += (_, _)=>
@@ -1101,6 +1309,26 @@ public partial class CharacterPage : UserControl
         };
 
         win.Show();
+    }
+
+    /// <summary>创建播放器按钮（统一风格）</summary>
+    private static Button MakePlayerBtn(string symbol, string toolTip, double size)
+    {
+        return new Button
+        {
+            Content = symbol,
+            FontFamily = new FontFamily("Segoe MDL2 Assets"),
+            FontSize = size * 0.55,
+            Width = size, Height = size, Padding = new Thickness(0),
+            Cursor = Cursors.Hand,
+            Background = Brushes.Transparent,
+            Foreground = (SolidColorBrush)Application.Current.FindResource("TextPrimaryBrush") ?? Brushes.White,
+            BorderThickness = new Thickness(0),
+            ToolTip = toolTip,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(2, 0, 2, 0)
+        };
     }
 
     private static string FormatDuration(TimeSpan ts) => $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";

@@ -178,6 +178,8 @@ public static class FileService
     /// <summary>角色音频目录：WorkData\Audio\人物素材\{mediaFolder}\{charId}</summary>
     public static string CharacterAudioPath(string workRoot, string mediaFolder, string charId) =>
         Path.Combine(AudioRoot(workRoot), "人物素材", mediaFolder, charId);
+    /// <summary>音乐播放器音乐目录：WorkData\Music</summary>
+    public static string MusicPath(string workRoot) => Path.Combine(workRoot, "Music");
     public static string BannerPath(string workRoot) => Path.Combine(ConfigPath(workRoot), "banners");
     public static string NoticeFile(string workRoot) => Path.Combine(ConfigPath(workRoot), "notice.txt");
     public static string SettingsFile(string workRoot) => Path.Combine(ConfigPath(workRoot), "appsettings.json");

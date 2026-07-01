@@ -76,8 +76,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto" MinWidth="420"/>
-                            </Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" MinWidth="480"/>                            </Grid.ColumnDefinitions>
 
                             <Border x:Name="AvatarBorder" Grid.Column="0" Width="72" Height="72"
                                     CornerRadius="36" Cursor="Hand"
@@ -110,7 +109,7 @@
                             </StackPanel>
 
                             <!-- 角色音频素材（头像行右侧，竖线分割） -->
-                            <Grid Grid.Column="2" MinWidth="420" MaxWidth="500" Margin="16,0,0,0">
+                            <Grid Grid.Column="2" MinWidth="480" MaxWidth="560" Margin="16,0,0,0">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="*"/>
@@ -169,7 +168,7 @@
                                                                        FontSize="10"
                                                                        Foreground="{DynamicResource TextPrimaryBrush}"
                                                                        TextTrimming="CharacterEllipsis"
-                                                                       MaxWidth="320"/>
+                                                                       MaxWidth="370"/>
                                                             <TextBlock Text="{Binding Size}" FontSize="8"
                                                                        Foreground="{DynamicResource TextSecondaryBrush}"/>
                                                         </StackPanel>

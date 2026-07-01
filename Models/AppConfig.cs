@@ -52,4 +52,12 @@ public class AppConfig
     public double CustomBgBlur { get; set; } = 15;
     /// <summary>背景图模式下前景风格：Light=奶白 / Dark=暗色</summary>
     public string ImageForeground { get; set; } = "Light";
+
+    // ====== 音乐播放器 ======
+    /// <summary>音乐音量（0.0 ~ 1.0）</summary>
+    public double MusicVolume { get; set; } = 0.7;
+    /// <summary>启动时自动播放音乐</summary>
+    public bool MusicAutoPlay { get; set; } = false;
+    /// <summary>播放模式：RepeatAll / Shuffle</summary>
+    public string MusicPlayMode { get; set; } = "RepeatAll";
 }
