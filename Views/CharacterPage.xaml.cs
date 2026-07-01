@@ -405,16 +405,9 @@ public partial class CharacterPage : UserControl
         if (string.Equals(oldCharId, sid, StringComparison.OrdinalIgnoreCase))
         {
             _currentCharacter.Name = nn;
-            // 更新卡片显示文字
-            foreach (Border card in CharacterPanel.Children)
-            {
-                if (card.Tag is CharacterInfo ci && ci.Id == oldCharId && card.Child is Grid g)
-                {
-                    if (g.Children.Count > 1 && g.Children[1] is TextBlock tb)
-                        tb.Text = nn;
-                    break;
-                }
-            }
+            FileService.WriteJson(FileService.CharacterInfoFile(App.WorkRoot, _currentNovel.Id, oldCharId), _currentCharacter);
+            RefreshCharacterList();
+            SelectCharacter(_characters.FirstOrDefault(c => c.Id == oldCharId) ?? _currentCharacter);
             return;
         }
 
@@ -484,27 +477,8 @@ public partial class CharacterPage : UserControl
             return;
         }
 
-        // 更新列表中的角色信息（保持原位置不变）
-        var oldChar = _characters.FirstOrDefault(c => c.Id == oldCharId);
-        if (oldChar != null)
-        {
-            oldChar.Name = nn;
-            oldChar.Id = sid;
-        }
-        // 更新对应卡片上的显示文字及 Tag
-        foreach (Border card in CharacterPanel.Children)
-        {
-            if (card.Tag is CharacterInfo ci && ci.Id == oldCharId && card.Child is Grid g)
-            {
-                ci.Name = nn;
-                ci.Id = sid;
-                card.Tag = ci;
-                if (g.Children.Count > 1 && g.Children[1] is TextBlock tb)
-                    tb.Text = nn;
-                break;
-            }
-        }
-        SelectCharacter(_currentCharacter);
+        RefreshCharacterList();
+        SelectCharacter(_characters.FirstOrDefault(c => c.Id == sid) ?? _currentCharacter);
         Toast("✓ 重命名成功");
         };
         dlg.Show();

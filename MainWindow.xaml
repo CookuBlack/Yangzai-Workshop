@@ -81,7 +81,7 @@
                     <!-- 居中：音乐播放控件条（仅播放时显示） -->
                     <StackPanel x:Name="MusicBar" Grid.Column="1" Orientation="Horizontal"
                                 VerticalAlignment="Center" HorizontalAlignment="Center"
-                                Visibility="Visible">
+                                Visibility="Collapsed">
 
                         <!-- 曲目名称 -->
                         <TextBlock x:Name="MusicTrackName" Text="暂无曲目"
