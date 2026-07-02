@@ -147,18 +147,18 @@ public partial class App : Application
 
     private static void CleanupUpdateFiles()
     {
-        try
+        foreach (var dir in new[] { FileService.AppBasePath, Path.GetTempPath() })
         {
-            var dir = FileService.AppBasePath;
-            if (!Directory.Exists(dir)) return;
-            foreach (var f in Directory.GetFiles(dir, "YangzaiWorkshop_Update_*.msi"))
+            try
             {
-                try { File.Delete(f); } catch { }
+                if (!Directory.Exists(dir)) continue;
+                foreach (var f in Directory.GetFiles(dir, "YangzaiWorkshop_Update_*.msi"))
+                { try { File.Delete(f); } catch { } }
+                var bat = Path.Combine(dir, "_update_cleanup.bat");
+                try { if (File.Exists(bat)) File.Delete(bat); } catch { }
             }
-            var bat = Path.Combine(dir, "_update_cleanup.bat");
-            try { if (File.Exists(bat)) File.Delete(bat); } catch { }
+            catch { }
         }
-        catch { }
     }
 
     private static string UpdateSkipFile =>
@@ -325,7 +325,8 @@ public partial class App : Application
 
     private static async Task DownloadAndInstallAsync(string downloadUrl, string newTag)
     {
-        var tempFile = Path.Combine(FileService.AppBasePath,
+        // MSI 必须放在 AppBasePath 之外！因为 MajorUpgrade 会先卸载旧版 → 清空安装目录 → MSI 被删 → 安装失败
+        var tempFile = Path.Combine(Path.GetTempPath(),
             $"YangzaiWorkshop_Update_{newTag}.msi");
 
         // 多源下载：镜像优先 → GitHub 直连兜底
@@ -440,12 +441,14 @@ public partial class App : Application
         // 方案：先启动 msiexec 安装（Windows 会弹出 UAC），再关闭当前应用
         // 这样安装进程独立于应用进程，不会随应用退出而中断
 
-        // 创建自清理安装脚本（等当前进程退出后安装 → 启动新版本 → 清理 MSI）
-        var cleanupBat = Path.Combine(FileService.AppBasePath, "_update_cleanup.bat");
+        // 清理脚本和 MSI 都放系统 Temp（不在 AppBasePath），
+        // 避免 MajorUpgrade 卸载旧版时把安装包/脚本一并删掉
+        var cleanupBat = Path.Combine(Path.GetTempPath(), "_update_cleanup.bat");
         var installPath = FileService.AppBasePath.TrimEnd('\\', '/');
         var exePath = Path.Combine(FileService.AppBasePath, "YangzaiWorkshop.exe");
         var currentPid = Environment.ProcessId;
 
+        // 注意：MSI 在 Temp 目录，所以 uninstall 旧版不会误删它
         File.WriteAllText(cleanupBat,
             "@echo off\r\n" +
             "echo Waiting for old process to exit...\r\n" +
@@ -455,12 +458,19 @@ public partial class App : Application
             "    timeout /t 1 /nobreak >nul\r\n" +
             "    goto waitloop\r\n" +
             ")\r\n" +
-            $"echo Installing Yangzai Workshop v{newTag}...\r\n" +
+            $"echo Installing Yangzai Workshop v{newTag} to {installPath}...\r\n" +
             $"msiexec /i \"{tempFile}\" INSTALL_FOLDER=\"{installPath}\" /qb!- /norestart\r\n" +
+            "if errorlevel 1 goto :fail\r\n" +
             "echo Starting Yangzai Workshop...\r\n" +
             $"start \"\" \"{exePath}\"\r\n" +
+            ":cleanup\r\n" +
             $"del /f /q \"{tempFile}\" 2>nul\r\n" +
-            $"del /f /q \"%~f0\" 2>nul\r\n",
+            $"del /f /q \"%~f0\" 2>nul\r\n" +
+            "exit /b 0\r\n" +
+            ":fail\r\n" +
+            "echo Installation failed! Check the installer log.\r\n" +
+            "pause\r\n" +
+            "goto :cleanup\r\n",
             GetGbkEncoding());
 
         // 以独立窗口启动批处理（不受父进程退出影响）
