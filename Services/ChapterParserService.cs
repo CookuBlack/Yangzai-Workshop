@@ -37,7 +37,8 @@ public static class ChapterParserService
         // 回退 GBK（中文 TXT 最常见的非 UTF 编码）
         try
         {
-            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            try { Encoding.RegisterProvider(CodePagesEncodingProvider.Instance); }
+            catch (InvalidOperationException) { /* 已注册 */ }
             return Encoding.GetEncoding("GBK");
         }
         catch

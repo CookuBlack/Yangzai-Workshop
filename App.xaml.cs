@@ -457,7 +457,7 @@ public partial class App : Application
             $"start \"\" \"{exePath}\"\r\n" +
             $"del /f /q \"{tempFile}\" 2>nul\r\n" +
             $"del /f /q \"%~f0\" 2>nul\r\n",
-            System.Text.Encoding.GetEncoding(936));
+            GetGbkEncoding());
 
         // 以独立窗口启动批处理（不受父进程退出影响）
         Process.Start(new ProcessStartInfo
@@ -492,6 +492,14 @@ public partial class App : Application
             return true;
         }
         catch { return false; }
+    }
+
+    /// <summary>获取 GBK 编码（.NET 8 需先注册 CodePages 提供程序，幂等安全）</summary>
+    private static System.Text.Encoding GetGbkEncoding()
+    {
+        try { System.Text.Encoding.RegisterProvider(System.Text.CodePagesEncodingProvider.Instance); }
+        catch (InvalidOperationException) { /* 已注册，忽略 */ }
+        return System.Text.Encoding.GetEncoding(936);
     }
 
     private static void SaveCache(UpdateCheckResult result, string tag)
