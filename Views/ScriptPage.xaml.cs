@@ -380,14 +380,18 @@ public partial class ScriptPage : UserControl
         try
         {
             FileService.MoveToTrash(FileService.NovelPath(App.WorkRoot, novel.Id));
-            if (_currentNovel?.Id == novel.Id)
+            bool wasCurrent = _currentNovel?.Id == novel.Id;
+            if (wasCurrent)
             { _currentNovel = null; _currentChapter = null; _chapters.Clear(); }
             RefreshNovelList();
-            ChapterTabsPanel.Children.Clear();
-            try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
-            _scriptText = ""; _promptText = "";
-            UpdateScriptEditor(); // 清除剧本编辑器和提示词编辑器中的残留文字
-            ImageGrid.Children.Clear();
+            // 如果还有其他小说，RefreshNovelList 已自动选中第一部；只在无小说时清空 UI
+            if (_currentNovel == null)
+            {
+                ChapterTabsPanel.Children.Clear();
+                try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
+                _scriptText = ""; _promptText = ""; UpdateScriptEditor();
+                ImageGrid.Children.Clear();
+            }
         }
         catch (Exception ex)
         {
