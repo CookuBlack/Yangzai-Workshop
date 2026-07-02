@@ -150,6 +150,8 @@ public partial class SettingsPage : UserControl
         VersionLabel.Text = $"v{App.AppVersion}";
         UpdateDateLabel.Text = _config.LastUpdateDate;
         VersionSubText.Text = $"版本 v{App.AppVersion} · 更新于 {_config.LastUpdateDate}";
+        VersionNumText.Text = App.AppVersion;
+        UpdateVersionSubText.Text = $"上次更新：{_config.LastUpdateDate}";
         GitHubLink.Text = "GitHub: https://github.com/CookuBlack/Yangzai-Workshop";
     }
 
@@ -923,9 +925,7 @@ public partial class SettingsPage : UserControl
     private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
     {
         CheckUpdateBtn.IsEnabled = false;
-        UpdateStatusLabel.Visibility = Visibility.Visible;
-        UpdateStatusLabel.Foreground = (Brush)FindResource("TextSecondaryBrush");
-        UpdateStatusLabel.Text = "正在检查更新...";
+        SetUpdateStatus("正在检查更新，请稍候...", "TextSecondaryBrush", showSpinner: true);
 
         try
         {
@@ -933,43 +933,56 @@ public partial class SettingsPage : UserControl
             switch (result)
             {
                 case App.UpdateCheckResult.NoUpdate:
-                    UpdateStatusLabel.Foreground = (Brush)FindResource("SuccessBrush");
-                    UpdateStatusLabel.Text = $"✓ 已是最新版本 (v{App.AppVersion})";
+                    SetUpdateStatus($"✓ 已是最新版本 v{App.AppVersion}", "SuccessBrush");
                     break;
                 case App.UpdateCheckResult.NetworkError:
-                    UpdateStatusLabel.Foreground = (Brush)FindResource("DangerBrush");
-                    UpdateStatusLabel.Text = string.IsNullOrEmpty(App.LastUpdateError)
+                    SetUpdateStatus(string.IsNullOrEmpty(App.LastUpdateError)
                         ? "✗ 网络不可用，请检查网络连接"
-                        : $"✗ {App.LastUpdateError}";
+                        : $"✗ {App.LastUpdateError}", "DangerBrush");
                     break;
                 case App.UpdateCheckResult.RateLimited:
-                    UpdateStatusLabel.Foreground = (Brush)FindResource("WarningBrush");
-                    UpdateStatusLabel.Text = string.IsNullOrEmpty(App.LastUpdateError)
+                    SetUpdateStatus(string.IsNullOrEmpty(App.LastUpdateError)
                         ? "⚠ GitHub API 请求频繁，请稍后重试"
-                        : $"⚠ {App.LastUpdateError}";
+                        : $"⚠ {App.LastUpdateError}", "WarningBrush");
                     break;
                 case App.UpdateCheckResult.HasUpdateNoMsi:
                 case App.UpdateCheckResult.HasUpdate:
-                    // 弹窗已经在 CheckForUpdateAsync 中处理了
-                    UpdateStatusLabel.Foreground = (Brush)FindResource("SuccessBrush");
-                    UpdateStatusLabel.Text = "✓ 操作完成";
+                    SetUpdateStatus("✓ 已开始下载更新", "SuccessBrush");
                     break;
             }
         }
         catch
         {
-            UpdateStatusLabel.Foreground = (Brush)FindResource("DangerBrush");
-            UpdateStatusLabel.Text = string.IsNullOrEmpty(App.LastUpdateError)
+            SetUpdateStatus(string.IsNullOrEmpty(App.LastUpdateError)
                 ? "✗ 检查失败，请稍后重试"
-                : $"✗ {App.LastUpdateError}";
+                : $"✗ {App.LastUpdateError}", "DangerBrush");
         }
 
         CheckUpdateBtn.IsEnabled = true;
+        // 更新检查时间
+        UpdateVersionSubText.Text = $"上次检查：{DateTime.Now:yyyy-MM-dd HH:mm}";
+    }
 
-        // 3 秒后自动隐藏状态
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
-        timer.Tick += (_, _) => { timer.Stop(); UpdateStatusLabel.Visibility = Visibility.Collapsed; };
-        timer.Start();
+    /// <summary>设置更新状态栏的显示样式和文字</summary>
+    private void SetUpdateStatus(string text, string brushKey, bool showSpinner = false)
+    {
+        UpdateStatusBar.Visibility = Visibility.Visible;
+        UpdateStatusBar.Background = (Brush)FindResource("HoverBrush");
+        UpdateStatusLabel.Foreground = (Brush)FindResource(brushKey);
+        UpdateStatusLabel.Text = text;
+        UpdateSpinner.Visibility = showSpinner ? Visibility.Visible : Visibility.Collapsed;
+        // 旋转动画
+        if (showSpinner)
+        {
+            var anim = new System.Windows.Media.Animation.DoubleAnimation(0, 360,
+                new Duration(TimeSpan.FromSeconds(1)))
+            { RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever };
+            SpinnerRotate.BeginAnimation(System.Windows.Media.RotateTransform.AngleProperty, anim);
+        }
+        else
+        {
+            SpinnerRotate.BeginAnimation(System.Windows.Media.RotateTransform.AngleProperty, null);
+        }
     }
 
     // ==================== 备份与恢复 ====================

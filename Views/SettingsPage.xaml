@@ -532,22 +532,74 @@
                         <Run Text="&#xE895;" FontFamily="Segoe MDL2 Assets"/>
                         <Run Text=" 自动更新"/>
                     </TextBlock>
-                    <TextBlock Text="从 GitHub 自动检测并下载最新版本" FontSize="11"
-                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,12"/>
+                    <TextBlock Text="保持应用程序处于最新状态，获取新功能与修复" FontSize="11"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,14"/>
 
-                    <StackPanel Orientation="Horizontal" Margin="0,0,0,0">
-                        <Button x:Name="CheckUpdateBtn" Style="{StaticResource PrimaryButtonStyle}"
-                                FontSize="12" Padding="16,8" Click="CheckUpdate_Click">
-                            <TextBlock>
-                                <Run Text="&#xE895;" FontFamily="Segoe MDL2 Assets"/>
-                                <Run Text=" 检查更新"/>
+                    <!-- 版本信息卡片 -->
+                    <Border Background="{DynamicResource HoverBrush}" CornerRadius="8"
+                            Padding="14,12" Margin="0,0,0,12">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <!-- 图标 -->
+                            <Border Width="38" Height="38" CornerRadius="19"
+                                    Background="{DynamicResource PrimaryLowBrush}" Grid.Column="0">
+                                <TextBlock Text="&#xE895;" FontFamily="Segoe MDL2 Assets"
+                                           FontSize="18" HorizontalAlignment="Center"
+                                           VerticalAlignment="Center"
+                                           Foreground="{DynamicResource PrimaryBrush}"/>
+                            </Border>
+                            <!-- 版本信息 -->
+                            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <TextBlock FontSize="13" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource TextPrimaryBrush}">
+                                    <Run Text="当前版本 v"/>
+                                    <Run x:Name="VersionNumText" Text=""/>
+                                </TextBlock>
+                                <TextBlock x:Name="UpdateVersionSubText" FontSize="10"
+                                           Foreground="{DynamicResource TextTertiaryBrush}"
+                                           Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <!-- 检查更新按钮 -->
+                            <Button x:Name="CheckUpdateBtn" Grid.Column="2"
+                                    Style="{StaticResource PrimaryButtonStyle}"
+                                    FontSize="12" Padding="14,8"
+                                    VerticalAlignment="Center" Click="CheckUpdate_Click">
+                                <TextBlock>
+                                    <Run Text="&#xE895;" FontFamily="Segoe MDL2 Assets"/>
+                                    <Run Text=" 检查更新"/>
+                                </TextBlock>
+                            </Button>
+                        </Grid>
+                    </Border>
+
+                    <!-- 状态栏 -->
+                    <Border x:Name="UpdateStatusBar" Visibility="Collapsed"
+                            CornerRadius="6" Padding="10,8" Margin="0,4,0,0">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <!-- 进度动画点 -->
+                            <TextBlock x:Name="UpdateSpinner" Text="&#xE895;" Grid.Column="0"
+                                       FontFamily="Segoe MDL2 Assets" FontSize="14"
+                                       Foreground="{DynamicResource PrimaryBrush}"
+                                       VerticalAlignment="Center" Margin="0,0,8,0"
+                                       Visibility="Collapsed">
+                                <TextBlock.RenderTransform>
+                                    <RotateTransform x:Name="SpinnerRotate" CenterX="7" CenterY="7"/>
+                                </TextBlock.RenderTransform>
                             </TextBlock>
-                        </Button>
-                        <TextBlock x:Name="UpdateStatusLabel" FontSize="12"
-                                   VerticalAlignment="Center" Margin="12,0,0,0"
-                                   Foreground="{DynamicResource TextSecondaryBrush}"
-                                   Visibility="Collapsed"/>
-                    </StackPanel>
+                            <!-- 状态文字 -->
+                            <TextBlock x:Name="UpdateStatusLabel" Grid.Column="1"
+                                       FontSize="12" VerticalAlignment="Center"
+                                       TextWrapping="Wrap"/>
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </Border>
 
