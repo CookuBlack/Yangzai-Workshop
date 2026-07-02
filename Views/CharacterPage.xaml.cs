@@ -571,6 +571,32 @@ public partial class CharacterPage : UserControl
         PersonalityEditArea.Visibility = Visibility.Collapsed;
     }
 
+    // ===== 人物关系图 =====
+
+    private void OpenRelationshipMap_Click(object sender, RoutedEventArgs e)
+    {
+        if (_currentNovel == null)
+        {
+            MessageDialog.Show("提示", "请先选择一部小说。"); return;
+        }
+        if (_characters.Count == 0)
+        {
+            MessageDialog.Show("提示", "当前小说暂无角色，请先创建角色。"); return;
+        }
+        var win = new RelationshipMapWindow(App.WorkRoot, _currentNovel.Id,
+            _currentNovel.Name, _currentNovel.MediaFolder, _characters);
+        win.Owner = Window.GetWindow(this);
+        win.ShowDialog();
+        // 画布中可能修改了关系数据，保存
+        foreach (var ch in _characters)
+        {
+            var cp = FileService.CharacterInfoFile(App.WorkRoot, _currentNovel.Id, ch.Id);
+            FileService.WriteJson(cp, ch);
+        }
+        // 可能有新建或删除角色，从磁盘重新加载列表
+        RefreshCharacterList();
+    }
+
     private async void AiGeneratePersonality_Click(object sender, RoutedEventArgs e)
     {
         if (_currentNovel == null || _currentCharacter == null) return;

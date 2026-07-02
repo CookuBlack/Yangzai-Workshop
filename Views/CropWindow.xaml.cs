@@ -361,6 +361,7 @@ public partial class CropWindow : Window
             pw = Math.Max(1, Math.Min(pw, _src.PixelWidth - px));
             ph = Math.Max(1, Math.Min(ph, _src.PixelHeight - py));
             CroppedImage = new CroppedBitmap(_src, new Int32Rect(px, py, pw, ph));
+            DialogResult = true;
             Cropped?.Invoke(CroppedImage);
             Close();
         }

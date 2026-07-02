@@ -16,7 +16,7 @@ public partial class App : Application
     public static string AvatarDir => FileService.AssetsAvatarPath;
 
     private const string GitHubRepo = "CookuBlack/Yangzai-Workshop";
-    private const string CurrentVersion = "3.2.3";
+    private const string CurrentVersion = "3.3.0";
     public static string AppVersion => CurrentVersion;
 
     /// <summary>版本信息 JSON 地址（GitHub Raw 优先确保实时性，CDN 作为加速备用）</summary>

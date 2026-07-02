@@ -1,8 +1,8 @@
 {
-    "latest": "3.2.3",
+    "latest": "3.3.0",
     "msi": "",
     "msi_mirror": "",
-    "release_url": "https://github.com/CookuBlack/Yangzai-Workshop/releases/tag/v3.2.0",
+    "release_url": "https://github.com/CookuBlack/Yangzai-Workshop/releases/tag/v3.3.0",
     "_comment": {
         "msi": "直接指定 MSI 下载地址（留空则自动拼接 GitHub Release 地址）",
         "msi_mirror": "镜像下载地址（如云盘直链、CDN、Gitee），国内用户可填入加速下载"
