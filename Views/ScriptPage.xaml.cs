@@ -386,6 +386,7 @@ public partial class ScriptPage : UserControl
             ChapterTabsPanel.Children.Clear();
             try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
             _scriptText = ""; _promptText = "";
+            UpdateScriptEditor(); // 清除剧本编辑器和提示词编辑器中的残留文字
             ImageGrid.Children.Clear();
         }
         catch (Exception ex)
@@ -508,7 +509,7 @@ public partial class ScriptPage : UserControl
         {
             _currentChapter = null;
             try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
-            _scriptText = ""; _promptText = "";
+            _scriptText = ""; _promptText = ""; UpdateScriptEditor();
             ImageGrid.Children.Clear();
             ImageGrid.RowDefinitions.Clear();
             ImageGrid.ColumnDefinitions.Clear();
