@@ -442,6 +442,7 @@ public partial class App : Application
 
         // 创建自清理安装脚本（等当前进程退出后安装 → 启动新版本 → 清理 MSI）
         var cleanupBat = Path.Combine(FileService.AppBasePath, "_update_cleanup.bat");
+        var installPath = FileService.AppBasePath.TrimEnd('\\', '/');
         var exePath = Path.Combine(FileService.AppBasePath, "YangzaiWorkshop.exe");
         var currentPid = Environment.ProcessId;
 
@@ -454,8 +455,8 @@ public partial class App : Application
             "    timeout /t 1 /nobreak >nul\r\n" +
             "    goto waitloop\r\n" +
             ")\r\n" +
-            "echo Installing Yangzai Workshop v{newTag}...\r\n" +
-            $"msiexec /i \"{tempFile}\" /qb!- /norestart\r\n" +
+            $"echo Installing Yangzai Workshop v{newTag}...\r\n" +
+            $"msiexec /i \"{tempFile}\" INSTALL_FOLDER=\"{installPath}\" /qb!- /norestart\r\n" +
             "echo Starting Yangzai Workshop...\r\n" +
             $"start \"\" \"{exePath}\"\r\n" +
             $"del /f /q \"{tempFile}\" 2>nul\r\n" +
