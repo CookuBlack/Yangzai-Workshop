@@ -19,12 +19,15 @@ public partial class App : Application
     private const string CurrentVersion = "3.2.3";
     public static string AppVersion => CurrentVersion;
 
-    /// <summary>版本信息 JSON 地址（CDN 优先，GitHub 直连备用）</summary>
+    /// <summary>版本信息 JSON 地址（GitHub Raw 优先确保实时性，CDN 作为加速备用）</summary>
     private static string[] GetVersionInfoUrls()
     {
-        // jsDelivr CDN 全球加速（国内秒开），加 t 参数破坏缓存
-        var cdn = $"https://cdn.jsdelivr.net/gh/CookuBlack/Yangzai-Workshop@main/version.json?t={DateTime.UtcNow:yyyyMMddHH}";
-        return new[] { cdn, "https://raw.githubusercontent.com/CookuBlack/Yangzai-Workshop/main/version.json" };
+        // GitHub Raw 直连：版本文件推送后几分钟内生效，确保更新检测实时性
+        var t = DateTime.UtcNow.Ticks;
+        var raw = $"https://raw.githubusercontent.com/CookuBlack/Yangzai-Workshop/main/version.json?t={t}";
+        // jsDelivr CDN：国内加速访问，GitHub 被墙时备用（有 12h 服务器缓存，不适合首选用）
+        var cdn = $"https://cdn.jsdelivr.net/gh/CookuBlack/Yangzai-Workshop@main/version.json?t={t}";
+        return new[] { raw, cdn };
     }
 
     // 缓存：避免频繁启动时耗尽 API 速率
