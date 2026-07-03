@@ -175,8 +175,7 @@ public partial class RelationshipMapWindow : Window
     private void ChangeBackground_Click(object sender, RoutedEventArgs e)
     {
         var btn = (FrameworkElement)sender;
-        var pos = btn.PointToScreen(new Point(0, btn.ActualHeight));
-        var popup = ShowStyledMenu(pos);
+        var popup = ShowStyledMenu(btn);
         var sp = (StackPanel)((Border)popup.Child).Child;
 
         AddMenuItem(sp, "默认背景", (_, _) =>
@@ -589,8 +588,7 @@ public partial class RelationshipMapWindow : Window
         if (sender is not Line l || l.Tag is not LineHitInfo info) return;
         e.Handled = true;
 
-        var pos = PointToScreen(e.GetPosition(this));
-        var popup = ShowStyledMenu(pos);
+        var popup = ShowStyledMenu();
         var sp = (StackPanel)((Border)popup.Child).Child;
 
         AddMenuItem(sp, $"✏️ 编辑关系：「{info.RelationLabel}」", (_, _) => EditRelationship(info));
@@ -759,8 +757,7 @@ public partial class RelationshipMapWindow : Window
         if (e.OriginalSource is not Canvas) return;
         e.Handled = true;
 
-        var pos = PointToScreen(e.GetPosition(this));
-        var popup = ShowStyledMenu(pos);
+        var popup = ShowStyledMenu();
         var sp = (StackPanel)((Border)popup.Child).Child;
 
         AddMenuItem(sp, "➕ 新建角色…", (_, _) => DoCreateCharacter());
@@ -799,7 +796,8 @@ public partial class RelationshipMapWindow : Window
     private Popup? _activeMenuPopup;
 
     /// <summary>在指定位置显示自定义右键菜单</summary>
-    private Popup ShowStyledMenu(Point screenPos)
+    /// <param name="placementTarget">非null时弹窗相对于此元素定位（如按钮点击）；null时使用鼠标当前位置（右键菜单）</param>
+    private Popup ShowStyledMenu(UIElement? placementTarget = null)
     {
         // 先关掉之前的
         CloseMenu();
@@ -825,10 +823,8 @@ public partial class RelationshipMapWindow : Window
         var popup = new Popup
         {
             Child = border,
-            PlacementTarget = this,
-            Placement = PlacementMode.Absolute,
-            HorizontalOffset = screenPos.X - Left,
-            VerticalOffset = screenPos.Y - Top,
+            PlacementTarget = placementTarget ?? this,
+            Placement = placementTarget != null ? PlacementMode.Bottom : PlacementMode.MousePoint,
             AllowsTransparency = true,
             StaysOpen = true,
             PopupAnimation = PopupAnimation.Fade,
@@ -927,8 +923,7 @@ public partial class RelationshipMapWindow : Window
 
     private void ShowNodeContextMenu(MapNode node)
     {
-        var pos = PointToScreen(Mouse.GetPosition(this));
-        var popup = ShowStyledMenu(pos);
+        var popup = ShowStyledMenu();
         var sp = (StackPanel)((Border)popup.Child).Child;
 
         AddMenuItem(sp, "✏️ 修改名称…", (_, _) => RenameCharacter(node));
