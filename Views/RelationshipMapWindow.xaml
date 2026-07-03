@@ -8,6 +8,8 @@
         Background="Transparent"
         KeyDown="Window_KeyDown">
 
+
+
     <Border Background="{DynamicResource WindowBackgroundBrush}"
             CornerRadius="12" BorderBrush="{DynamicResource BorderBrush}"
             BorderThickness="1">
@@ -33,20 +35,11 @@
                                VerticalAlignment="Center" Margin="140,0,0,0"/>
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
                                 VerticalAlignment="Center" Margin="0,0,8,0">
-                        <Button Content="➕ 新建" FontSize="11" Width="Auto" Height="26"
-                                Padding="10,0,10,0" MinWidth="62" Margin="0,0,6,0"
+                        <Button x:Name="FullScreenBtn" Content="⛶"
+                                FontSize="13" Width="30" Height="26" Padding="0"
+                                ToolTip="全屏 / 还原"
                                 Style="{StaticResource SecondaryButtonStyle}"
-                                Click="CreateCharacter_Click" ToolTip="新建角色"/>
-                        <Button x:Name="ConnectModeBtn" Content="🔗 连线模式"
-                                FontSize="11" Width="Auto" Height="26" Padding="10,0,10,0"
-                                MinWidth="80" Margin="0,0,6,0"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Click="ConnectModeBtn_Click"/>
-                        <Button Content="🖼 背景" FontSize="11" Width="Auto" Height="26"
-                                Padding="10,0,10,0" MinWidth="56"
-                                Margin="0,0,6,0"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Click="ChangeBackground_Click"/>
+                                Click="FullScreenBtn_Click"/>
                         <Button Content="✕" FontSize="13" Width="30" Height="30"
                                 Background="Transparent" BorderThickness="0"
                                 Foreground="{DynamicResource TextSecondaryBrush}"
@@ -65,7 +58,7 @@
                             MouseLeftButtonUp="Canvas_MouseUp"
                             MouseWheel="Canvas_MouseWheel"
                             MouseRightButtonDown="Canvas_RightClick">
-                        <Canvas x:Name="LinesLayer" Panel.ZIndex="0" IsHitTestVisible="False"/>
+                        <Canvas x:Name="LinesLayer" Panel.ZIndex="0"/>
                         <Canvas x:Name="NodesLayer" Panel.ZIndex="1"/>
                         <Line x:Name="DragLine" Panel.ZIndex="2"
                               Stroke="{DynamicResource PrimaryBrush}"
@@ -79,10 +72,23 @@
             <Border Grid.Row="2" Padding="10,6" Margin="4,0,4,4"
                     CornerRadius="0,0,6,6"
                     Background="{DynamicResource SidebarBackgroundBrush}">
-                <StackPanel Orientation="Horizontal">
+                <Grid>
                     <TextBlock x:Name="ModeHint" FontSize="10"
-                               Foreground="{DynamicResource TextTertiaryBrush}"/>
-                </StackPanel>
+                               Foreground="{DynamicResource TextTertiaryBrush}"
+                               VerticalAlignment="Center"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                                VerticalAlignment="Center">
+                        <Button x:Name="ConnectModeBtn" Content="🔗 连线模式"
+                                FontSize="11" Width="Auto" Height="26" Padding="10,0,10,0"
+                                MinWidth="80" Margin="0,0,8,0"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="ConnectModeBtn_Click"/>
+                        <Button Content="🖼 背景" FontSize="11" Width="Auto" Height="26"
+                                Padding="10,0,10,0" MinWidth="56"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Click="ChangeBackground_Click"/>
+                    </StackPanel>
+                </Grid>
             </Border>
         </Grid>
     </Border>

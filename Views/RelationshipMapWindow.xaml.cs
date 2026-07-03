@@ -5,8 +5,10 @@ using System.Linq;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using Microsoft.Win32;
@@ -38,6 +40,11 @@ public partial class RelationshipMapWindow : Window
     private string? _bgImagePath;
     private MapState _mapState = new();
     private const double NodeW = 66, NodeH = 82;
+
+    // 全屏状态
+    private bool _isFullscreen;
+    private double _normalLeft, _normalTop, _normalWidth, _normalHeight;
+    private int _normalCornerRadius = 12; // 正常圆角
 
     public RelationshipMapWindow(string workRoot, string novelId, string novelName,
         string mediaFolder, List<CharacterInfo> characters)
@@ -97,6 +104,55 @@ public partial class RelationshipMapWindow : Window
         _hoveredTarget = null;
     }
 
+    // ==================== 全屏切换 ====================
+
+    private void FullScreenBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isFullscreen)
+        {
+            // 进入全屏：保存当前状态
+            _normalLeft = Left;
+            _normalTop = Top;
+            _normalWidth = Width;
+            _normalHeight = Height;
+            // 最大化并去掉圆角
+            var mainBorder = Content as Border;
+            if (mainBorder != null)
+            {
+                mainBorder.CornerRadius = new CornerRadius(0);
+                // 标题栏也去圆角
+                foreach (var child in LogicalTreeHelper.GetChildren(mainBorder))
+                    if (child is Grid g && g.RowDefinitions.Count > 0)
+                        foreach (var gc in g.Children)
+                            if (gc is Border tbBorder && tbBorder.CornerRadius.TopLeft > 0)
+                                tbBorder.CornerRadius = new CornerRadius(0);
+            }
+            WindowState = WindowState.Maximized;
+            FullScreenBtn.Content = "⛶";
+            _isFullscreen = true;
+        }
+        else
+        {
+            // 退出全屏
+            WindowState = WindowState.Normal;
+            var mainBorder = Content as Border;
+            if (mainBorder != null)
+            {
+                mainBorder.CornerRadius = new CornerRadius(_normalCornerRadius);
+                // 恢复圆角
+                foreach (var child in LogicalTreeHelper.GetChildren(mainBorder))
+                    if (child is Grid g && g.RowDefinitions.Count > 0)
+                        foreach (var gc in g.Children)
+                            if (gc is Border tbBorder && tbBorder.CornerRadius.TopLeft == 0)
+                                tbBorder.CornerRadius = new CornerRadius(_normalCornerRadius, _normalCornerRadius, 0, 0);
+            }
+            Left = _normalLeft; Top = _normalTop;
+            Width = _normalWidth; Height = _normalHeight;
+            FullScreenBtn.Content = "⛶";
+            _isFullscreen = false;
+        }
+    }
+
     // ==================== 名称同步 ====================
 
     private void SyncNames()
@@ -118,19 +174,22 @@ public partial class RelationshipMapWindow : Window
 
     private void ChangeBackground_Click(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { Background = new SolidColorBrush(Color.FromRgb(0xF5, 0xEF, 0xE6)) };
-        var d = new MenuItem { Header = "默认背景" };
-        d.Click += (_, _) => { _bgImagePath = null; _mapState.BackgroundPath = null; BgImage.Source = null; SaveState(); };
-        menu.Items.Add(d);
-        var u = new MenuItem { Header = "📁 上传图片…" }; u.Click += (_, _) => UploadBg(); menu.Items.Add(u);
+        var btn = (FrameworkElement)sender;
+        var pos = btn.PointToScreen(new Point(0, btn.ActualHeight));
+        var popup = ShowStyledMenu(pos);
+        var sp = (StackPanel)((Border)popup.Child).Child;
+
+        AddMenuItem(sp, "默认背景", (_, _) =>
+            { _bgImagePath = null; _mapState.BackgroundPath = null; BgImage.Source = null; SaveState(); });
+        AddMenuItem(sp, "📁 上传图片…", (_, _) => UploadBg());
+
         if (_bgImagePath != null)
         {
-            menu.Items.Add(new Separator());
-            var c = new MenuItem { Header = "移除" };
-            c.Click += (_, _) => { _bgImagePath = null; _mapState.BackgroundPath = null; BgImage.Source = null; SaveState(); };
-            menu.Items.Add(c);
+            AddMenuSeparator(sp);
+            AddMenuItem(sp, "移除", (_, _) =>
+                { _bgImagePath = null; _mapState.BackgroundPath = null; BgImage.Source = null; SaveState(); });
         }
-        menu.IsOpen = true;
+        popup.IsOpen = true;
     }
 
     private void UploadBg()
@@ -458,13 +517,135 @@ public partial class RelationshipMapWindow : Window
         };
         LinesLayer.Children.Add(line);
 
+        // 隐形加粗线用于点击检测（8px 宽，透明）
+        var hitLine = new Line
+        {
+            X1 = line.X1, Y1 = line.Y1, X2 = line.X2, Y2 = line.Y2,
+            Stroke = Brushes.Transparent, StrokeThickness = 12,
+            Cursor = Cursors.Hand,
+            Tag = new LineHitInfo { FromNode = a, ToNode = b, RelationLabel = label }
+        };
+        hitLine.MouseLeftButtonUp += Line_Click;
+        hitLine.MouseRightButtonDown += Line_RightClick;
+        hitLine.MouseEnter += Line_MouseEnter;
+        hitLine.MouseLeave += Line_MouseLeave;
+        LinesLayer.Children.Add(hitLine);
+
         double mx = (line.X1 + line.X2) / 2, my = (line.Y1 + line.Y2) / 2 - 16;
         var lb = new Border { CornerRadius = new CornerRadius(5), Padding = new Thickness(7, 2, 7, 2),
             Background = new SolidColorBrush(Color.FromArgb(0xF0, 0xFA, 0xF6, 0xED)),
-            Child = new TextBlock { Text = label, FontSize = 9, Foreground = hl ? (Brush)Application.Current.Resources["PrimaryBrush"] : new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44)), FontWeight = hl ? FontWeights.Bold : FontWeights.Normal } };
+            Child = new TextBlock { Text = label, FontSize = 9, Foreground = hl ? (Brush)Application.Current.Resources["PrimaryBrush"] : new SolidColorBrush(Color.FromRgb(0x44, 0x44, 44)), FontWeight = hl ? FontWeights.Bold : FontWeights.Normal },
+            IsHitTestVisible = false };
         lb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         Canvas.SetLeft(lb, mx - lb.DesiredSize.Width / 2); Canvas.SetTop(lb, my);
         LinesLayer.Children.Add(lb);
+    }
+
+    private MapNode? _hoveredLineFrom, _hoveredLineTo;
+    private string? _hoveredLineRelation;
+
+    private void Line_MouseEnter(object sender, MouseEventArgs e)
+    {
+        if (sender is not Line l || l.Tag is not LineHitInfo info) return;
+        _hoveredLineFrom = info.FromNode;
+        _hoveredLineTo = info.ToNode;
+        _hoveredLineRelation = info.RelationLabel;
+        // 高亮这条线：找到对应的可见线并加粗变色
+        int idx = LinesLayer.Children.IndexOf(l);
+        if (idx > 0 && LinesLayer.Children[idx - 1] is Line visLine)
+        {
+            visLine.Stroke = (Brush)Application.Current.Resources["PrimaryBrush"];
+            visLine.StrokeThickness = 3.5;
+            visLine.StrokeDashArray = null;
+        }
+    }
+
+    private void Line_MouseLeave(object sender, MouseEventArgs e)
+    {
+        if (sender is not Line l || l.Tag is not LineHitInfo info) return;
+        // 恢复线样式（重新绘制会覆盖，这里做即时恢复即可）
+        int idx = LinesLayer.Children.IndexOf(l);
+        if (idx > 0 && LinesLayer.Children[idx - 1] is Line visLine)
+        {
+            bool hl = _focusedNode != null && (info.FromNode == _focusedNode || info.ToNode == _focusedNode);
+            visLine.Stroke = hl ? (Brush)Application.Current.Resources["PrimaryBrush"] : new SolidColorBrush(Color.FromRgb(0x90, 0x86, 0x76));
+            visLine.StrokeThickness = hl ? 3 : 1.8;
+            if (!hl) visLine.StrokeDashArray = new DoubleCollection(new[] { 5.0, 4.0 });
+            else visLine.StrokeDashArray = null;
+        }
+        _hoveredLineFrom = null; _hoveredLineTo = null; _hoveredLineRelation = null;
+    }
+
+    private void Line_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Line l || l.Tag is not LineHitInfo info) return;
+        // 左键点击连线 → 聚焦两端的节点，高亮显示关系
+        UpdateOpacity(info.FromNode);
+        ModeHint.Text = $"🔗 「{info.FromNode.Character.Name}」—「{info.RelationLabel}」—「{info.ToNode.Character.Name}」（右键编辑）";
+    }
+
+    private void Line_RightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not Line l || l.Tag is not LineHitInfo info) return;
+        e.Handled = true;
+
+        var pos = PointToScreen(e.GetPosition(this));
+        var popup = ShowStyledMenu(pos);
+        var sp = (StackPanel)((Border)popup.Child).Child;
+
+        AddMenuItem(sp, $"✏️ 编辑关系：「{info.RelationLabel}」", (_, _) => EditRelationship(info));
+        AddMenuSeparator(sp);
+        AddMenuItem(sp,
+            $"🗑 删除关系：「{info.FromNode.Character.Name}」→「{info.ToNode.Character.Name}」",
+            (_, _) =>
+            {
+                info.FromNode.Character.Relationships?.RemoveAll(r => r.TargetId == info.ToNode.Character.Id && r.Relation == info.RelationLabel);
+                info.ToNode.Character.Relationships?.RemoveAll(r => r.TargetId == info.FromNode.Character.Id && r.Relation == info.RelationLabel);
+                RedrawLines(); SaveState();
+            }, Brushes.Red);
+
+        popup.IsOpen = true;
+    }
+
+    /// <summary>编辑已有关系的名称</summary>
+    private void EditRelationship(LineHitInfo info)
+    {
+        var from = info.FromNode;
+        var to = info.ToNode;
+        var oldRel = info.RelationLabel;
+
+        var sp = new StackPanel { Margin = new Thickness(16) };
+        sp.Children.Add(new TextBlock { Text = $"编辑关系：「{from.Character.Name}」→「{to.Character.Name}」", FontSize = 13, FontWeight = FontWeights.Bold, Foreground = (Brush)Application.Current.Resources["TextPrimaryBrush"], Margin = new Thickness(0, 0, 0, 10) });
+        sp.Children.Add(new TextBlock { Text = "关系名称：", FontSize = 12, Foreground = (Brush)Application.Current.Resources["TextSecondaryBrush"], Margin = new Thickness(0, 0, 0, 4) });
+        var tb = new TextBox { FontSize = 14, Padding = new Thickness(8, 6, 8, 6), Text = oldRel }; sp.Children.Add(tb);
+        var tags = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+        foreach (var t in new[] { "父亲", "母亲", "兄弟", "姐妹", "朋友", "恋人", "敌人", "师徒", "同事", "青梅竹马" })
+        { var b = new Button { Content = t, FontSize = 10, Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(0, 0, 4, 4), Style = (Style)FindResource("SecondaryButtonStyle") }; b.Click += (_, _) => tb.Text = t; tags.Children.Add(b); }
+        sp.Children.Add(tags);
+        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 4, 0, 0) };
+        var cancel = new Button { Content = "取消", Height = 28, FontSize = 12,
+            Padding = new Thickness(14,0,14,0), MinWidth = 62,
+            Style = (Style)FindResource("SecondaryButtonStyle"), Margin = new Thickness(0, 0, 10, 0) };
+        var ok = new Button { Content = "确定", Height = 28, FontSize = 12,
+            Padding = new Thickness(14,0,14,0), MinWidth = 62,
+            Style = (Style)FindResource("PrimaryButtonStyle") };
+        btnRow.Children.Add(cancel); btnRow.Children.Add(ok); sp.Children.Add(btnRow);
+        var dlg = new Window { Title = "编辑人物关系", Width = 380,
+            SizeToContent = SizeToContent.Height, MinHeight = 240,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = this,
+            ResizeMode = ResizeMode.NoResize, WindowStyle = WindowStyle.ToolWindow, ShowInTaskbar = false,
+            Content = new Border { Child = sp, Background = (Brush)Application.Current.Resources["WindowBackgroundBrush"], Padding = new Thickness(0, 0, 0, 12) } };
+        tb.Focus(); tb.SelectAll();
+        ok.Click += (_, _) => dlg.DialogResult = true; cancel.Click += (_, _) => dlg.DialogResult = false;
+        if (dlg.ShowDialog() != true) return;
+        var rn = tb.Text.Trim();
+        if (string.IsNullOrWhiteSpace(rn) || rn == oldRel) return;
+        // 更新双方的关系名称
+        foreach (var r in from.Character.Relationships ?? new())
+            if (r.TargetId == to.Character.Id && r.Relation == oldRel) r.Relation = rn;
+        foreach (var r in to.Character.Relationships ?? new())
+            if (r.TargetId == from.Character.Id && r.Relation == oldRel) r.Relation = rn;
+        RedrawLines(); SaveState();
     }
 
     // ==================== 关系对话框（自定义名称 + 快捷标签） ====================
@@ -489,7 +670,11 @@ public partial class RelationshipMapWindow : Window
             Style = (Style)FindResource("PrimaryButtonStyle") };
         btnRow.Children.Add(cancel); btnRow.Children.Add(ok); sp.Children.Add(btnRow);
 
-        var dlg = new Window { Title = "创建人物关系", Width = 380, Height = 270, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = this, ResizeMode = ResizeMode.NoResize, WindowStyle = WindowStyle.ToolWindow, ShowInTaskbar = false, Content = new Border { Child = sp, Background = (Brush)Application.Current.Resources["WindowBackgroundBrush"] } };
+        var dlg = new Window { Title = "创建人物关系", Width = 380,
+            SizeToContent = SizeToContent.Height, MinHeight = 240,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = this, ResizeMode = ResizeMode.NoResize,
+            WindowStyle = WindowStyle.ToolWindow, ShowInTaskbar = false,
+            Content = new Border { Child = sp, Background = (Brush)Application.Current.Resources["WindowBackgroundBrush"], Padding = new Thickness(0, 0, 0, 12) } };
         tb.Focus();
         ok.Click += (_, _) => dlg.DialogResult = true; cancel.Click += (_, _) => dlg.DialogResult = false;
         if (dlg.ShowDialog() != true) return;
@@ -571,16 +756,16 @@ public partial class RelationshipMapWindow : Window
     /// <summary>画布右键 → 新建角色</summary>
     private void Canvas_RightClick(object sender, MouseButtonEventArgs e)
     {
-        if (e.OriginalSource is not Canvas) return; // 只处理画布空白处右键
+        if (e.OriginalSource is not Canvas) return;
         e.Handled = true;
-        var menu = new ContextMenu
-        {
-            Background = new SolidColorBrush(Color.FromRgb(0xF5, 0xEF, 0xE6))
-        };
-        var create = new MenuItem { Header = "➕ 新建角色…" };
-        create.Click += (_, _) => DoCreateCharacter();
-        menu.Items.Add(create);
-        menu.IsOpen = true;
+
+        var pos = PointToScreen(e.GetPosition(this));
+        var popup = ShowStyledMenu(pos);
+        var sp = (StackPanel)((Border)popup.Child).Child;
+
+        AddMenuItem(sp, "➕ 新建角色…", (_, _) => DoCreateCharacter());
+
+        popup.IsOpen = true;
     }
 
     // ==================== 聚焦 ====================
@@ -609,43 +794,164 @@ public partial class RelationshipMapWindow : Window
         RedrawLines();
     }
 
-    // ==================== 右键菜单 ====================
+    // ==================== 右键菜单（自建 Popup，100% 可控） ====================
+
+    private Popup? _activeMenuPopup;
+
+    /// <summary>在指定位置显示自定义右键菜单</summary>
+    private Popup ShowStyledMenu(Point screenPos)
+    {
+        // 先关掉之前的
+        CloseMenu();
+
+        var app = Application.Current;
+        var bgBrush = (Brush)app.Resources["WindowBackgroundBrush"];
+        var borderBrush = (Brush)app.Resources["BorderBrush"];
+
+        var sp = new StackPanel { MinWidth = 160 };
+
+        var border = new Border
+        {
+            Child = sp,
+            Background = bgBrush,
+            BorderBrush = borderBrush,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(5),
+            Effect = new DropShadowEffect { Color = Color.FromArgb(0x60, 0, 0, 0), BlurRadius = 16, ShadowDepth = 4, Opacity = 0.45 },
+            SnapsToDevicePixels = true,
+        };
+
+        var popup = new Popup
+        {
+            Child = border,
+            PlacementTarget = this,
+            Placement = PlacementMode.Absolute,
+            HorizontalOffset = screenPos.X - Left,
+            VerticalOffset = screenPos.Y - Top,
+            AllowsTransparency = true,
+            StaysOpen = true,
+            PopupAnimation = PopupAnimation.Fade,
+        };
+
+        _activeMenuPopup = popup;
+
+        // 在下一个输入事件中注册全局点击关闭
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (_activeMenuPopup == popup)
+                AddHandler(PreviewMouseDownEvent, (MouseButtonEventHandler)OnWindowPreviewMouseDown, true);
+        }), System.Windows.Threading.DispatcherPriority.Input);
+
+        return popup;
+    }
+
+    private void OnWindowPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        // 点击在 Popup 外部 → 关闭
+        CloseMenu();
+    }
+
+    private void CloseMenu()
+    {
+        if (_activeMenuPopup != null)
+        {
+            RemoveHandler(PreviewMouseDownEvent, (MouseButtonEventHandler)OnWindowPreviewMouseDown);
+            _activeMenuPopup.IsOpen = false;
+            _activeMenuPopup = null;
+        }
+    }
+
+    /// <summary>添加一个菜单项到 Popup 菜单中</summary>
+    private Border AddMenuItem(StackPanel menuPanel, string text, RoutedEventHandler? onClick, Brush? foreground = null)
+    {
+        var app = Application.Current;
+        var textBrush = foreground ?? (Brush)app.Resources["TextPrimaryBrush"];
+        var primaryBrush = (Brush)app.Resources["PrimaryBrush"];
+
+        var itemBorder = new Border
+        {
+            CornerRadius = new CornerRadius(5),
+            Margin = new Thickness(3, 2, 3, 2),
+            Padding = new Thickness(14, 8, 14, 8),
+            Cursor = Cursors.Hand,
+            Tag = textBrush,
+        };
+
+        var tb = new TextBlock { Text = text, FontSize = 13, Foreground = textBrush };
+        itemBorder.Child = tb;
+        menuPanel.Children.Add(itemBorder);
+
+        if (onClick != null)
+        {
+            itemBorder.PreviewMouseLeftButtonUp += (_, e2) =>
+            {
+                CloseMenu();
+                onClick(itemBorder, new RoutedEventArgs());
+                e2.Handled = true;
+            };
+        }
+
+        itemBorder.MouseEnter += (s, _) =>
+        {
+            if (s is Border b)
+            {
+                b.Background = new SolidColorBrush(Color.FromArgb(0x30, 0x4A, 0x90, 0x79));
+                ((TextBlock)b.Child).Foreground = primaryBrush;
+            }
+        };
+        itemBorder.MouseLeave += (s, _) =>
+        {
+            if (s is Border b && b.Tag is Brush originalBrush)
+            {
+                b.Background = Brushes.Transparent;
+                ((TextBlock)b.Child).Foreground = originalBrush;
+            }
+        };
+
+        return itemBorder;
+    }
+
+    /// <summary>添加分隔线</summary>
+    private static void AddMenuSeparator(StackPanel menuPanel)
+    {
+        menuPanel.Children.Add(new System.Windows.Shapes.Line
+        {
+            X1 = 10, Y1 = 0, X2 = 150, Y2 = 0,
+            Stroke = (Brush)Application.Current.Resources["BorderBrush"],
+            StrokeThickness = 1,
+            Margin = new Thickness(6, 3, 6, 3),
+            SnapsToDevicePixels = true,
+        });
+    }
 
     private void ShowNodeContextMenu(MapNode node)
     {
-        var menu = new ContextMenu { Background = new SolidColorBrush(Color.FromRgb(0xF5, 0xEF, 0xE6)) };
+        var pos = PointToScreen(Mouse.GetPosition(this));
+        var popup = ShowStyledMenu(pos);
+        var sp = (StackPanel)((Border)popup.Child).Child;
 
-        var edit = new MenuItem { Header = "✏️ 修改名称…" };
-        edit.Click += (_, _) => RenameCharacter(node); menu.Items.Add(edit);
+        AddMenuItem(sp, "✏️ 修改名称…", (_, _) => RenameCharacter(node));
+        AddMenuItem(sp, "🖼 更换头像…", (_, _) => ChangeAvatar(node));
+        AddMenuSeparator(sp);
+        AddMenuItem(sp, "➕ 添加关系…", (_, _) => AddRelDialog(node));
 
-        var av = new MenuItem { Header = "🖼 更换头像…" };
-        av.Click += (_, _) => ChangeAvatar(node); menu.Items.Add(av);
-
-        menu.Items.Add(new Separator());
-
-        var addRel = new MenuItem { Header = "➕ 添加关系…" };
-        addRel.Click += (_, _) => AddRelDialog(node); menu.Items.Add(addRel);
-
-        var rs = node.Character.Relationships ?? new();
-        if (rs.Count > 0)
+        foreach (var r in node.Character.Relationships ?? new())
         {
-            menu.Items.Add(new Separator());
-            foreach (var r in rs)
+            var tn = _nodeDict.TryGetValue(r.TargetId, out var t) ? t.Character.Name : r.TargetName;
+            if (string.IsNullOrEmpty(tn)) tn = "(已删除)";
+            var cap = r;
+            AddMenuSeparator(sp);
+            AddMenuItem(sp, $"🗑 删除关系「{r.Relation} → {tn}」", (_, _) =>
             {
-                var tn = _nodeDict.TryGetValue(r.TargetId, out var t) ? t.Character.Name : r.TargetName;
-                if (string.IsNullOrEmpty(tn)) tn = "(已删除)";
-                var d = new MenuItem { Header = $"🗑 删除关系「{r.Relation} → {tn}」" };
-                var cap = r;
-                d.Click += (_, _) => { node.Character.Relationships?.Remove(cap); RedrawLines(); SaveState(); };
-                menu.Items.Add(d);
-            }
+                node.Character.Relationships?.Remove(cap); RedrawLines(); SaveState();
+            });
         }
 
-        menu.Items.Add(new Separator());
-        var del = new MenuItem { Header = "❌ 删除角色", Foreground = Brushes.Red };
-        del.Click += (_, _) => DeleteCharacter(node); menu.Items.Add(del);
+        AddMenuSeparator(sp);
+        AddMenuItem(sp, "❌ 删除角色", (_, _) => DeleteCharacter(node), Brushes.Red);
 
-        menu.IsOpen = true;
+        popup.IsOpen = true;
     }
 
     private void AddRelDialog(MapNode from)
@@ -665,7 +971,11 @@ public partial class RelationshipMapWindow : Window
             Padding = new Thickness(14,0,14,0), MinWidth = 62,
             Style = (Style)FindResource("PrimaryButtonStyle") };
         br.Children.Add(can); br.Children.Add(ok); sp.Children.Add(br);
-        var dlg = new Window { Title = "添加关系", Width = 340, Height = 260, WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = this, ResizeMode = ResizeMode.NoResize, WindowStyle = WindowStyle.ToolWindow, ShowInTaskbar = false, Content = new Border { Child = sp, Background = (Brush)Application.Current.Resources["WindowBackgroundBrush"] } };
+        var dlg = new Window { Title = "添加关系", Width = 340,
+            SizeToContent = SizeToContent.Height, MinHeight = 220,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = this,
+            ResizeMode = ResizeMode.NoResize, WindowStyle = WindowStyle.ToolWindow, ShowInTaskbar = false,
+            Content = new Border { Child = sp, Background = (Brush)Application.Current.Resources["WindowBackgroundBrush"], Padding = new Thickness(0, 0, 0, 12) } };
         ok.Click += (_, _) => dlg.DialogResult = true; can.Click += (_, _) => dlg.DialogResult = false;
         if (dlg.ShowDialog() != true) return;
         var rn = tb.Text.Trim(); if (string.IsNullOrWhiteSpace(rn)) return;
@@ -753,10 +1063,11 @@ public partial class RelationshipMapWindow : Window
             Style = (Style)FindResource("PrimaryButtonStyle") };
         btnRow.Children.Add(cancel); btnRow.Children.Add(ok); sp.Children.Add(btnRow);
 
-        var dlg = new Window { Title = "修改角色名称", Width = 340, Height = 160,
+        var dlg = new Window { Title = "修改角色名称", Width = 340,
+            SizeToContent = SizeToContent.Height, MinHeight = 140,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = this,
             ResizeMode = ResizeMode.NoResize, WindowStyle = WindowStyle.ToolWindow, ShowInTaskbar = false,
-            Content = new Border { Child = sp, Background = (Brush)Application.Current.Resources["WindowBackgroundBrush"] } };
+            Content = new Border { Child = sp, Background = (Brush)Application.Current.Resources["WindowBackgroundBrush"], Padding = new Thickness(0, 0, 0, 12) } };
         tb.Focus(); tb.SelectAll();
         ok.Click += (_, _) => dlg.DialogResult = true; cancel.Click += (_, _) => dlg.DialogResult = false;
         if (dlg.ShowDialog() != true) return;
@@ -851,4 +1162,12 @@ internal class NodePosState
     public double X { get; set; }
     public double Y { get; set; }
     public double Scale { get; set; } = 1.0;
+}
+
+/// <summary>关系线点击检测数据</summary>
+internal class LineHitInfo
+{
+    public MapNode FromNode { get; init; } = null!;
+    public MapNode ToNode { get; init; } = null!;
+    public string RelationLabel { get; init; } = null!;
 }
