@@ -13,6 +13,7 @@ Installer/
 .vs/
 .idea/
 .vscode/
+.workbuddy
 
 # OS
 Thumbs.db
