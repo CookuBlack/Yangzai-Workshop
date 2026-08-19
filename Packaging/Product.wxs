@@ -46,7 +46,9 @@
 
     <!-- ==================== 目录结构 ==================== -->
     <StandardDirectory Id="ProgramFiles6432Folder">
-      <Directory Id="INSTALLFOLDER" Name="YangzaiWorkshop" />
+      <Directory Id="INSTALLFOLDER" Name="YangzaiWorkshop">
+        <Directory Id="AssetsFolder" Name="Assets" />
+      </Directory>
     </StandardDirectory>
 
     <!-- 开始菜单 -->
@@ -60,6 +62,7 @@
     <!-- ==================== 功能（Feature） ==================== -->
     <Feature Id="MainFeature" Title="主程序" Level="1">
       <ComponentGroupRef Id="MainComponents" />
+      <ComponentGroupRef Id="AssetsComponents" />
       <ComponentRef Id="StartMenuShortcutComponent" />
     </Feature>
 
@@ -79,6 +82,10 @@
       <Files Include="..\publish\YangzaiWorkshop.deps.json" />
       <Files Include="..\publish\YangzaiWorkshop.runtimeconfig.json" />
       <Files Include="..\publish\*.dll" />
+    </ComponentGroup>
+
+    <!-- Assets 资源（保留 Assets\Carousel、Assets\Avatar、Assets\Icon 层级，应用按此路径读取） -->
+    <ComponentGroup Id="AssetsComponents" Directory="AssetsFolder">
       <Files Include="..\publish\Assets\**" />
     </ComponentGroup>
 

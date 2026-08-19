@@ -145,6 +145,39 @@ if (-not $SkipPublish) {
 }
 
 # ============================================================
+#  4.5 同步并校验 Assets（确保 Assets 全部打入包）
+# ============================================================
+Write-Host "`n[4.5/5] 同步并校验 Assets 资源..." -ForegroundColor Yellow
+$srcAssets = Join-Path $ProjectDir "Assets"
+$dstAssets = Join-Path $PublishDir "Assets"
+if (Test-Path $srcAssets) {
+    # 镜像同步：把源 Assets 全部内容（含子目录）复制到 publish/Assets，
+    # 作为 dotnet publish 的兜底，确保任何资源都不会漏进包。
+    if (Get-Command robocopy -ErrorAction SilentlyContinue) {
+        robocopy $srcAssets $dstAssets /E /NFL /NDL /NJH /NJS /NC /NS /NP 2>$null | Out-Null
+    } else {
+        # 无 robocopy 时的回退方案
+        Copy-Item -Path (Join-Path $srcAssets "*") -Destination $dstAssets -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# 校验轮播图是否就位
+$carouselDir = Join-Path $dstAssets "Carousel"
+$carouselPngs = @()
+if (Test-Path $carouselDir) {
+    $carouselPngs = Get-ChildItem -Path $carouselDir -Filter "*.png" -File -ErrorAction SilentlyContinue
+}
+if ($carouselPngs.Count -eq 0) {
+    Write-Host "  [警告] 未找到轮播图 (publish\Assets\Carousel\*.png)，请检查源 Assets\Carousel" -ForegroundColor Red
+} else {
+    Write-Host "  轮播图就绪：$($carouselPngs.Count) 张 PNG" -ForegroundColor DarkGray
+}
+$assetCount = if (Test-Path $dstAssets) {
+    (Get-ChildItem -Path $dstAssets -Recurse -File -ErrorAction SilentlyContinue).Count
+} else { 0 }
+Write-Host "  Assets 资源共 $assetCount 个文件，将随 MSI 安装到 [INSTALLFOLDER]\Assets" -ForegroundColor DarkGray
+
+# ============================================================
 #  5. 编译 MSI
 # ============================================================
 Write-Host "`n[5/5] 编译 MSI..." -ForegroundColor Yellow

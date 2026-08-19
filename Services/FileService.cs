@@ -57,9 +57,13 @@ public static class FileService
     public static string DefaultMiniAvatarFile =>
         Path.Combine(AssetsAvatarMiniPath, "Gusssheep.png");
 
-    /// <summary>轮播视频目录</summary>
+    /// <summary>
+    /// 用户自定义轮播媒体目录（位于用户数据目录 WorkRoot 下，WorkData\Assets\Carousel）。
+    /// 用户通过右键「添加轮播视频/图片」存入此处；自动更新（MSI 升级）不会清理此目录。
+    /// 默认内置轮播图随安装包放在 exe 同级的 Assets\Carousel，由 HomePage 直接读取。
+    /// </summary>
     public static string CarouselPath =>
-        Path.Combine(AppBasePath, "Assets", "Carousel");
+        Path.Combine(App.WorkRoot, "Assets", "Carousel");
 
     /// <summary>用户自定义头像路径</summary>
     public static string CustomAvatarFile =>

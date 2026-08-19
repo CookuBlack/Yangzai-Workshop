@@ -18,6 +18,9 @@ public partial class HomePage : UserControl
     /// <summary>图片轮播定时器（图片没有 MediaEnded，需定时自动切换，与视频行为一致）</summary>
     private DispatcherTimer? _imageTimer;
 
+    /// <summary>轮播支持的媒体扩展名（图片 + 视频）</summary>
+    private static readonly string[] _mediaExts = { ".mp4", ".wmv", ".avi", ".png", ".jpg", ".jpeg", ".bmp", ".gif" };
+
     /// <summary>轮播支持的图片扩展名（区分视频与图片的显示方式）</summary>
     private static readonly string[] _imageExts = { ".png", ".jpg", ".jpeg", ".bmp", ".gif" };
 
@@ -76,8 +79,25 @@ public partial class HomePage : UserControl
         _bannerVideos.Clear();
         StopAllVideos();
 
-        var carouselPath = FileService.CarouselPath;
-        var files = FileService.GetFiles(carouselPath, ".mp4", ".wmv", ".avi", ".png", ".jpg", ".jpeg", ".bmp", ".gif");
+        var files = new List<string>(_mediaExts.Length);
+
+        // ① 默认内置轮播图：安装目录 Assets\Carousel（随 MSI 安装，必然存在）
+        var defaultDir = System.IO.Path.Combine(FileService.AppBasePath, "Assets", "Carousel");
+        var defaultFiles = FileService.GetFiles(defaultDir, _mediaExts);
+        files.AddRange(defaultFiles);
+
+        // ② 用户自定义轮播：用户数据目录 WorkData\Assets\Carousel（自动更新后仍保留）
+        var userDir = FileService.CarouselPath;
+        var userFiles = FileService.GetFiles(userDir, _mediaExts);
+        var defaultNames = new HashSet<string>(
+            defaultFiles.Select(f => System.IO.Path.GetFileName(f)!),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var f in userFiles)
+        {
+            // 仅追加「非默认名」的文件，避免重复显示
+            if (!defaultNames.Contains(System.IO.Path.GetFileName(f)))
+                files.Add(f);
+        }
 
         if (files.Count == 0)
         {
@@ -350,8 +370,13 @@ public partial class HomePage : UserControl
             var delItem = new MenuItem { Header = "删除当前" };
             delItem.Click += (s, a) =>
             {
-                FileService.DeleteFile(_bannerVideos[_currentBannerIndex]);
-                LoadBanners();
+                var path = _bannerVideos[_currentBannerIndex];
+                // 仅允许删除用户自定义轮播（位于用户数据目录），默认图不可删
+                if (path.StartsWith(FileService.CarouselPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    FileService.DeleteFile(path);
+                    LoadBanners();
+                }
             };
             menu.Items.Add(delItem);
         }
