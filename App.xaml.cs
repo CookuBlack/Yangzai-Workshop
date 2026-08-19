@@ -506,7 +506,13 @@ public partial class App : Application
         var exePath = Path.Combine(FileService.AppBasePath, "YangzaiWorkshop.exe");
         var currentPid = Environment.ProcessId;
 
-        // 注意：MSI 在 Temp 目录，所以 uninstall 旧版不会误删它
+        // 关键修复点：
+        // 1) 目录属性名必须是 INSTALLFOLDER（与 Product.wxs 的 Directory Id 一致）。
+        //    之前误写成 INSTALL_FOLDER，安装路径传不进去 → 装到默认位置，
+        //    而安装后启动的仍是旧位置 exe，表现为“更新后还是老版本”。
+        // 2) msiexec 结束后需额外轮询等待其真正退出：UAC 提权下非提权的
+        //    msiexec 包装进程会立即返回，若不等待，可能在新版尚未写盘时
+        //    就启动旧 exe。
         File.WriteAllText(cleanupBat,
             "@echo off\r\n" +
             "echo Waiting for old process to exit...\r\n" +
@@ -517,8 +523,13 @@ public partial class App : Application
             "    goto waitloop\r\n" +
             ")\r\n" +
             $"echo Installing Yangzai Workshop v{newTag} to {installPath}...\r\n" +
-            $"msiexec /i \"{tempFile}\" INSTALL_FOLDER=\"{installPath}\" /qb!- /norestart\r\n" +
+            $"msiexec /i \"{tempFile}\" INSTALLFOLDER=\"{installPath}\" /qb!- /norestart\r\n" +
             "if errorlevel 1 goto :fail\r\n" +
+            "echo Waiting for installer to finish...\r\n" +
+            ":waitmsi\r\n" +
+            "timeout /t 1 /nobreak >nul\r\n" +
+            "tasklist /fi \"IMAGENAME eq msiexec.exe\" 2>nul | find /i \"msiexec.exe\" >nul\r\n" +
+            "if not errorlevel 1 goto waitmsi\r\n" +
             "echo Starting Yangzai Workshop...\r\n" +
             $"start \"\" \"{exePath}\"\r\n" +
             ":cleanup\r\n" +

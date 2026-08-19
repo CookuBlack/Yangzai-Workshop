@@ -9,7 +9,7 @@
 #    .\build.ps1 -Output "D:\out\app.msi"
 #
 #  版本号优先级：-Version 参数 > version.json > 默认 3.4.0
-#  产物：默认输出到 .\output\YangzaiWorkshop-v<版本>.msi
+#  产物：默认输出到 .\output\YangzaiWorkshop-windows-x64-v<版本>.msi
 # ============================================================
 param(
     [switch]$SkipPublish,
@@ -52,7 +52,7 @@ if (-not $NoClean) {
         # 仅删除「非当前版本」的旧产物，保留目标版本（构建失败也不丢可用安装包）
         # 注意：Get-ChildItem -Path <dir> -Include 在部分 PowerShell 版本下
         # 不加 -Recurse 会返回空，故用 Where-Object 过滤扩展名更可靠
-        $targetMsi = "YangzaiWorkshop-v$Version.msi"
+        $targetMsi = "YangzaiWorkshop-windows-x64-v$Version.msi"
         $oldFiles = Get-ChildItem -Path $OutputDir -File -ErrorAction SilentlyContinue |
             Where-Object { $_.Extension -in @('.msi', '.wixpdb') -and $_.Name -ne $targetMsi }
         if ($oldFiles) {
@@ -65,10 +65,11 @@ if (-not $NoClean) {
         }
     }
 
-    # --- 清理 publish 目录（确保无残留文件） ---
+    # 注意：绝不删除 publish 目录！publish/Assets/Carousel 等目录可能存放用户
+    # 手动添加的轮播视频/图片（应用内右键「添加轮播视频」写入），dotnet publish
+    # 本身只覆盖其生成的文件，不会删用户媒体。此处仅提示，不做任何删除。
     if (-not $SkipPublish -and (Test-Path $PublishDir)) {
-        Remove-Item -Path $PublishDir -Recurse -Force
-        Write-Host "  已清理 publish 目录" -ForegroundColor DarkGray
+        Write-Host "  保留 publish 目录（不删除用户媒体文件）" -ForegroundColor DarkGray
     }
 } else {
     Write-Host "`n[1/5] 跳过清理（-NoClean）" -ForegroundColor Gray
@@ -149,7 +150,7 @@ if (-not $SkipPublish) {
 Write-Host "`n[5/5] 编译 MSI..." -ForegroundColor Yellow
 if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir | Out-Null }
 
-$msiPath = if ($Output) { $Output } else { Join-Path $OutputDir "YangzaiWorkshop-v$Version.msi" }
+$msiPath = if ($Output) { $Output } else { Join-Path $OutputDir "YangzaiWorkshop-windows-x64-v$Version.msi" }
 
 Push-Location $Root
 try {

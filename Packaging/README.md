@@ -56,7 +56,7 @@ cd Packaging
 
 或直接双击 `一键打包.bat`。
 
-产物默认输出到 `Packaging\output\YangzaiWorkshop-v<版本>.msi`。
+产物默认输出到 `Packaging\output\YangzaiWorkshop-windows-x64-v<版本>.msi`。
 
 ### 打包流程
 
