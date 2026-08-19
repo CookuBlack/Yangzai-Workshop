@@ -48,7 +48,14 @@ public class MusicPlayerService
     public double Position
     {
         get => _media?.Position.TotalSeconds ?? 0;
-        set { if (_media != null) _media.Position = TimeSpan.FromSeconds(value); }
+        set
+        {
+            // 媒体未打开 / 拖动到非法范围时静默忽略，避免抛 InvalidOperationException
+            if (_media == null) return;
+            var dur = Duration;
+            if (dur > 0 && (value < 0 || value > dur)) return;
+            try { _media.Position = TimeSpan.FromSeconds(value); } catch { }
+        }
     }
 
     /// <summary>当前总时长（秒）</summary>

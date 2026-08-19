@@ -51,6 +51,32 @@ public partial class CropWindow : Window
 
         Loaded += (_, _) => Dispatcher.BeginInvoke(Init, DispatcherPriority.Loaded);
         SizeChanged += (_, _) => Dispatcher.BeginInvoke(RePosition, DispatcherPriority.Loaded);
+
+        // 修复：AllowsTransparency 的 owned 窗口关闭时，WPF 可能把拥有者（主窗口）误最小化。
+        // 打开期间屏蔽主窗口 SC_MINIMIZE（根治），关闭后延迟解除屏蔽并兜底恢复。
+        MainWindow.EnterChildWindow();
+        Closed += (_, _) =>
+        {
+            var leaveTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2.5)
+            };
+            leaveTimer.Tick += (_, _) =>
+            {
+                leaveTimer.Stop();
+                MainWindow.LeaveChildWindow();
+            };
+            leaveTimer.Start();
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (Owner is { WindowState: WindowState.Minimized })
+                {
+                    Owner.WindowState = WindowState.Normal;
+                    Owner.Activate();
+                }
+            }), DispatcherPriority.Loaded);
+        };
     }
 
     // ==================== 按钮高亮 ====================
@@ -361,9 +387,14 @@ public partial class CropWindow : Window
             pw = Math.Max(1, Math.Min(pw, _src.PixelWidth - px));
             ph = Math.Max(1, Math.Min(ph, _src.PixelHeight - py));
             CroppedImage = new CroppedBitmap(_src, new Int32Rect(px, py, pw, ph));
-            DialogResult = true;
+
+            // 先通知外部处理裁剪结果（通过 Show() 非模态打开的调用方依赖 Cropped 事件）
             Cropped?.Invoke(CroppedImage);
-            Close();
+
+            // ShowDialog() 模态打开时需设置 DialogResult 以返回 true；
+            // 通过 Show() 非模态打开时设置 DialogResult 会抛出 InvalidOperationException，此时直接关闭即可。
+            try { DialogResult = true; }
+            catch (InvalidOperationException) { Close(); }
         }
         catch { MessageDialog.Show("错误", "裁剪失败"); }
     }

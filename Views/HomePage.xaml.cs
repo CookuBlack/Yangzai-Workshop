@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 using YangzaiWorkshop.Services;
@@ -14,6 +15,11 @@ public partial class HomePage : UserControl
     private readonly List<string> _bannerVideos = new();
     private int _currentBannerIndex = 0;
     private DispatcherTimer? _autoPlayTimer;
+    /// <summary>图片轮播定时器（图片没有 MediaEnded，需定时自动切换，与视频行为一致）</summary>
+    private DispatcherTimer? _imageTimer;
+
+    /// <summary>轮播支持的图片扩展名（区分视频与图片的显示方式）</summary>
+    private static readonly string[] _imageExts = { ".png", ".jpg", ".jpeg", ".bmp", ".gif" };
 
     public HomePage()
     {
@@ -56,6 +62,7 @@ public partial class HomePage : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _autoPlayTimer?.Stop();
+        _imageTimer?.Stop();
         StopAllVideos();
     }
 
@@ -70,12 +77,14 @@ public partial class HomePage : UserControl
         StopAllVideos();
 
         var carouselPath = FileService.CarouselPath;
-        var videos = FileService.GetFiles(carouselPath, ".mp4", ".wmv", ".avi");
+        var files = FileService.GetFiles(carouselPath, ".mp4", ".wmv", ".avi", ".png", ".jpg", ".jpeg", ".bmp", ".gif");
 
-        if (videos.Count == 0)
+        if (files.Count == 0)
         {
             BannerVideo.Visibility = Visibility.Collapsed;
             BannerVideo2.Visibility = Visibility.Collapsed;
+            BannerImage.Visibility = Visibility.Collapsed;
+            BannerImage2.Visibility = Visibility.Collapsed;
             BannerPlaceholder.Visibility = Visibility.Visible;
             PrevButton.Visibility = Visibility.Collapsed;
             NextButton.Visibility = Visibility.Collapsed;
@@ -85,7 +94,9 @@ public partial class HomePage : UserControl
         BannerPlaceholder.Visibility = Visibility.Collapsed;
         BannerVideo.Visibility = Visibility.Visible;
         BannerVideo2.Visibility = Visibility.Visible;
-        _bannerVideos.AddRange(videos);
+        BannerImage.Visibility = Visibility.Visible;
+        BannerImage2.Visibility = Visibility.Visible;
+        _bannerVideos.AddRange(files);
 
         PrevButton.Visibility = _bannerVideos.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
         NextButton.Visibility = _bannerVideos.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
@@ -93,76 +104,173 @@ public partial class HomePage : UserControl
         ShowBanner(0);
     }
 
+    /// <summary>按文件扩展名判断是否为图片</summary>
+    private static bool IsImageFile(string path)
+        => _imageExts.Contains(System.IO.Path.GetExtension(path).ToLowerInvariant());
+
+    /// <summary>停止旧动画并重置显隐，保证切换时状态干净</summary>
+    private void ResetSlotAnimations(MediaElement me, Image img)
+    {
+        me.BeginAnimation(UIElement.OpacityProperty, null);
+        img.BeginAnimation(UIElement.OpacityProperty, null);
+    }
+
     private void ShowBanner(int index)
     {
         if (_bannerVideos.Count == 0) return;
         _currentBannerIndex = (index + _bannerVideos.Count) % _bannerVideos.Count;
-        var videoPath = _bannerVideos[_currentBannerIndex];
+        var mediaPath = _bannerVideos[_currentBannerIndex];
+        var isImage = IsImageFile(mediaPath);
 
-        // 选当前不用的 MediaElement 来加载
+        // 选当前不用的槽位（视频 + 图片配对，共用同一轮播位置）
         var currentMe = _useVideo1 ? BannerVideo : BannerVideo2;
         var nextMe = _useVideo1 ? BannerVideo2 : BannerVideo;
+        var currentImg = _useVideo1 ? BannerImage : BannerImage2;
+        var nextImg = _useVideo1 ? BannerImage2 : BannerImage;
         _useVideo1 = !_useVideo1;
 
-        // 清除上个 MediaOpened 防止多次累积触发
+        // 清除上一个 MediaOpened 防止多次累积触发
         if (_pendingMediaOpened != null)
         {
             BannerVideo.MediaOpened -= _pendingMediaOpened;
             BannerVideo2.MediaOpened -= _pendingMediaOpened;
+            _pendingMediaOpened = null;
         }
         nextMe.MediaEnded -= OnVideoEnded;
 
-        nextMe.Source = new Uri(videoPath);
-        nextMe.Position = TimeSpan.Zero;
+        // 清理目标槽位的残留动画与内容
+        ResetSlotAnimations(nextMe, nextImg);
+        nextMe.Stop();
+        nextMe.Source = null;
+        nextImg.Source = null;
         nextMe.Opacity = 0;
-        nextMe.Play();
+        nextImg.Opacity = 0;
 
-        // 视频就绪后交叉淡入淡出（存引用以便后续清理）
-        _pendingMediaOpened = (s, e) =>
+        // 有媒体时总是隐藏占位符（避免上一次失败残留遮挡轮播）
+        BannerPlaceholder.Visibility = Visibility.Collapsed;
+
+        if (isImage)
         {
-            Dispatcher.Invoke(() =>
+            // ===== 图片轮播：同步解码（限制尺寸）后直接交叉淡入淡出 =====
+            _isTransitioning = true;
+            _imageTimer?.Stop();
+            try
             {
-                _isTransitioning = true;
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                bmp.UriSource = new Uri(mediaPath);
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 1920;
+                bmp.EndInit();
+                bmp.Freeze();
+                nextImg.Source = bmp;
+                CrossFade(nextImg, currentMe, currentImg);
 
-                // 淡出旧视频（带缓动）
-                var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromSeconds(0.5))
+                // 图片显示固定时长后自动切换（复用轮播间隔配置）
+                var config = FileService.LoadConfig(App.WorkRoot);
+                var seconds = Math.Max(3, config.BannerIntervalSeconds);
+                _imageTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(seconds) };
+                _imageTimer.Tick += (_, _) =>
                 {
-                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
+                    _imageTimer.Stop();
+                    NextBanner();
                 };
-                fadeOut.Completed += (_, _) =>
+                _imageTimer.Start();
+            }
+            catch
+            {
+                // 图片加载失败：隐藏图片槽位，展示占位，并解除切换锁定
+                nextImg.Source = null;
+                _isTransitioning = false;
+                BannerPlaceholder.Visibility = Visibility.Visible;
+            }
+        }
+        else
+        {
+            // ===== 视频轮播：先挂事件再加载，避免 MediaOpened 丢失 =====
+            _imageTimer?.Stop();
+            _pendingMediaOpened = (s, e) =>
+            {
+                Dispatcher.Invoke(() =>
                 {
-                    currentMe.Stop();
-                    currentMe.Source = null;
-                };
-                currentMe.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+                    if (_isTransitioning) return;
+                    _isTransitioning = true;
+                    CrossFade(nextMe, currentMe, currentImg);
+                });
+            };
+            nextMe.MediaOpened += _pendingMediaOpened;
+            nextMe.MediaEnded += OnVideoEnded;
 
-                // 淡入新视频（带缓动）
-                var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.5))
-                {
-                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut }
-                };
-                fadeIn.Completed += (_, _) => _isTransitioning = false;
-                nextMe.BeginAnimation(UIElement.OpacityProperty, fadeIn);
-            });
-        };
-        nextMe.MediaOpened += _pendingMediaOpened;
-
-        // 视频播放完毕事件
-        nextMe.MediaEnded += OnVideoEnded;
+            nextMe.Source = new Uri(mediaPath);
+            nextMe.Position = TimeSpan.Zero;
+            nextMe.Play();
+        }
 
         UpdateDots();
     }
 
+    /// <summary>
+    /// 交叉淡入淡出：同时淡出旧的视频与图片（避免残留 Source 导致某一路径被跳过），
+    /// 再淡入新元素（MediaElement 或 Image）。
+    /// </summary>
+    private void CrossFade(FrameworkElement newEl, MediaElement oldMe, Image oldImg)
+    {
+        var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
+
+        // 淡出旧视频
+        if (oldMe.Source != null)
+        {
+            var fadeOut = new DoubleAnimation(oldMe.Opacity, 0, TimeSpan.FromSeconds(0.5))
+            {
+                EasingFunction = ease
+            };
+            fadeOut.Completed += (_, _) =>
+            {
+                oldMe.Stop();
+                oldMe.Source = null;
+            };
+            oldMe.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+        }
+
+        // 淡出旧图片（与视频互不干扰，都检查）
+        if (oldImg.Source != null)
+        {
+            var fadeOut = new DoubleAnimation(oldImg.Opacity, 0, TimeSpan.FromSeconds(0.5))
+            {
+                EasingFunction = ease
+            };
+            fadeOut.Completed += (_, _) => oldImg.Source = null;
+            oldImg.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+        }
+
+        // 淡入新元素
+        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromSeconds(0.5))
+        {
+            EasingFunction = ease
+        };
+        fadeIn.Completed += (_, _) => _isTransitioning = false;
+        newEl.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+    }
+
     private void StopAllVideos()
     {
+        _imageTimer?.Stop();
         BannerVideo.MediaEnded -= OnVideoEnded;
         BannerVideo2.MediaEnded -= OnVideoEnded;
         BannerVideo.Stop();
         BannerVideo2.Stop();
         BannerVideo.Source = null;
         BannerVideo2.Source = null;
+        BannerImage.Source = null;
+        BannerImage2.Source = null;
+        BannerVideo.BeginAnimation(UIElement.OpacityProperty, null);
+        BannerVideo2.BeginAnimation(UIElement.OpacityProperty, null);
+        BannerImage.BeginAnimation(UIElement.OpacityProperty, null);
+        BannerImage2.BeginAnimation(UIElement.OpacityProperty, null);
         BannerVideo.Opacity = 1;
         BannerVideo2.Opacity = 0;
+        BannerImage.Opacity = 0;
+        BannerImage2.Opacity = 0;
         _useVideo1 = true;
         _isTransitioning = false;
         if (_pendingMediaOpened != null)

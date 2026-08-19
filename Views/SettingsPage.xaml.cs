@@ -21,6 +21,7 @@ public partial class SettingsPage : UserControl
 {
     private AppConfig _config = null!;
     private bool _isLoading;
+    private bool _syncingInput;
 
     // ====== 自定义主题：单一背景色调色板 ======
     private static readonly string[] PaletteColors =
@@ -117,9 +118,9 @@ public partial class SettingsPage : UserControl
         ImgFgLightRadio.IsChecked = _config.ImageForeground == "Light";
         ImgFgDarkRadio.IsChecked = _config.ImageForeground == "Dark";
         BgOpacitySlider.Value = _config.CustomBgOpacity;
-        BgOpacityLabel.Text = $"{_config.CustomBgOpacity * 100:F0}%";
+        BgOpacityInput.Text = ((int)Math.Round(_config.CustomBgOpacity * 100)).ToString();
         BgBlurSlider.Value = _config.CustomBgBlur;
-        BgBlurLabel.Text = $"{_config.CustomBgBlur:F0}px";
+        BgBlurInput.Text = _config.CustomBgBlur.ToString("F0");
         RefreshBgPreview();
 
         // 工作目录（显示相对路径）
@@ -129,18 +130,31 @@ public partial class SettingsPage : UserControl
         // 通用设置
         AutoSaveCheck.IsChecked = _config.AutoSaveScript;
         FontSizeSlider.Value = _config.FontSize;
-        FontSizeLabel.Text = $"{_config.FontSize}px";
+        FontSizeInput.Text = _config.FontSize.ToString();
         AutoPlayCheck.IsChecked = _config.AutoPlayBanner;
         IntervalSlider.Value = _config.BannerIntervalSeconds;
-        IntervalLabel.Text = $"{_config.BannerIntervalSeconds}秒";
+        IntervalInput.Text = _config.BannerIntervalSeconds.ToString("F0");
         AutoBackupCheck.IsChecked = _config.AutoBackup;
         BackupIntervalSlider.Value = _config.BackupIntervalHours;
-        BackupIntervalLabel.Text = FormatBackupInterval(_config.BackupIntervalHours);
+        BackupIntervalInput.Text = _config.BackupIntervalHours.ToString("F0");
+        HistoryCountSlider.Value = _config.TextHistoryMaxCount;
+        HistoryCountInput.Text = _config.TextHistoryMaxCount.ToString("F0");
         ApiEndpointBox.Text = _config.ApiEndpoint;
         ApiKeyBox.Password = _config.ApiKey;
         ApiModelBox.Text = _config.ApiModel;
         ImageModelBox.Text = _config.ImageModel;
+
+        // 默认生图引擎单选框（先取值，再交回给处理器管理状态）
+        _config.DefaultImageProvider ??= "Api";
+        if (_config.DefaultImageProvider == "ComfyUI")
+            ProviderComfyRadio.IsChecked = true;
+        else
+            ProviderApiRadio.IsChecked = true;
         VideoModelBox.Text = _config.VideoModel;
+
+        // ComfyUI 本地生图
+        ComfyEndpointBox.Text = _config.ComfyUiEndpoint;
+        ComfyWorkflowFileBox.Text = _config.ComfyUiWorkflowFile;
 
         // 音乐播放器
         MusicAutoPlayCheck.IsChecked = _config.MusicAutoPlay;
@@ -330,14 +344,16 @@ public partial class SettingsPage : UserControl
     {
         if (_isLoading || !IsLoaded) return;
         _config.CustomBgOpacity = Math.Round(e.NewValue, 2);
-        BgOpacityLabel.Text = $"{_config.CustomBgOpacity * 100:F0}%";
+        if (!BgOpacityInput.IsKeyboardFocusWithin)
+            BgOpacityInput.Text = ((int)Math.Round(_config.CustomBgOpacity * 100)).ToString();
     }
 
     private void BgBlur_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_isLoading || !IsLoaded) return;
         _config.CustomBgBlur = Math.Round(e.NewValue, 0);
-        BgBlurLabel.Text = $"{_config.CustomBgBlur:F0}px";
+        if (!BgBlurInput.IsKeyboardFocusWithin)
+            BgBlurInput.Text = _config.CustomBgBlur.ToString("F0");
     }
 
     private void ImgForeground_Changed(object sender, RoutedEventArgs e)
@@ -379,9 +395,9 @@ public partial class SettingsPage : UserControl
         _config.CustomBgBlur = 15;
         _config.ImageForeground = "Light";
         BgOpacitySlider.Value = 0.35;
-        BgOpacityLabel.Text = "35%";
+        BgOpacityInput.Text = "35";
         BgBlurSlider.Value = 15;
-        BgBlurLabel.Text = "15px";
+        BgBlurInput.Text = "15";
         ImgFgLightRadio.IsChecked = true;
         ImgFgDarkRadio.IsChecked = false;
         HighlightSelectedSwatch();
@@ -475,7 +491,7 @@ public partial class SettingsPage : UserControl
         const int defaultFontSize = 14;
         _config.FontSize = defaultFontSize;
         FontSizeSlider.Value = defaultFontSize;
-        FontSizeLabel.Text = $"{defaultFontSize}px";
+        FontSizeInput.Text = defaultFontSize.ToString();
 
         // 轮播自动播放
         _config.AutoPlayBanner = true;
@@ -485,14 +501,30 @@ public partial class SettingsPage : UserControl
         const int defaultInterval = 5;
         _config.BannerIntervalSeconds = defaultInterval;
         IntervalSlider.Value = defaultInterval;
-        IntervalLabel.Text = $"{defaultInterval}秒";
+        IntervalInput.Text = defaultInterval.ToString();
 
         // 自动备份
         _config.AutoBackup = false;
         AutoBackupCheck.IsChecked = false;
         _config.BackupIntervalHours = 24;
         BackupIntervalSlider.Value = 24;
-        BackupIntervalLabel.Text = FormatBackupInterval(24);
+        BackupIntervalInput.Text = "24";
+
+        // 文本历史上限（恢复默认 50）
+        _config.TextHistoryMaxCount = TextHistoryService.DefaultMaxHistory;
+        HistoryCountSlider.Value = TextHistoryService.DefaultMaxHistory;
+        HistoryCountInput.Text = TextHistoryService.DefaultMaxHistory.ToString();
+        TextHistoryService.Instance.MaxHistory = TextHistoryService.DefaultMaxHistory;
+
+        // ComfyUI 本地生图
+        _config.ComfyUiEndpoint = "http://127.0.0.1:8188";
+        _config.ComfyUiWorkflowFile = "";
+        ComfyEndpointBox.Text = _config.ComfyUiEndpoint;
+        ComfyWorkflowFileBox.Text = _config.ComfyUiWorkflowFile;
+
+        // 默认生图引擎恢复为云端 API
+        _config.DefaultImageProvider = "Api";
+        ProviderApiRadio.IsChecked = true;
 
         SaveConfig();
         ApplyFontSizeToEditor(defaultFontSize);
@@ -510,7 +542,8 @@ public partial class SettingsPage : UserControl
     {
         if (_isLoading || !IsLoaded) return;
         _config.FontSize = (int)e.NewValue;
-        FontSizeLabel.Text = $"{_config.FontSize}px";
+        if (!FontSizeInput.IsKeyboardFocusWithin)
+            FontSizeInput.Text = _config.FontSize.ToString();
         SaveConfig();
 
         // 同步应用到 ScriptPage 编辑器
@@ -547,7 +580,8 @@ public partial class SettingsPage : UserControl
     {
         if (_isLoading || !IsLoaded) return;
         _config.BackupIntervalHours = (int)e.NewValue;
-        BackupIntervalLabel.Text = FormatBackupInterval(_config.BackupIntervalHours);
+        if (!BackupIntervalInput.IsKeyboardFocusWithin)
+            BackupIntervalInput.Text = _config.BackupIntervalHours.ToString("F0");
         SaveConfig();
         App.RestartBackupTimer();
     }
@@ -605,7 +639,11 @@ public partial class SettingsPage : UserControl
     private void SettingsMusicDelete_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.DataContext == null) return;
-        var path = (string)btn.DataContext.GetType().GetProperty("Path")!.GetValue(btn.DataContext)!;
+        // 反射取值时增加空保护：避免 DataContext 为匿名类型时 GetValue 返回 null 导致崩溃
+        var prop = btn.DataContext.GetType().GetProperty("Path");
+        if (prop == null) return;
+        var value = prop.GetValue(btn.DataContext);
+        if (value is not string path || string.IsNullOrEmpty(path)) return;
         MusicPlayerService.Instance.DeleteFile(path);
         RefreshSettingsMusicList();
     }
@@ -614,8 +652,119 @@ public partial class SettingsPage : UserControl
     {
         if (_isLoading || !IsLoaded) return;
         _config.BannerIntervalSeconds = (int)e.NewValue;
-        IntervalLabel.Text = $"{_config.BannerIntervalSeconds}秒";
+        if (!IntervalInput.IsKeyboardFocusWithin)
+            IntervalInput.Text = _config.BannerIntervalSeconds.ToString("F0");
         SaveConfig();
+    }
+
+    private void HistoryCountSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.TextHistoryMaxCount = (int)e.NewValue;
+        if (!HistoryCountInput.IsKeyboardFocusWithin)
+            HistoryCountInput.Text = _config.TextHistoryMaxCount.ToString("F0");
+        SaveConfig();
+        // 实时生效到历史服务
+        TextHistoryService.Instance.MaxHistory = _config.TextHistoryMaxCount;
+    }
+
+    // ===== 滑块数值输入与步进微调 =====
+
+    private static double Clamp(double v, double min, double max)
+        => Math.Max(min, Math.Min(max, v));
+
+    /// <summary>“+ / −”按钮微调：根据 Tag 判断目标滑块与方向，超出阈值自动钳制到边界</summary>
+    private void StepBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button btn || btn.Tag is not string tag) return;
+        var parts = tag.Split(',');
+        if (parts.Length != 2) return;
+        var delta = parts[1] == "+" ? 1 : -1;
+        switch (parts[0])
+        {
+            case "opacity":
+                BgOpacitySlider.Value = Clamp(BgOpacitySlider.Value + delta * 0.05, 0.05, 1.0);
+                break;
+            case "blur":
+                BgBlurSlider.Value = Clamp(BgBlurSlider.Value + delta, 0, 50);
+                break;
+            case "fontsize":
+                FontSizeSlider.Value = Clamp(FontSizeSlider.Value + delta, 10, 24);
+                break;
+            case "interval":
+                IntervalSlider.Value = Clamp(IntervalSlider.Value + delta, 2, 15);
+                break;
+            case "backup":
+                BackupIntervalSlider.Value = Clamp(BackupIntervalSlider.Value + delta, 1, 72);
+                break;
+            case "historycount":
+                HistoryCountSlider.Value = Clamp(HistoryCountSlider.Value + delta, 10, 200);
+                break;
+        }
+    }
+
+    /// <summary>数值输入框：实时解析输入并钳制到阈值范围后同步滑块</summary>
+    private void NumericInput_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded || _syncingInput) return;
+        if (sender is not TextBox tb) return;
+        if (!double.TryParse(tb.Text.Trim(), out var val)) return;
+        switch (tb.Name)
+        {
+            case "BgOpacityInput":
+                BgOpacitySlider.Value = Clamp(val / 100.0, 0.05, 1.0);
+                break;
+            case "BgBlurInput":
+                BgBlurSlider.Value = Clamp(val, 0, 50);
+                break;
+            case "FontSizeInput":
+                FontSizeSlider.Value = Clamp(val, 10, 24);
+                break;
+            case "IntervalInput":
+                IntervalSlider.Value = Clamp(val, 2, 15);
+                break;
+            case "BackupIntervalInput":
+                BackupIntervalSlider.Value = Clamp(val, 1, 72);
+                break;
+            case "HistoryCountInput":
+                HistoryCountSlider.Value = Clamp(val, 10, 200);
+                break;
+        }
+    }
+
+    /// <summary>数值输入框失焦：把输入框统一为钳制后的有效值，并同步滑块</summary>
+    private void NumericInput_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (sender is not TextBox tb) return;
+        string expected;
+        switch (tb.Name)
+        {
+            case "BgOpacityInput":
+                expected = ((int)Math.Round(Clamp(BgOpacitySlider.Value, 0.05, 1.0) * 100)).ToString();
+                break;
+            case "BgBlurInput":
+                expected = Clamp(BgBlurSlider.Value, 0, 50).ToString("F0");
+                break;
+            case "FontSizeInput":
+                expected = Clamp(FontSizeSlider.Value, 10, 24).ToString("F0");
+                break;
+            case "IntervalInput":
+                expected = Clamp(IntervalSlider.Value, 2, 15).ToString("F0");
+                break;
+            case "BackupIntervalInput":
+                expected = Clamp(BackupIntervalSlider.Value, 1, 72).ToString("F0");
+                break;
+            case "HistoryCountInput":
+                expected = Clamp(HistoryCountSlider.Value, 10, 200).ToString("F0");
+                break;
+            default: return;
+        }
+        if (tb.Text.Trim() != expected)
+        {
+            _syncingInput = true;
+            tb.Text = expected;
+            _syncingInput = false;
+        }
     }
 
     // ==================== AI 模型配置 ====================
@@ -673,6 +822,42 @@ public partial class SettingsPage : UserControl
         if (_isLoading || !IsLoaded) return;
         _config.VideoModel = VideoModelBox.Text.Trim();
         SaveConfig();
+    }
+
+    // ==================== ComfyUI 本地生图配置 ====================
+    private void ComfyEndpointBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.ComfyUiEndpoint = ComfyEndpointBox.Text.Trim();
+        SaveConfig();
+    }
+
+    /// <summary>默认生图引擎切换（云端 API / 本地 ComfyUI）</summary>
+    private void ImageProviderRadio_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        if (sender is not System.Windows.Controls.RadioButton rb || rb.Tag is not string tag) return;
+        // 避免同步设置时重复触发：仅在值实际变化时保存
+        if (_config.DefaultImageProvider == tag) return;
+        _config.DefaultImageProvider = tag;
+        SaveConfig();
+    }
+
+    /// <summary>浏览选择 ComfyUI 工作流 JSON 文件</summary>
+    private void ComfyWorkflowBrowse_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "选择 ComfyUI 工作流 JSON 文件",
+            Filter = "ComfyUI 工作流 (*.json)|*.json|所有文件 (*.*)|*.*",
+            CheckFileExists = true
+        };
+        if (dlg.ShowDialog(Window.GetWindow(this)) == true)
+        {
+            ComfyWorkflowFileBox.Text = dlg.FileName;
+            _config.ComfyUiWorkflowFile = dlg.FileName;
+            SaveConfig();
+        }
     }
 
     private void EditSkill_Click(object sender, RoutedEventArgs e)

@@ -51,9 +51,10 @@
                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Grid>
 
-            <!-- ===== 顶部标题栏 ===== -->
+            <!-- ===== 顶部标题栏（整条可拖动） ===== -->
             <Border Grid.Row="0" Background="{DynamicResource SidebarBackgroundBrush}"
-                    CornerRadius="12,12,0,0">
+                    CornerRadius="12,12,0,0"
+                    MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -63,7 +64,6 @@
 
                     <!-- Logo + 标题（左对齐） -->
                     <StackPanel Grid.Column="0" Orientation="Horizontal"
-                                MouseLeftButtonDown="TitleBar_MouseLeftButtonDown"
                                 Background="Transparent">
                         <Border Width="26" Height="26" CornerRadius="6"
                                 VerticalAlignment="Center" Margin="16,0,8,0"
@@ -182,6 +182,35 @@
                                 Click="MemoButton_Click" ToolTip="备忘录"
                                 WindowChrome.IsHitTestVisibleInChrome="True">
                             <TextBlock Text="&#xE700;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                        </Button>
+
+                        <!-- 全局 AI 生成队列 -->
+                        <Button x:Name="AiQueueBtn"
+                                Style="{StaticResource WindowControlButtonStyle}"
+                                Click="AiQueueBtn_Click" ToolTip="AI 生成队列"
+                                WindowChrome.IsHitTestVisibleInChrome="True">
+                            <Grid>
+                                <TextBlock Text="&#xE9D9;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
+                                <!-- 队列数量角标 -->
+                                <Border x:Name="AiQueueBadge"
+                                        HorizontalAlignment="Right" VerticalAlignment="Top"
+                                        MinWidth="14" Height="14" CornerRadius="7"
+                                        Background="{DynamicResource AccentBrush}"
+                                        Padding="3,0" Margin="0,-4,-6,0"
+                                        Visibility="Collapsed">
+                                    <TextBlock x:Name="AiQueueBadgeText" Text="0"
+                                               FontSize="9" FontWeight="Bold" Foreground="White"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                            </Grid>
+                        </Button>
+
+                        <!-- 文本历史（撤销/重做 + 历史版本） -->
+                        <Button x:Name="TextHistoryBtn"
+                                Style="{StaticResource WindowControlButtonStyle}"
+                                Click="TextHistoryBtn_Click" ToolTip="文本历史（撤销/重做/回退）"
+                                WindowChrome.IsHitTestVisibleInChrome="True">
+                            <TextBlock Text="&#xE81C;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
                         </Button>
 
                         <!-- 主题切换 -->
@@ -519,6 +548,27 @@
                     </StackPanel>
                 </Border>
             </Popup>
+
+            <!-- ===== 底部通知条（Toast，覆盖所有页面） ===== -->
+            <Border x:Name="ToastBar" Grid.RowSpan="2"
+                    HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                    Background="#E6212733" CornerRadius="6"
+                    Padding="18,10" Margin="0,0,0,40"
+                    Visibility="Collapsed" Opacity="0"
+                    IsHitTestVisible="False"
+                    MaxWidth="520">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.35"/>
+                </Border.Effect>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock x:Name="ToastIcon" Text="&#xE73E;" FontFamily="Segoe MDL2 Assets"
+                               FontSize="14" Foreground="White"
+                               VerticalAlignment="Center" Margin="0,0,8,0"/>
+                    <TextBlock x:Name="ToastText" Foreground="White" FontSize="12.5"
+                               FontFamily="Microsoft YaHei UI" TextWrapping="Wrap"
+                               VerticalAlignment="Center" TextAlignment="Center"/>
+                </StackPanel>
+            </Border>
         </Grid>
     </Border>
 </Window>

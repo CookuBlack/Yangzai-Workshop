@@ -31,7 +31,8 @@ public partial class ScriptPage : UserControl
     private double _savedScriptWidth;
     private double _savedImageWidth;
     private DispatcherTimer? _autoSaveTimer;
-    private static string _lastImageSize = "1024x768";
+    private static string _lastImageRatio = "16:9";
+    private static string _lastImageLevel = "1K";
     private bool _multiSelectMode;
     private readonly HashSet<string> _selectedFiles = new();
     private string _scriptText = "";
@@ -40,6 +41,14 @@ public partial class ScriptPage : UserControl
     private static int _lastChapterIdx = -1;
     private bool _contentDirty;
     private static readonly ConcurrentDictionary<string, BitmapSource> _imageCache = new();
+    // 小说封面缓存：key 为 "novelId|lastWriteTime"，避免每次进入页面重复读盘解码封面
+    private static readonly ConcurrentDictionary<string, BitmapSource> _coverCache = new();
+
+    // ===== 撤销/重做 + 历史记录 =====
+    private readonly TextHistoryService _history = TextHistoryService.Instance;
+    private DispatcherTimer? _historyMergeTimer;
+    private bool _historySuspend;          // 程序回填文本时挂起历史采集，避免撤销本身再产生记录
+    private string _historyPendingKey = ""; // 待提交变动的编辑目标 key
 
     public ScriptPage()
     {
@@ -52,7 +61,8 @@ public partial class ScriptPage : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         _autoSaveTimer?.Stop();
-        // 页面卸载前强制保存当前内容（主题切换、导航离开等场景）
+        // 页面卸载前提交未完成的历史变动并强制保存
+        FlushHistory();
         ForceSave();
     }
 
@@ -78,7 +88,16 @@ public partial class ScriptPage : UserControl
             _currentChapter.OriginalContent = "$X:" + b64;
             FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
         }
-        catch { /* 保存失败静默 */ }
+        catch (Exception ex)
+        {
+            // 保存失败不再静默：记录错误日志，便于用户排查数据丢失原因
+            try
+            {
+                File.AppendAllText(Path.Combine(App.WorkRoot, "error.log"),
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} 章节保存失败: {ex}\n");
+            }
+            catch { }
+        }
     }
 
     /// <summary>更新编辑框文本（剧本/提示词切换时）</summary>
@@ -99,7 +118,8 @@ public partial class ScriptPage : UserControl
     /// <summary>统一小说内容格式：清除内联 Margin / Foreground，统一 FontFamily/FontSize（保留背景高亮标记）</summary>
     private void NormalizeOriginalTextFormat()
     {
-        if (!OriginalTextBox.IsLoaded || OriginalTextBox.Document == null) return;
+        // 不检查 IsLoaded：页面切到后台时 FlowDocument 仍可安全修改，保证设置页调整字号实时生效
+        if (OriginalTextBox.Document == null) return;
         var doc = OriginalTextBox.Document;
         var defaultFontSize = OriginalTextBox.FontSize;
         var defaultFontFamily = OriginalTextBox.FontFamily;
@@ -153,24 +173,29 @@ public partial class ScriptPage : UserControl
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        if (_loaded) return;
-        _loaded = true;
-
-        // 先加载字体设置（必须在内容加载前，否则 NormalizeOriginalTextFormat 用错值）
+        // 每次进入页面都应用最新字体配置（支持设置页实时调整字号后切回即时生效）
         try
         {
             var config = FileService.LoadConfig(App.WorkRoot);
             var fontSize = config.FontSize;
             ScriptEditBox.FontSize = fontSize;
             OriginalTextBox.FontSize = fontSize;
+            NormalizeOriginalTextFormat();
         }
         catch { }
 
-        try
+        if (_loaded) return;
+        _loaded = true;
+
+        // 延迟到渲染后再加载小说列表，避免阻塞页面首次显示（封面/图片均已异步解码）
+        Dispatcher.BeginInvoke(new Action(() =>
         {
-            RefreshNovelList();
-        }
-        catch { /* 初始化静默失败 */ }
+            try
+            {
+                RefreshNovelList();
+            }
+            catch { /* 初始化静默失败 */ }
+        }), DispatcherPriority.Loaded);
 
         _savedOriginalWidth = 300;
         _savedScriptWidth = 300;
@@ -185,6 +210,15 @@ public partial class ScriptPage : UserControl
             _autoSaveTimer.Stop();
             SaveCurrentContent();
         };
+
+        // 历史合并定时器：输入停顿 1.5 秒后把连续编辑合并为一次变动（类 Word 行为）
+        _historyMergeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+        _historyMergeTimer.Tick += (_, _) =>
+        {
+            _historyMergeTimer.Stop();
+            CommitPendingHistory();
+        };
+
         ScriptEditBox.TextChanged += (_, _) =>
         {
             _contentDirty = true;
@@ -193,6 +227,7 @@ public partial class ScriptPage : UserControl
                 _autoSaveTimer.Stop();
                 _autoSaveTimer.Start();
             }
+            OnEditorTextChanged(isScript: true);
         };
         OriginalTextBox.TextChanged += (_, _) =>
         {
@@ -201,6 +236,7 @@ public partial class ScriptPage : UserControl
                 _autoSaveTimer.Stop();
                 _autoSaveTimer.Start();
             }
+            OnEditorTextChanged(isScript: false);
         };
     }
 
@@ -240,6 +276,196 @@ public partial class ScriptPage : UserControl
             }
             SetCaretBackground(child, brush);
         }
+    }
+
+    // ===== 撤销/重做 + 历史记录采集 =====
+
+    /// <summary>构造当前编辑目标的唯一标识（小说ID|章节索引|字段）</summary>
+    private string GetHistoryKey(bool isScript)
+    {
+        string novelId = _currentNovel?.Id ?? "unknown";
+        string chapterId = _currentChapter?.Index.ToString() ?? "unknown";
+        // isScript=true 表示剧本/提示词模式（同一编辑框，需进一步区分模式）；false 表示小说原文
+        string field = isScript ? (_isScriptMode ? "script" : "prompt") : "original";
+        return $"{novelId}|{chapterId}|{field}";
+    }
+
+    /// <summary>文本变化时调用：启动停顿合并计时器，等待输入暂停后提交一次变动</summary>
+    private void OnEditorTextChanged(bool isScript)
+    {
+        if (_historySuspend || _currentChapter == null) return;
+
+        string key = GetHistoryKey(isScript);
+        // 记录本次编辑的起点文本（由服务内部管理）；此处仅在首次触发时 BeginEdit
+        _historyPendingKey = key;
+
+        // 重启合并定时器：连续输入会不断推迟提交，停顿后才提交
+        _historyMergeTimer?.Stop();
+        _historyMergeTimer?.Start();
+    }
+
+    /// <summary>提交一次文本变动到历史服务（停顿合并后调用）</summary>
+    private void CommitPendingHistory()
+    {
+        if (_historySuspend || _currentChapter == null || string.IsNullOrEmpty(_historyPendingKey)) return;
+
+        string key = _historyPendingKey;
+        string after = GetCurrentTextByKey(key);
+        _history.CommitEdit(key, after);
+        _historyPendingKey = "";
+    }
+
+    /// <summary>根据 key 获取当前编辑框文本</summary>
+    private string GetCurrentTextByKey(string key)
+    {
+        // key 格式：novelId|chapterId|field
+        var parts = key.Split('|');
+        string field = parts.Length >= 3 ? parts[2] : "";
+        return field switch
+        {
+            "script" => _isScriptMode ? ScriptEditBox.Text : _scriptText,
+            "prompt" => _isScriptMode ? _promptText : ScriptEditBox.Text,
+            "original" => GetOriginalText(),
+            _ => ScriptEditBox.Text
+        };
+    }
+
+    /// <summary>获取小说原文纯文本</summary>
+    private string GetOriginalText()
+    {
+        try
+        {
+            return new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd).Text;
+        }
+        catch { return ""; }
+    }
+
+    /// <summary>在切换章节/模式前，强制提交未完成的变动</summary>
+    private void FlushHistory()
+    {
+        _historyMergeTimer?.Stop();
+        CommitPendingHistory();
+    }
+
+    /// <summary>设置历史采集挂起状态（程序回填文本时暂停，避免撤销产生新记录）</summary>
+    private void SetHistorySuspend(bool suspend)
+    {
+        _historySuspend = suspend;
+        if (suspend) _historyMergeTimer?.Stop();
+    }
+
+    /// <summary>执行撤销（供全局按钮/快捷键调用）</summary>
+    public void UndoCurrentEditor()
+    {
+        if (_currentChapter == null) return;
+        // 优先针对当前焦点编辑框
+        string key = GetFocusedEditorKey();
+        if (string.IsNullOrEmpty(key)) return;
+
+        string? result = _history.Undo(key);
+        if (result == null) return;
+
+        ApplyTextByKey(key, result);
+        _contentDirty = true;
+    }
+
+    /// <summary>执行重做（供全局按钮/快捷键调用）</summary>
+    public void RedoCurrentEditor()
+    {
+        if (_currentChapter == null) return;
+        string key = GetFocusedEditorKey();
+        if (string.IsNullOrEmpty(key)) return;
+
+        string? result = _history.Redo(key);
+        if (result == null) return;
+
+        ApplyTextByKey(key, result);
+        _contentDirty = true;
+    }
+
+    /// <summary>判断当前是否可撤销/重做（供全局按钮刷新状态）</summary>
+    public (bool canUndo, bool canRedo) GetHistoryState()
+    {
+        string key = GetFocusedEditorKey();
+        if (string.IsNullOrEmpty(key)) return (false, false);
+        return (_history.CanUndo, _history.CanRedo);
+    }
+
+    /// <summary>获取当前焦点所在编辑框的 key（无焦点时默认剧本编辑框）</summary>
+    private string GetFocusedEditorKey()
+    {
+        if (OriginalTextBox.IsKeyboardFocused || OriginalTextBox.IsFocused)
+            return GetHistoryKey(isScript: false);
+        return GetHistoryKey(isScript: true);
+    }
+
+    /// <summary>
+    /// 从历史窗口回退：将指定编辑目标的文本恢复为历史快照内容。
+    /// 供 TextHistoryWindow 调用。
+    /// </summary>
+    public void RestoreHistorySnapshot(string key, string content)
+    {
+        if (string.IsNullOrEmpty(key)) return;
+
+        // 定位到对应章节（key 格式：novelId|chapterId|field）
+        var parts = key.Split('|');
+        if (parts.Length < 3) return;
+        string novelId = parts[0];
+        string chapterId = parts[1];
+
+        // 若当前未选中对应章节，先切换过去
+        if (_currentNovel == null || _currentNovel.Id != novelId)
+        {
+            var novel = _novels.FirstOrDefault(n => n.Id == novelId);
+            if (novel != null) SelectNovel(novel);
+            else return;
+        }
+        if (_currentChapter == null || _currentChapter.Index.ToString() != chapterId)
+        {
+            var chapter = _chapters.FirstOrDefault(c => c.Index.ToString() == chapterId);
+            if (chapter != null) SelectChapter(chapter);
+            else return;
+        }
+
+        // 回填文本
+        ApplyTextByKey(key, content);
+
+        // 更新历史服务中该 key 的已知文本，保证后续撤销/重做基于回退后的状态
+        _history.RegisterBaseline(key, content);
+    }
+
+    /// <summary>根据 key 回填文本（撤销/重做/历史回退共用）</summary>
+    private void ApplyTextByKey(string key, string text)
+    {
+        var parts = key.Split('|');
+        string field = parts.Length >= 3 ? parts[2] : "";
+        SetHistorySuspend(true);
+        try
+        {
+            switch (field)
+            {
+                case "script":
+                    _scriptText = text;
+                    if (_isScriptMode) ScriptEditBox.Text = text;
+                    _currentChapter!.ScriptContent = text;
+                    break;
+                case "prompt":
+                    _promptText = text;
+                    if (!_isScriptMode) ScriptEditBox.Text = text;
+                    _currentChapter!.ScriptPrompt = text;
+                    break;
+                case "original":
+                    var range = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
+                    range.Text = text;
+                    break;
+            }
+        }
+        finally
+        {
+            SetHistorySuspend(false);
+        }
+        // 回填后触发保存
+        SaveCurrentContent();
     }
 
     // ===== 小说列表 =====
@@ -292,24 +518,12 @@ public partial class ScriptPage : UserControl
             Margin = new Thickness(0, 0, 0, 6)
         };
 
+        // 封面：有封面图时先用 CoverColor 作为加载占位色，加载完成后由 LoadNovelCoverAsync
+// 清空 Background 以保留原图（PNG）透明区域真实透明；无封面图时才永久用 CoverColor
         if (novel.HasCoverImage)
         {
-            try
-            {
-                var data = File.ReadAllBytes(FileService.NovelCoverFile(App.WorkRoot, novel.Id));
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                using var ms1 = new MemoryStream(data);
-                bmp.StreamSource = ms1;
-                bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.EndInit();
-                bmp.Freeze();
-                coverBorder.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
-            }
-            catch
-            {
-                coverBorder.Background = ViewHelpers.ParseColor(novel.CoverColor);
-            }
+            coverBorder.Background = ViewHelpers.ParseColor(novel.CoverColor);
+            LoadNovelCoverAsync(novel, coverBorder);
         }
         else
         {
@@ -353,6 +567,64 @@ public partial class ScriptPage : UserControl
             menu.IsOpen = true;
         };
         return border;
+    }
+
+    /// <summary>
+    /// 异步加载小说封面：优先命中缓存，否则后台读盘解码后回填。
+    /// 封面加载不再阻塞 UI 线程，大幅降低进入剧本页的卡顿。
+    /// </summary>
+    private void LoadNovelCoverAsync(NovelInfo novel, Border coverBorder)
+    {
+        var coverFile = FileService.NovelCoverFile(App.WorkRoot, novel.Id);
+        string cacheKey;
+        try
+        {
+            var fi = new FileInfo(coverFile);
+            // 以文件最后修改时间作为缓存键，封面更新后能自动失效
+            cacheKey = $"{novel.Id}|{fi.LastWriteTimeUtc.Ticks}";
+        }
+        catch { cacheKey = $"{novel.Id}|0"; }
+
+        // 命中缓存：立即同步回填，并清空 coverBorder 的 Background（保留原图透明区域）
+        if (_coverCache.TryGetValue(cacheKey, out var cached))
+        {
+            coverBorder.Background = Brushes.Transparent;
+            coverBorder.Child = new Image { Source = cached, Stretch = Stretch.UniformToFill };
+            return;
+        }
+
+        // 未命中：后台加载，完成后切回 UI 线程回填
+        Task.Run(() =>
+        {
+            try
+            {
+                var data = File.ReadAllBytes(coverFile);
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                using var ms = new MemoryStream(data);
+                bmp.StreamSource = ms;
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = 160; // 封面仅 80x110 显示，降采样减少解码开销
+                bmp.EndInit();
+                bmp.Freeze();
+                _coverCache[cacheKey] = bmp;
+                return (BitmapSource)bmp;
+            }
+            catch { return null; }
+        }).ContinueWith(t =>
+        {
+            if (t.Result == null) return;
+            Dispatcher.BeginInvoke(() =>
+            {
+                // 卡片可能已被重建，检查控件是否仍挂在视觉树上
+                if (coverBorder.IsLoaded || coverBorder.Parent != null)
+                {
+                    // 清空 coverBorder 的 Background，保留原图（PNG）透明区域真实透明
+                    coverBorder.Background = Brushes.Transparent;
+                    coverBorder.Child = new Image { Source = t.Result, Stretch = Stretch.UniformToFill };
+                }
+            });
+        }, TaskScheduler.Default);
     }
 
     private void RenameNovel(NovelInfo novel)
@@ -677,9 +949,10 @@ public partial class ScriptPage : UserControl
 
     private void SelectChapter(Chapter chapter)
     {
-        // 切换章节前先保存当前编辑内容
+        // 切换章节前先保存当前编辑内容，并提交未完成的历史变动
         if (_currentChapter != null && _currentChapter != chapter)
         {
+            FlushHistory();
             if (_isScriptMode) _scriptText = ScriptEditBox.Text;
             else _promptText = ScriptEditBox.Text;
             SaveCurrentContent();
@@ -746,6 +1019,16 @@ public partial class ScriptPage : UserControl
         _promptText = _currentChapter.ScriptPrompt ?? "";
         UpdateScriptEditor();
         RefreshImageGrid();
+
+        // 注册历史基准文本（作为第一次编辑的 before）
+        if (_currentNovel != null && _currentChapter != null)
+        {
+            string novelId = _currentNovel.Id;
+            string chapterId = _currentChapter.Index.ToString();
+            _history.RegisterBaseline($"{novelId}|{chapterId}|script", _scriptText);
+            _history.RegisterBaseline($"{novelId}|{chapterId}|prompt", _promptText);
+            _history.RegisterBaseline($"{novelId}|{chapterId}|original", GetOriginalText());
+        }
     }
 
     // ===== 剧本/提示词切换 =====
@@ -757,7 +1040,8 @@ public partial class ScriptPage : UserControl
         if (_toggling || _currentChapter == null) return;
         _toggling = true;
 
-        // 切换前将 TextBox 实时编辑内容同步到字段并保存
+        // 切换前提交未完成的历史变动，并同步字段
+        FlushHistory();
         if (_isScriptMode)
         {
             _scriptText = ScriptEditBox.Text;
@@ -996,61 +1280,204 @@ public partial class ScriptPage : UserControl
     {
         if (_currentNovel == null || _currentChapter == null) return;
 
+        // 不再强制要求 API Key：使用 ComfyUI 本地引擎时无需 API Key，进入对话框后再按引擎校验
         var config = FileService.LoadConfig(App.WorkRoot);
-        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
-        {
-            ShowCopyToast("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥");
-            return;
-        }
 
+        // 关键：不设置 Owner！WPF 关闭 owned 子窗口时会激活/最小化 AllowsTransparency 主窗口。
+        // 去掉 Owner 彻底切断 owned 关系，用 Topmost + 手动居中保持使用体验。
         var win = new Window
         {
             Title = "AI 生成图片",
-            Width = 500, Height = 360,
-            MinWidth = 400, MinHeight = 300,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = Window.GetWindow(this),
+            Width = 560, Height = 470,
+            MinWidth = 480, MinHeight = 400,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Topmost = true,
+            ShowInTaskbar = false,
             ResizeMode = ResizeMode.CanResize,
             Background = (Brush)FindResource("WindowBackgroundBrush")
         };
+        ViewHelpers.CenterWindowOnOwner(win, Window.GetWindow(this));
 
         var grid = new Grid { Margin = new Thickness(16) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        // 标题
-        grid.Children.Add(new TextBlock
+        // 标题（带当前引擎徽章 + 优化按钮）
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.Children.Add(new TextBlock
         {
             Text = "输入图片生成提示词",
             FontSize = 14, FontWeight = FontWeights.SemiBold,
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            Margin = new Thickness(0, 0, 0, 4)
+            VerticalAlignment = VerticalAlignment.Center
         });
 
-        // 提示词输入框
+        // 顶部引擎标识（紧凑胶囊样式，提示当前生效的生图引擎）
+        var providerBadge = new Border
+        {
+            CornerRadius = new CornerRadius(10),
+            Background = (Brush)FindResource("PrimaryLowBrush"),
+            BorderBrush = (Brush)FindResource("PrimaryBrush"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(8, 3, 8, 3),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0)
+        };
+        var providerBadgeText = new TextBlock
+        {
+            FontSize = 10, FontWeight = FontWeights.SemiBold,
+            Foreground = (Brush)FindResource("PrimaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        if (config.DefaultImageProvider == "ComfyUI")
+            providerBadgeText.Text = "🖥️ 本地 ComfyUI";
+        else
+            providerBadgeText.Text = "☁️ 云端 API";
+        providerBadgeText.ToolTip = "本次图片生成将使用此引擎（在设置→AI 模型配置中切换）";
+        providerBadge.Child = providerBadgeText;
+        Grid.SetColumn(providerBadge, 1);
+        headerGrid.Children.Add(providerBadge);
+
+        var optimizeBtn = new Button
+        {
+            Content = "✨ 优化提示词",
+            FontSize = 12, Padding = new Thickness(14, 5, 14, 5),
+            Style = (Style)FindResource("PrimaryButtonStyle"),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "AI 将您的简短提示词丰富为高质量图片生成提示词"
+        };
+        Grid.SetColumn(optimizeBtn, 2);
+        headerGrid.Children.Add(optimizeBtn);
+        Grid.SetRow(headerGrid, 0);
+        grid.Children.Add(headerGrid);
+
+        // 提示词输入框（加大字号、统一背景与圆角，四角带阴影）
         var promptBox = new TextBox
         {
             Text = "",
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontSize = 13, FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            FontSize = 13.5, FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             Background = (Brush)FindResource("CardBackgroundBrush"),
             BorderBrush = (Brush)FindResource("BorderBrush"),
             BorderThickness = new Thickness(1),
-            Padding = new Thickness(10)
+            Padding = new Thickness(12, 10, 12, 10),
+            VerticalContentAlignment = VerticalAlignment.Top
         };
         Grid.SetRow(promptBox, 2);
         grid.Children.Add(promptBox);
 
-        // 底部：尺寸选择 + 生成按钮
-        var footer = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
+        // ===== 参考图区域（0 张=文生图，1 张=图生图，多张=多图编辑） =====
+        var refImages = new List<string>(); // Data URI Base64
+        var refPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
+        var addRefBtn = new Button
+        {
+            Content = "🖼️ 添加参考图", FontSize = 11,
+            Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(0, 0, 6, 0),
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            ToolTip = "选择本地图片作为参考：1 张=图生图，多张=多图编辑/合成（在提示词中说明组合方式）"
+        };
+        refPanel.Children.Add(addRefBtn);
+        var assetRefBtn = new Button
+        {
+            Content = "📁 项目资产", FontSize = 11,
+            Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(0, 0, 6, 0),
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            ToolTip = "从当前项目的图片资产中选择参考图（章节图片 / 人物素材 / 封面 / 头像）"
+        };
+        refPanel.Children.Add(assetRefBtn);
+        var clearRefBtn = new Button
+        {
+            Content = "✕ 清除", FontSize = 11,
+            Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(0, 0, 8, 0),
+            Visibility = Visibility.Collapsed,
+            Style = (Style)FindResource("SecondaryButtonStyle")
+        };
+        refPanel.Children.Add(clearRefBtn);
+        var refHintText = new TextBlock
+        {
+            Text = "可添加 1 张（图生图）或多张（多图编辑）参考图",
+            FontSize = 10.5,
+            Foreground = (Brush)FindResource("TextTertiaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        refPanel.Children.Add(refHintText);
 
-        // 尺寸选择区域（带边框卡片样式）
+        addRefBtn.Click += (_, _) =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "图片文件|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif",
+                Multiselect = true,
+                Title = "选择参考图片（可多选）"
+            };
+            // 显式绑定 owner 为 AI 小窗口，避免对话框关闭后激活主窗口触发其误最小化
+            if (dlg.ShowDialog(win) != true) return;
+            foreach (var file in dlg.FileNames)
+            {
+                ViewHelpers.AddReferenceThumb(refPanel, file, refImages,
+                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn));
+            }
+            ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+        };
+        // 从项目资产中选择参考图（owner 传 AI 小窗口，避免模态选择器关闭时激活主窗口触发其误最小化）
+        assetRefBtn.Click += (_, _) =>
+        {
+            try
+            {
+                if (_currentNovel == null) { ShowCopyToast("⚠ 请先选择小说"); return; }
+                var path = ViewHelpers.PickProjectImage(
+                    win, "选择项目图片作为参考图",
+                    App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder);
+                if (path == null) return;
+                ViewHelpers.AddReferenceThumb(refPanel, path, refImages,
+                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn));
+                ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            }
+            catch (Exception ex)
+            {
+                ShowCopyToast($"⚠ 无法打开项目资产：{ex.Message}");
+            }
+        };
+        clearRefBtn.Click += (_, _) =>
+        {
+            refImages.Clear();
+            // 移除所有缩略图（保留按钮/提示）
+            for (int i = refPanel.Children.Count - 1; i >= 0; i--)
+            {
+                if (refPanel.Children[i] is Border b && b.Tag is string t && t == "refthumb")
+                    refPanel.Children.RemoveAt(i);
+            }
+            ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+        };
+
+        var refRow = new DockPanel();
+        DockPanel.SetDock(refPanel, Dock.Left);
+        refRow.Children.Add(refPanel);
+        Grid.SetRow(refRow, 4);
+        grid.Children.Add(refRow);
+
+        // 底部 footer：两行布局（避免单行过宽导致按钮被遮挡）
+        // 生成引擎由设置中的「默认生图引擎」单选框决定
+        var footer = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
+
+        // 第一行：尺寸选择区域
+        var footerTopRow = new DockPanel();
+
+        // 尺寸选择区域：比例 + 像素档位（1K=1024，16:9 + 1K → 1824x1024）
         var sizeCard = new Border
         {
             Background = (Brush)FindResource("CardBackgroundBrush"),
@@ -1063,29 +1490,84 @@ public partial class ScriptPage : UserControl
         var sizePanel = new StackPanel { Orientation = Orientation.Horizontal };
         sizePanel.Children.Add(new TextBlock
         {
-            Text = "📐 尺寸", FontSize = 12, FontWeight = FontWeights.Medium,
+            Text = "📐", FontSize = 12, FontWeight = FontWeights.Medium,
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0)
+            Margin = new Thickness(0, 0, 6, 0)
         });
-        var sizeBox = new ComboBox
+        // 比例选择（宽度需≥76 才能让「16:9」完整渲染：内部可用 = Width - 34）
+        var ratioBox = new ComboBox
         {
-            Width = 140, Height = 28, FontSize = 13,
-            IsEditable = true, IsReadOnly = false,
-            Text = _lastImageSize,
-            ItemsSource = new[] { "1024x768", "1024x1024", "768x1024", "1280x720", "1920x1080", "512x512", "2560x1440" },
+            Width = 76, Height = 28, FontSize = 12,
+            ItemsSource = ViewHelpers.ImageRatios,
+            SelectedItem = _lastImageRatio,
+            ToolTip = "选择宽高比例",
             Style = (Style)Application.Current.FindResource("ModernComboBoxStyle"),
             Background = (Brush)FindResource("CardBackgroundBrush"),
             BorderBrush = (Brush)FindResource("BorderBrush"),
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            Padding = new Thickness(8, 0, 8, 0)
+            Padding = new Thickness(6, 0, 6, 0)
         };
-        sizePanel.Children.Add(sizeBox);
+        sizePanel.Children.Add(ratioBox);
+        // 像素档位选择（宽度需≥60 让「1K」完整显示）
+        var levelBox = new ComboBox
+        {
+            Width = 62, Height = 28, FontSize = 12,
+            Margin = new Thickness(6, 0, 0, 0),
+            ItemsSource = ViewHelpers.ImageLevels,
+            SelectedItem = _lastImageLevel,
+            ToolTip = "像素档位（短边像素，1K=1024）",
+            Style = (Style)Application.Current.FindResource("ModernComboBoxStyle"),
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Padding = new Thickness(6, 0, 6, 0)
+        };
+        sizePanel.Children.Add(levelBox);
+        // 计算结果展示：紧凑布局，避免「1824x1024」挤压右侧按钮
+        var sizeResultText = new TextBlock
+        {
+            Text = "", FontSize = 10,
+            Foreground = (Brush)FindResource("AccentBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(6, 0, 0, 0),
+            MinWidth = 60,
+            FontFamily = new System.Windows.Media.FontFamily("Consolas, Microsoft YaHei UI")
+        };
+        sizePanel.Children.Add(sizeResultText);
+
+        void UpdateSizeResult()
+        {
+            var ratio = ratioBox.SelectedItem?.ToString() ?? "1:1";
+            var level = levelBox.SelectedItem?.ToString() ?? "1K";
+            sizeResultText.Text = ViewHelpers.CalcImageSize(ratio, level);
+        }
+        ratioBox.SelectionChanged += (_, _) => UpdateSizeResult();
+        levelBox.SelectionChanged += (_, _) => UpdateSizeResult();
+        UpdateSizeResult();
+
         sizeCard.Child = sizePanel;
         DockPanel.SetDock(sizeCard, Dock.Left);
-        footer.Children.Add(sizeCard);
+        footerTopRow.Children.Add(sizeCard);
 
-        var btnPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        footer.Children.Add(footerTopRow);
+
+        // 第二行：按钮组（靠右） — 独立成行，不再被遮挡
+        var btnPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        var queueBtn = new Button
+        {
+            Content = "📋 查看队列",
+            FontSize = 12, Padding = new Thickness(12, 6, 12, 6),
+            Margin = new Thickness(0, 0, 8, 0),
+            Style = (Style)FindResource("SecondaryButtonStyle")
+        };
+        queueBtn.Click += (_, _) => OpenQueueWindow();
+        btnPanel.Children.Add(queueBtn);
         var genBtn = new Button
         {
             Content = "🎨 开始生成",
@@ -1094,14 +1576,68 @@ public partial class ScriptPage : UserControl
         };
         btnPanel.Children.Add(genBtn);
         footer.Children.Add(btnPanel);
-        Grid.SetRow(footer, 4);
+        Grid.SetRow(footer, 6);
         grid.Children.Add(footer);
 
         win.Content = grid;
 
-        var cts = new CancellationTokenSource();
+        // 优化提示词按钮事件
+        optimizeBtn.Click += async (_, _) =>
+        {
+            var rawPrompt = promptBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(rawPrompt))
+            {
+                ShowCopyToast("⚠ 请先输入提示词再优化");
+                return;
+            }
+            optimizeBtn.IsEnabled = false;
+            optimizeBtn.Content = "⏳ 优化中...";
+            try
+            {
+                // 是否有参考图：0 张=文生图（仅依据文本优化），≥1 张=图生图/多图编辑（依据文本 + 图像内容优化）
+                bool hasRef = refImages.Count > 0;
 
-        genBtn.Click += async (_, _) =>
+                var sys = "你是一位专业的 AI 图像生成提示词优化师。"
+                    + (hasRef
+                        ? "用户提供了参考图，请仔细观察参考图的内容（主体外观、姿态、场景、构图、色彩风格），"
+                          + "并结合用户文本，扩展为一段详细、专业的图像生成提示词，使生成结果与参考图风格统一。"
+                          + "要求：1. 准确提炼参考图中的主体特征、构图与色调并融入提示词 2. 若文本与参考图冲突，以文本意图为主、参考图风格为辅 "
+                          + "3. 详细描述主体外观、表情、姿态、服饰 4. 描述场景背景、构图、景深 "
+                          + "5. 丰富光影、色彩、氛围 6. 指定摄影/绘画风格（如电影剧照、肖像摄影、动漫风）"
+                          + "7. 使用流畅的英文或中英混合（英文术语更准确） 8. 保持原意同时让画面更具视觉冲击力 9. 只输出优化后的提示词，不要任何解释。"
+                        : "请根据用户提供的简短提示词，扩展为一段详细、专业的图像生成提示词。"
+                          + "要求：1. 详细描述主体外观、表情、姿态、服饰 2. 描述场景背景、构图、景深 "
+                          + "3. 丰富光影、色彩、氛围 4. 指定摄影/绘画风格（如电影剧照、肖像摄影、动漫风）"
+                          + "5. 使用流畅的英文或中英混合（英文术语更准确）"
+                          + "6. 保持原意的同时让画面更具视觉冲击力 7. 只输出优化后的提示词，不要任何解释。");
+
+                // 有参考图时，将参考图作为视觉输入一起交给模型；否则仅用文本
+                var result = hasRef
+                    ? await ApiService.ChatWithImagesAsync(
+                        config.ApiEndpoint, config.ApiKey, config.ApiModel,
+                        sys, $"请结合参考图优化以下图像生成提示词：\n{rawPrompt}",
+                        refImages)
+                    : await ApiService.ChatAsync(
+                        config.ApiEndpoint, config.ApiKey, config.ApiModel,
+                        sys, $"请优化以下图像生成提示词：\n{rawPrompt}");
+
+                if (!string.IsNullOrWhiteSpace(result))
+                {
+                    promptBox.Text = result.Trim();
+                    ShowCopyToast(hasRef ? "✓ 提示词已结合参考图优化" : "✓ 提示词已优化");
+                }
+            }
+            catch (ApiException ex) { ShowCopyToast($"⚠ {ex.Message}"); }
+            catch (Exception ex) { ShowCopyToast($"⚠ 优化失败：{ex.Message}"); }
+            finally
+            {
+                optimizeBtn.IsEnabled = true;
+                optimizeBtn.Content = "✨ 优化提示词";
+            }
+        };
+
+        // 生成按钮：创建任务并入队后立即关闭窗口，生成交给后台队列串行执行
+        genBtn.Click += (_, _) =>
         {
             var prompt = promptBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(prompt))
@@ -1110,55 +1646,82 @@ public partial class ScriptPage : UserControl
                 return;
             }
 
-            genBtn.IsEnabled = false;
-            genBtn.Content = "⏳ 生成中...";
-            sizeBox.IsEnabled = false;
+            bool useComfy = config.DefaultImageProvider == "ComfyUI";
 
-            try
+            // 在线 API 引擎需要 API Key；ComfyUI 引擎需要已配置服务地址
+            if (!useComfy && (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint)))
             {
-                var size = sizeBox.Text.Trim();
-                _lastImageSize = size;
-                var imageUrl = await ApiService.GenerateImageAsync(
-                    config.ApiEndpoint, config.ApiKey, prompt, config.ImageModel, size, cts.Token);
+                ShowCopyToast("⚠ 使用在线 API 需先在「设置→AI 模型配置」中填入 API 地址和密钥");
+                return;
+            }
+            if (useComfy && (string.IsNullOrWhiteSpace(config.ComfyUiEndpoint) || string.IsNullOrWhiteSpace(config.ComfyUiWorkflowFile)))
+            {
+                ShowCopyToast("⚠ 使用本地 ComfyUI 需先在「设置→AI 模型配置」中配置 ComfyUI 地址和工作流文件");
+                return;
+            }
 
-                var imageBytes = await ApiService.DownloadImageAsync(imageUrl, cts.Token);
+            var ratio = ratioBox.SelectedItem?.ToString() ?? "1:1";
+            var level = levelBox.SelectedItem?.ToString() ?? "1K";
+            _lastImageRatio = ratio;
+            _lastImageLevel = level;
+            var size = ViewHelpers.CalcImageSize(ratio, level);
 
-                // 保存到当前章节图像目录
-                var targetDir = FileService.ChapterImagesPath(
-                    App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
-                FileService.EnsureDirectory(targetDir);
-                var fileName = $"AI_{DateTime.Now:yyyyMMdd_HHmmss}.png";
-                var filePath = Path.Combine(targetDir, fileName);
-                await File.WriteAllBytesAsync(filePath, imageBytes, cts.Token);
-
-                // 已经回到 UI 线程，直接操作 UI
-                RefreshImageGrid();
-                ShowCopyToast("✓ 图片已生成并保存");
-                try { win.Close(); } catch { }
-            }
-            catch (OperationCanceledException)
+            // 快照当前小说/章节，防止用户切换后任务保存到错误目录
+            var novel = _currentNovel;
+            var chapter = _currentChapter;
+            var providerLabel = useComfy ? "ComfyUI" : "API";
+            var task = new AiTask
             {
-                ShowCopyToast("⚠ 已取消");
-            }
-            catch (ApiException ex)
-            {
-                ShowCopyToast($"⚠ {ex.Message}");
-            }
-            catch (Exception ex)
-            {
-                ShowCopyToast($"⚠ 生成失败：{ex.Message}");
-            }
-            finally
-            {
-                try { cts.Dispose(); } catch { }
-                genBtn.IsEnabled = true;
-                genBtn.Content = "🎨 开始生成";
-                sizeBox.IsEnabled = true;
-            }
+                Type = AiTaskType.Image,
+                Provider = useComfy ? ImageProvider.ComfyUI : ImageProvider.Api,
+                Prompt = prompt,
+                Detail = useComfy
+                    ? $"ComfyUI·{size}" + (refImages.Count > 0 ? $"·参考图×{refImages.Count}" : "")
+                    : (refImages.Count > 0 ? $"参考图×{refImages.Count}·{size}" : size),
+                ReferenceImages = refImages.Count > 0 ? new List<string>(refImages) : null,
+                ApiEndpoint = useComfy ? config.ComfyUiEndpoint : config.ApiEndpoint,
+                ApiKey = config.ApiKey,
+                Model = config.ImageModel,
+                ComfyWorkflowFile = config.ComfyUiWorkflowFile,
+                TargetDir = FileService.ChapterImagesPath(App.WorkRoot, novel.MediaFolder, chapter.FolderName),
+                FileNameBase = $"AI_{DateTime.Now:yyyyMMdd_HHmmss}",
+                ImageSize = size,
+                NovelName = novel.Name,
+                ScopeName = $"第{chapter.Index}章 {chapter.Title}"
+            };
+            AiTaskManager.Enqueue(task);
+            ShowCopyToast($"✓ 已加入 AI 任务队列（{providerLabel}）");
+            try { win.Close(); } catch { }
         };
 
-        win.Closed += (_, _) => cts.Cancel();
-        win.ShowDialog();
+        // 注册到浮动窗口管理器：最小化时自动隐藏，可通过快捷键恢复
+        FloatingWindowManager.Instance.Register(win);
+
+        // 异步窗口：非模态显示且无 Owner，用户可关闭窗口/离开页面做其他事，生成在后台队列中继续
+        win.Show();
+    }
+
+    /// <summary>打开 AI 任务队列窗口（Topmost 置顶显示，不设 Owner 避免遮挡与主窗口最小化问题）</summary>
+    private void OpenQueueWindow()
+    {
+        try
+        {
+            var qw = new AiTaskQueueWindow();
+            qw.Show();
+        }
+        catch (Exception ex)
+        {
+            ShowCopyToast($"⚠ 无法打开队列：{ex.Message}");
+        }
+    }
+
+    /// <summary>AI 任务完成后，若目标目录是当前章节的图像目录则实时刷新素材列表</summary>
+    public void TryRefreshAfterAiTask(AiTask task)
+    {
+        if (_currentNovel == null || _currentChapter == null) return;
+        var target = FileService.ChapterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
+        if (string.Equals(target.TrimEnd('\\', '/'), task.TargetDir.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
+            RefreshImageGrid();
     }
 
     private void RefreshImageGrid()
@@ -1189,51 +1752,72 @@ public partial class ScriptPage : UserControl
             return;
         }
 
+        // ===== 瀑布流布局 =====
+        // 根据可用宽度自适应列数（1~4 列），每列独立纵向堆叠，按原始宽高比显示
         int cols = 3;
-        // 根据可用宽度自适应列数
         if (ImagePanel.IsLoaded && ImagePanel.ActualWidth > 0)
         {
             double availW = ImagePanel.ActualWidth - 16; // 减去内边距
-            if (availW < 260) cols = 1;      // 窄屏：单列大图
-            else if (availW < 460) cols = 2; // 中等：双列
+            if (availW < 260) cols = 1;
+            else if (availW < 460) cols = 2;
+            else if (availW < 720) cols = 3;
+            else cols = 4;
         }
-        for (int i = 0; i < cols; i++)
-            ImageGrid.ColumnDefinitions.Add(new ColumnDefinition());
 
-        for (int i = 0; i < images.Count; i++)
+        // 每列创建一个 StackPanel 作为垂直瀑布流容器
+        for (int i = 0; i < cols; i++)
+            ImageGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        ImageGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var columnPanels = new StackPanel[cols];
+        for (int c = 0; c < cols; c++)
         {
-            ImageGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            string imgPath = images[i];
+            columnPanels[c] = new StackPanel { VerticalAlignment = VerticalAlignment.Top };
+            Grid.SetColumn(columnPanels[c], c);
+            ImageGrid.Children.Add(columnPanels[c]);
+        }
+
+        // 瀑布流列高累加器（用于"最短列优先"贪心分配）
+        var columnHeights = new double[cols];
+
+        foreach (var imgPath in images)
+        {
             string imgName = Path.GetFileName(imgPath);
             try
             {
-                int decodeWidth = cols == 1 ? 400 : (cols == 2 ? 300 : 240);
-                // 图片缓存：同一文件同尺寸复用已解码对象，避免反复读盘+解码
+                // 读取原始尺寸，按列宽换算显示高度（用于均衡列高）
+                double ratio = GetImageAspectRatio(imgPath); // 宽/高，未知时默认 1
+                double displayHeight = ratio > 0 ? (220.0 / ratio) : 170.0;
+
+                // 找到当前最矮的列
+                int targetCol = 0;
+                for (int c = 1; c < cols; c++)
+                    if (columnHeights[c] < columnHeights[targetCol]) targetCol = c;
+                columnHeights[targetCol] += displayHeight;
+
+                // 解码宽度按列宽设置（瀑布流图片更小更轻）
+                int decodeWidth = cols == 1 ? 400 : 240;
                 var cacheKey = $"{imgPath}@{decodeWidth}w";
-                BitmapImage? bmp = null;
-                if (_imageCache.TryGetValue(cacheKey, out var cached))
-                    bmp = cached as BitmapImage;
-                if (bmp == null)
-                {
-                    var data = File.ReadAllBytes(imgPath);
-                    bmp = new BitmapImage();
-                    bmp.BeginInit();
-                    using var msImg = new MemoryStream(data);
-                    bmp.StreamSource = msImg;
-                    bmp.CacheOption = BitmapCacheOption.OnLoad;
-                    bmp.DecodePixelWidth = decodeWidth;
-                    bmp.EndInit();
-                    bmp.Freeze();
-                    _imageCache[cacheKey] = bmp;
-                }
 
                 var img = new Image
                 {
-                    Source = bmp, Stretch = Stretch.Uniform,
-                    MaxHeight = cols == 1 ? 280 : (cols == 2 ? 200 : 170),
+                    Stretch = Stretch.Uniform,
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
                     Tag = imgPath,
                     Cursor = Cursors.Hand
                 };
+
+                // 命中缓存：立即回填；未命中：后台异步解码，避免阻塞 UI
+                if (_imageCache.TryGetValue(cacheKey, out var cached) && cached != null)
+                {
+                    img.Source = cached;
+                }
+                else
+                {
+                    // 先占位（保持瀑布流高度），后台解码后回填
+                    img.MinHeight = 120;
+                    LoadImageAsync(imgPath, cacheKey, decodeWidth, img);
+                }
 
                 // 选中角标（仅多选时显示，右上角小圆角方块 + 勾）
                 var selBadge = new Border
@@ -1313,12 +1897,69 @@ public partial class ScriptPage : UserControl
                         ViewHelpers.ShowImageViewer(imgPath, Window.GetWindow(this));
                 };
 
-                Grid.SetRow(card, i / cols);
-                Grid.SetColumn(card, i % cols);
-                ImageGrid.Children.Add(card);
+                columnPanels[targetCol].Children.Add(card);
             }
             catch { /* 单张加载失败不影响其他 */ }
         }
+    }
+
+    /// <summary>
+    /// 读取图片原始宽高比（宽/高）。仅读取文件头，不完整解码，速度快。
+    /// 返回 0 表示无法解析（默认按 1:1 处理）。
+    /// </summary>
+    private static double GetImageAspectRatio(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var decoder = BitmapDecoder.Create(fs, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
+            if (decoder.Frames.Count > 0)
+            {
+                int w = decoder.Frames[0].PixelWidth;
+                int h = decoder.Frames[0].PixelHeight;
+                if (w > 0 && h > 0) return (double)w / h;
+            }
+        }
+        catch { /* 忽略解析失败 */ }
+        return 0;
+    }
+
+    /// <summary>
+    /// 后台异步解码图片并回填到 Image 控件。解码在 Task.Run 线程完成，
+    /// 通过 Dispatcher 切回 UI 线程设置 Source，避免阻塞界面。
+    /// </summary>
+    private void LoadImageAsync(string imgPath, string cacheKey, int decodeWidth, Image img)
+    {
+        Task.Run(() =>
+        {
+            try
+            {
+                var data = File.ReadAllBytes(imgPath);
+                var bmp = new BitmapImage();
+                bmp.BeginInit();
+                using var msImg = new MemoryStream(data);
+                bmp.StreamSource = msImg;
+                bmp.CacheOption = BitmapCacheOption.OnLoad;
+                bmp.DecodePixelWidth = decodeWidth;
+                bmp.EndInit();
+                bmp.Freeze();
+                _imageCache[cacheKey] = bmp;
+                return (BitmapSource)bmp;
+            }
+            catch { return null; }
+        }).ContinueWith(t =>
+        {
+            if (t.Result == null) return;
+            Dispatcher.BeginInvoke(() =>
+            {
+                // 控件可能已被重建，检查是否仍可用
+                if (img.IsLoaded || img.Parent != null)
+                {
+                    img.Source = t.Result;
+                    img.MinHeight = 0;
+                }
+            });
+        }, TaskScheduler.Default);
     }
 
     private Button CreateImageBtn(string icon, string tooltip, Action click)
@@ -1929,7 +2570,16 @@ public partial class ScriptPage : UserControl
         }
 
         try { FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters); }
-        catch (Exception ex) { Debug.WriteLine($"[自动保存] {ex.Message}"); }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[自动保存] {ex.Message}");
+            try
+            {
+                File.AppendAllText(Path.Combine(App.WorkRoot, "error.log"),
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} 自动保存失败: {ex}\n");
+            }
+            catch { }
+        }
     }
 
     private void ScriptTextBox_LostFocus(object sender, RoutedEventArgs e)

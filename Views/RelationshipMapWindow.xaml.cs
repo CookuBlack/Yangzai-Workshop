@@ -97,8 +97,7 @@ public partial class RelationshipMapWindow : Window
     {
         if (_hoveredTarget != null && _hoveredTarget != _connectFirst)
         {
-            // 恢复目标节点高亮环为默认颜色（PrimaryBrush），然后隐藏
-            _hoveredTarget.Highlight.Stroke = (Brush)Application.Current.Resources["PrimaryBrush"];
+            // hover 结束：仅隐藏发光环（颜色由 DropShadowEffect 统一管理）
             _hoveredTarget.Highlight.Visibility = Visibility.Collapsed;
         }
         _hoveredTarget = null;
@@ -176,7 +175,8 @@ public partial class RelationshipMapWindow : Window
     {
         var btn = (FrameworkElement)sender;
         var popup = ShowStyledMenu(btn);
-        var sp = (StackPanel)((Border)popup.Child).Child;
+        var sp = popup?.Child is Border bd ? bd.Child as StackPanel : null;
+        if (popup == null || sp == null) return;
 
         AddMenuItem(sp, "默认背景", (_, _) =>
             { _bgImagePath = null; _mapState.BackgroundPath = null; BgImage.Source = null; SaveState(); });
@@ -302,18 +302,48 @@ public partial class RelationshipMapWindow : Window
         else AddInitialEllipse(avatarEllipse, ch);
         Grid.SetRow(avatarEllipse, 0); root.Children.Add(avatarEllipse);
 
-        // 名称 —— 使用主题色
-        var nt = new TextBlock { Text = ch.Name, FontSize = 10.5, FontWeight = FontWeights.SemiBold,
+        // 名称 —— 使用主题色 + 字体优化（缩放后清晰）
+        // 使用 Microsoft YaHei UI 字体并启用 Display 模式 + ClearType，避免缩放后模糊
+        var nt = new TextBlock
+        {
+            Text = ch.Name,
+            FontFamily = new FontFamily("Microsoft YaHei UI, Segoe UI"),
+            FontSize = 12,
+            FontWeight = FontWeights.SemiBold,
             Foreground = (Brush)Application.Current.Resources["TextPrimaryBrush"],
-            TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 2, 0, 0) };
+            TextAlignment = TextAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            Margin = new Thickness(0, 4, 0, 0),
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
+        };
+        TextOptions.SetTextFormattingMode(nt, TextFormattingMode.Display);
+        TextOptions.SetTextRenderingMode(nt, TextRenderingMode.ClearType);
+        TextOptions.SetTextHintingMode(nt, TextHintingMode.Fixed);
         Grid.SetRow(nt, 1); root.Children.Add(nt);
 
-        // 高亮环（聚焦时显示）
-        var hl = new Ellipse { Width = 52, Height = 52, Stroke = (Brush)Application.Current.Resources["PrimaryBrush"],
-            StrokeThickness = 2.2, Fill = Brushes.Transparent, Visibility = Visibility.Collapsed,
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 1, 0, 0) };
+        // 聚焦发光层：使用外发光 DropShadowEffect，不再使用棕色实心圈
+        // 半径稍大于头像(48→62)，营造"悬浮+边缘发亮"效果
+        var hl = new Ellipse
+        {
+            Width = 62,
+            Height = 62,
+            Stroke = Brushes.Transparent,
+            StrokeThickness = 0,
+            Fill = Brushes.Transparent,
+            Visibility = Visibility.Collapsed,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, -4, 0, 0),
+            IsHitTestVisible = false,
+            Effect = new DropShadowEffect
+            {
+                Color = (Color)Application.Current.Resources["PrimaryColor"],
+                BlurRadius = 22,
+                ShadowDepth = 0,
+                Opacity = 0.95
+            }
+        };
         Grid.SetRow(hl, 0); root.Children.Add(hl);
 
         var node = new MapNode { Character = ch, X = x, Y = y, Root = root, NameText = nt, Highlight = hl };
@@ -379,9 +409,8 @@ public partial class RelationshipMapWindow : Window
             }
             else
             {
-                // 选中目标节点 → 双方都高亮 + 弹出关系对话框
+                // 选中目标节点 → 双方都高亮（统一发光样式，无棕色实圈）+ 弹出关系对话框
                 _connectFirst.Highlight.Visibility = Visibility.Visible;
-                node.Highlight.Stroke = new SolidColorBrush(Color.FromRgb(0xE5, 0x7C, 0x3C)); // 橙色 = 被动方
                 node.Highlight.Visibility = Visibility.Visible;
                 ModeHint.Text = $"🔗 「{_connectFirst.Character.Name}」→「{node.Character.Name}」，输入关系名称。";
                 DragLine.Visibility = Visibility.Collapsed;
@@ -390,7 +419,6 @@ public partial class RelationshipMapWindow : Window
 
                 // 对话框关闭后恢复
                 _connectFirst.Highlight.Visibility = Visibility.Collapsed;
-                node.Highlight.Stroke = (Brush)Application.Current.Resources["PrimaryBrush"];
                 node.Highlight.Visibility = Visibility.Collapsed;
                 _connectFirst = null;
                 _hoveredTarget = null;
@@ -422,7 +450,6 @@ public partial class RelationshipMapWindow : Window
                     ClearHoverHighlights();
                     _hoveredTarget = node;
                     _connectFirst.Highlight.Visibility = Visibility.Visible;
-                    _hoveredTarget.Highlight.Stroke = new SolidColorBrush(Color.FromRgb(0xE5, 0x7C, 0x3C)); // 橙色
                     _hoveredTarget.Highlight.Visibility = Visibility.Visible;
                     ModeHint.Text = $"🔗 「{_connectFirst.Character.Name}」→「{_hoveredTarget.Character.Name}」，点击确认连线。";
                 }
@@ -505,38 +532,87 @@ public partial class RelationshipMapWindow : Window
         double cx2 = b.X + NodeW / 2, cy2 = b.Y + 40;
         double dx = cx2 - cx1, dy = cy2 - cy1, len = Math.Sqrt(dx * dx + dy * dy);
         if (len < 0.01) return;
-        double ux = dx / len, uy = dy / len, tm = 32;
-        var line = new Line
+        // 端点内缩：避免线段刺入节点圆形
+        double tm = 30;
+        double startX = cx1 + dx / len * tm, startY = cy1 + dy / len * tm;
+        double endX = cx2 - dx / len * tm, endY = cy2 - dy / len * tm;
+
+        // 直线（取代之前的贝塞尔曲线）：使用简单的 Line 几何
+        var lineBrush = hl
+            ? (Brush)Application.Current.Resources["PrimaryBrush"]
+            : new SolidColorBrush(Color.FromArgb(0xB0, 0x9A, 0x8B, 0x7A));
+        var line = new System.Windows.Shapes.Line
         {
-            X1 = cx1 + ux * tm, Y1 = cy1 + uy * tm,
-            X2 = cx2 - ux * tm, Y2 = cy2 - uy * tm,
-            Stroke = hl ? (Brush)Application.Current.Resources["PrimaryBrush"] : new SolidColorBrush(Color.FromRgb(0x90, 0x86, 0x76)),
-            StrokeThickness = hl ? 3 : 1.8,
-            StrokeDashArray = hl ? null : new DoubleCollection(new[] { 5.0, 4.0 })
+            X1 = startX, Y1 = startY,
+            X2 = endX, Y2 = endY,
+            Stroke = lineBrush,
+            StrokeThickness = hl ? 2.6 : 1.8,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            SnapsToDevicePixels = false,
+            UseLayoutRounding = false,
         };
+        // 聚焦时附加柔和发光（外阴影）让连线更醒目
+        if (hl)
+        {
+            line.Effect = new DropShadowEffect
+            {
+                Color = (Color)Application.Current.Resources["PrimaryColor"],
+                BlurRadius = 8,
+                ShadowDepth = 0,
+                Opacity = 0.55
+            };
+        }
         LinesLayer.Children.Add(line);
 
-        // 隐形加粗线用于点击检测（8px 宽，透明）
-        var hitLine = new Line
+        // 隐形加粗 Path 用于点击检测（用 Path 复盖 Line，便于事件触发）：
+        // 为了点击区域，使用一个透明 Path 沿直线段展开
+        var hitGeom = new LineGeometry(new Point(startX, startY), new Point(endX, endY));
+        var hitPath = new System.Windows.Shapes.Path
         {
-            X1 = line.X1, Y1 = line.Y1, X2 = line.X2, Y2 = line.Y2,
-            Stroke = Brushes.Transparent, StrokeThickness = 12,
+            Stroke = Brushes.Transparent,
+            StrokeThickness = 14,
             Cursor = Cursors.Hand,
+            Data = hitGeom,
             Tag = new LineHitInfo { FromNode = a, ToNode = b, RelationLabel = label }
         };
-        hitLine.MouseLeftButtonUp += Line_Click;
-        hitLine.MouseRightButtonDown += Line_RightClick;
-        hitLine.MouseEnter += Line_MouseEnter;
-        hitLine.MouseLeave += Line_MouseLeave;
-        LinesLayer.Children.Add(hitLine);
+        hitPath.MouseLeftButtonUp += Line_Click;
+        hitPath.MouseRightButtonDown += Line_RightClick;
+        hitPath.MouseEnter += Line_MouseEnter;
+        hitPath.MouseLeave += Line_MouseLeave;
+        LinesLayer.Children.Add(hitPath);
 
-        double mx = (line.X1 + line.X2) / 2, my = (line.Y1 + line.Y2) / 2 - 16;
-        var lb = new Border { CornerRadius = new CornerRadius(5), Padding = new Thickness(7, 2, 7, 2),
-            Background = new SolidColorBrush(Color.FromArgb(0xF0, 0xFA, 0xF6, 0xED)),
-            Child = new TextBlock { Text = label, FontSize = 9, Foreground = hl ? (Brush)Application.Current.Resources["PrimaryBrush"] : new SolidColorBrush(Color.FromRgb(0x44, 0x44, 44)), FontWeight = hl ? FontWeights.Bold : FontWeights.Normal },
-            IsHitTestVisible = false };
+        // 关系标签：玻璃质感背景 + 阴影 + 优化字体（位于线段中点）
+        double mx = (startX + endX) / 2;
+        double my = (startY + endY) / 2;
+        var lbText = new TextBlock
+        {
+            Text = label,
+            FontFamily = new FontFamily("Microsoft YaHei UI, Segoe UI"),
+            FontSize = 11,
+            FontWeight = hl ? FontWeights.SemiBold : FontWeights.Medium,
+            Foreground = hl
+                ? (Brush)Application.Current.Resources["PrimaryBrush"]
+                : new SolidColorBrush(Color.FromRgb(0x35, 0x2A, 0x22)),
+            SnapsToDevicePixels = true,
+            UseLayoutRounding = true
+        };
+        TextOptions.SetTextRenderingMode(lbText, TextRenderingMode.ClearType);
+        TextOptions.SetTextFormattingMode(lbText, TextFormattingMode.Display);
+        var lb = new Border
+        {
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 3, 10, 3),
+            Background = new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFB, 0xF5)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x50, 0xC0, 0x70, 0x40)),
+            BorderThickness = new Thickness(0.8),
+            Child = lbText,
+            IsHitTestVisible = false,
+            Effect = new DropShadowEffect { Color = Color.FromArgb(0x30, 0, 0, 0), BlurRadius = 6, ShadowDepth = 0, Opacity = 0.22 }
+        };
         lb.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        Canvas.SetLeft(lb, mx - lb.DesiredSize.Width / 2); Canvas.SetTop(lb, my);
+        // 标签放置在线段中点（略微上移，避免压在直线上）
+        Canvas.SetLeft(lb, mx - lb.DesiredSize.Width / 2); Canvas.SetTop(lb, my - lb.DesiredSize.Height - 4);
         LinesLayer.Children.Add(lb);
     }
 
@@ -545,32 +621,44 @@ public partial class RelationshipMapWindow : Window
 
     private void Line_MouseEnter(object sender, MouseEventArgs e)
     {
-        if (sender is not Line l || l.Tag is not LineHitInfo info) return;
+        if (sender is not System.Windows.Shapes.Path p || p.Tag is not LineHitInfo info) return;
         _hoveredLineFrom = info.FromNode;
         _hoveredLineTo = info.ToNode;
         _hoveredLineRelation = info.RelationLabel;
-        // 高亮这条线：找到对应的可见线并加粗变色
-        int idx = LinesLayer.Children.IndexOf(l);
-        if (idx > 0 && LinesLayer.Children[idx - 1] is Line visLine)
+        // 悬停这条线：找到对应的可见 Line 并加粗 + 加发光
+        int idx = LinesLayer.Children.IndexOf(p);
+        if (idx > 0 && LinesLayer.Children[idx - 1] is System.Windows.Shapes.Line visLine)
         {
             visLine.Stroke = (Brush)Application.Current.Resources["PrimaryBrush"];
-            visLine.StrokeThickness = 3.5;
-            visLine.StrokeDashArray = null;
+            visLine.StrokeThickness = 3.0;
+            visLine.Effect = new DropShadowEffect
+            {
+                Color = (Color)Application.Current.Resources["PrimaryColor"],
+                BlurRadius = 8, ShadowDepth = 0, Opacity = 0.7
+            };
         }
     }
 
     private void Line_MouseLeave(object sender, MouseEventArgs e)
     {
-        if (sender is not Line l || l.Tag is not LineHitInfo info) return;
-        // 恢复线样式（重新绘制会覆盖，这里做即时恢复即可）
-        int idx = LinesLayer.Children.IndexOf(l);
-        if (idx > 0 && LinesLayer.Children[idx - 1] is Line visLine)
+        if (sender is not System.Windows.Shapes.Path p || p.Tag is not LineHitInfo info) return;
+        // 恢复线样式
+        int idx = LinesLayer.Children.IndexOf(p);
+        if (idx > 0 && LinesLayer.Children[idx - 1] is System.Windows.Shapes.Line visLine)
         {
             bool hl = _focusedNode != null && (info.FromNode == _focusedNode || info.ToNode == _focusedNode);
-            visLine.Stroke = hl ? (Brush)Application.Current.Resources["PrimaryBrush"] : new SolidColorBrush(Color.FromRgb(0x90, 0x86, 0x76));
-            visLine.StrokeThickness = hl ? 3 : 1.8;
-            if (!hl) visLine.StrokeDashArray = new DoubleCollection(new[] { 5.0, 4.0 });
-            else visLine.StrokeDashArray = null;
+            visLine.Stroke = hl
+                ? (Brush)Application.Current.Resources["PrimaryBrush"]
+                : new SolidColorBrush(Color.FromArgb(0xB0, 0x9A, 0x8B, 0x7A));
+            visLine.StrokeThickness = hl ? 2.6 : 1.8;
+            // 聚焦时仍保留发光
+            visLine.Effect = hl
+                ? new DropShadowEffect
+                {
+                    Color = (Color)Application.Current.Resources["PrimaryColor"],
+                    BlurRadius = 8, ShadowDepth = 0, Opacity = 0.55
+                }
+                : null;
         }
         _hoveredLineFrom = null; _hoveredLineTo = null; _hoveredLineRelation = null;
     }
@@ -589,7 +677,8 @@ public partial class RelationshipMapWindow : Window
         e.Handled = true;
 
         var popup = ShowStyledMenu();
-        var sp = (StackPanel)((Border)popup.Child).Child;
+        var sp = popup?.Child is Border bd ? bd.Child as StackPanel : null;
+        if (popup == null || sp == null) return;
 
         AddMenuItem(sp, $"✏️ 编辑关系：「{info.RelationLabel}」", (_, _) => EditRelationship(info));
         AddMenuSeparator(sp);
@@ -758,7 +847,8 @@ public partial class RelationshipMapWindow : Window
         e.Handled = true;
 
         var popup = ShowStyledMenu();
-        var sp = (StackPanel)((Border)popup.Child).Child;
+        var sp = popup?.Child is Border bd ? bd.Child as StackPanel : null;
+        if (popup == null || sp == null) return;
 
         AddMenuItem(sp, "➕ 新建角色…", (_, _) => DoCreateCharacter());
 
@@ -785,9 +875,18 @@ public partial class RelationshipMapWindow : Window
                         if (r.TargetId == f.Character.Id)
                             ids.Add(node.Character.Id);
         }
-        foreach (var n in _nodes) n.Root.Opacity = f == null || ids.Contains(n.Character.Id) ? 1.0 : 0.12;
-        // 高亮环
-        foreach (var n in _nodes) n.Highlight.Visibility = n == f && !_connectMode ? Visibility.Visible : Visibility.Collapsed;
+        // 其他角色：0.62 透明度（柔和暗化，便于聚焦主要关系，但不会太暗）
+        foreach (var n in _nodes) n.Root.Opacity = f == null || ids.Contains(n.Character.Id) ? 1.0 : 0.62;
+        // 聚焦节点：发光环（替代棕色实圈）+ 轻微放大产生悬浮感
+        foreach (var n in _nodes)
+        {
+            bool isFocused = n == f && !_connectMode;
+            n.Highlight.Visibility = isFocused ? Visibility.Visible : Visibility.Collapsed;
+            // 缩放：聚焦 1.08，其他 1.0（中心放大，向四周轻微"悬浮"）
+            n.Root.LayoutTransform = isFocused
+                ? new ScaleTransform(1.08, 1.08, NodeW / 2, NodeH / 2)
+                : Transform.Identity;
+        }
         RedrawLines();
     }
 
@@ -924,7 +1023,8 @@ public partial class RelationshipMapWindow : Window
     private void ShowNodeContextMenu(MapNode node)
     {
         var popup = ShowStyledMenu();
-        var sp = (StackPanel)((Border)popup.Child).Child;
+        var sp = popup?.Child is Border bd ? bd.Child as StackPanel : null;
+        if (popup == null || sp == null) return;
 
         AddMenuItem(sp, "✏️ 修改名称…", (_, _) => RenameCharacter(node));
         AddMenuItem(sp, "🖼 更换头像…", (_, _) => ChangeAvatar(node));
@@ -986,10 +1086,16 @@ public partial class RelationshipMapWindow : Window
 
     private void DoCreateCharacter()
     {
+        // 自动生成唯一名称：新角色、新角色2、新角色3… 避免重名
+        var existing = _characters.Select(c => c.Name).ToHashSet();
+        string name = "新角色";
+        int idx = 2; // 第一次出现"新角色"直接用，再后续的为"新角色2"开始
+        while (existing.Contains(name)) { name = $"新角色{idx}"; idx++; }
+
         var nc = new CharacterInfo
         {
-            Id = "新角色_" + DateTime.Now.ToString("yyyyMMdd_HHmmss"),
-            Name = "新角色",
+            Id = "新角色_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + "_" + Guid.NewGuid().ToString()[..4],
+            Name = name,
             Personality = ""
         };
         var cp = FileService.CharacterPath(_workRoot, _novelId, nc.Id);
@@ -1130,7 +1236,15 @@ public partial class RelationshipMapWindow : Window
     {
         if (e.Key == Key.Escape) Close();
         if (e.Key == Key.R) UpdateOpacity(null);
-        if (e.Key == Key.Space) { DoCreateCharacter(); e.Handled = true; }
+        // 空格创建角色：仅在焦点不在可输入控件（TextBox/PasswordBox/ComboBox）时触发，
+        // 避免误吞用户在重命名/编辑关系对话框中输入的空格
+        if (e.Key == Key.Space)
+        {
+            var focus = Keyboard.FocusedElement;
+            if (focus is TextBox || focus is PasswordBox || focus is ComboBox) return;
+            DoCreateCharacter();
+            e.Handled = true;
+        }
         if (e.Key == Key.Delete && _focusedNode != null) { DeleteCharacter(_focusedNode); e.Handled = true; }
     }
     private void Close_Click(object sender, RoutedEventArgs e) => Close();

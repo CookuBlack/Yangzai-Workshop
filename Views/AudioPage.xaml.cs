@@ -76,11 +76,11 @@ public partial class AudioPage : UserControl
             };
             var stack = new StackPanel();
 
+            // 封面（有封面图时不设置背景，保留 PNG 透明区域，避免透出默认蓝色）
             var coverBorder = new Border
             {
                 Width = 70, Height = 95,
                 CornerRadius = new CornerRadius(4),
-                Background = ParseColor(novel.CoverColor),
                 Margin = new Thickness(0, 0, 0, 6)
             };
             var coverPath = FileService.NovelCoverFile(App.WorkRoot, novel.Id);
@@ -96,9 +96,17 @@ public partial class AudioPage : UserControl
                     bmp.DecodePixelWidth = 140; bmp.EndInit();
                     coverBorder.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
                 }
-                catch { coverBorder.Child = CoverFb(novel.Name); }
+                catch
+                {
+                    coverBorder.Background = ParseColor(novel.CoverColor);
+                    coverBorder.Child = CoverFb(novel.Name);
+                }
             }
-            else coverBorder.Child = CoverFb(novel.Name);
+            else
+            {
+                coverBorder.Background = ParseColor(novel.CoverColor);
+                coverBorder.Child = CoverFb(novel.Name);
+            }
             stack.Children.Add(coverBorder);
 
             stack.Children.Add(new TextBlock

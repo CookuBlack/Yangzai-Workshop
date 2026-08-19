@@ -105,12 +105,50 @@ public static class FileService
     /// <summary>顶层音频根目录：WorkData\Audio</summary>
     public static string AudioRoot(string workRoot) => Path.Combine(workRoot, "Audio");
 
-    /// <summary>清理名称中的非法文件名字符，转为合法的文件夹名</summary>
+    /// <summary>
+    /// 清理名称中的非法/混乱字符，转为简洁合法的文件夹名。
+    /// 移除：非法文件名字符、书名号、全角/半角括号、空白、常见网址水印片段。
+    /// 例如："《封神榜》【爱上阅读_www.isyd.net】" → "封神榜"
+    /// </summary>
     public static string SanitizeFolderName(string name)
     {
-        var invalid = Path.GetInvalidFileNameChars();
-        var sanitized = string.Join("_", name.Split(invalid, StringSplitOptions.RemoveEmptyEntries)).Trim();
-        return string.IsNullOrWhiteSpace(sanitized) ? "未命名" : sanitized;
+        if (string.IsNullOrWhiteSpace(name)) return "未命名";
+
+        var sb = new StringBuilder(name.Length);
+        foreach (var c in name)
+        {
+            // 跳过非法文件名字符与各类括号/书名号
+            if (Path.GetInvalidFileNameChars().Contains(c)) continue;
+            if (c is '《' or '》' or '〈' or '〉' or '【' or '】' or '〔' or '〕'
+                or '(' or ')' or '[' or ']' or '{' or '}' or '（' or '）') continue;
+            sb.Append(c);
+        }
+
+        var cleaned = sb.ToString();
+
+        // 清理常见网址水印：去除以 "www." 或 "http" 开头的片段，以及 "爱上阅读" 等站名后缀
+        cleaned = RemoveUrlWatermarks(cleaned);
+
+        // 压缩连续空格/下划线，去除首尾空白
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, @"\s+", "_");
+        cleaned = cleaned.Trim('_', ' ', '-', '.', '，', '。');
+
+        return string.IsNullOrWhiteSpace(cleaned) ? "未命名" : cleaned;
+    }
+
+    /// <summary>移除文件夹名中的网址水印片段（如 "爱上阅读_www.isyd.net"）</summary>
+    private static string RemoveUrlWatermarks(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return name;
+        // 常见盗版站水印关键词，匹配到则截断
+        var markers = new[] { "www.", "http://", "https://", ".com", ".net", ".cn", ".org", "爱上阅读", "isvd", "isyd" };
+        string result = name;
+        foreach (var m in markers)
+        {
+            int idx = result.IndexOf(m, StringComparison.OrdinalIgnoreCase);
+            if (idx > 0) result = result[..idx]; // 从水印处截断，保留前面的书名
+        }
+        return result.Trim('_', ' ', '-', '.', '，', '。');
     }
 
     /// <summary>人物素材图片目录：WorkData\Image\人物素材\{mediaFolder}\{charId}</summary>
@@ -187,6 +225,8 @@ public static class FileService
     public static string ProfileImageFile(string _) => CustomAvatarFile;
     public static string MemosPath(string workRoot) => Path.Combine(ConfigPath(workRoot), "Memos");
     public static string MemoFile(string workRoot, string memoId) => Path.Combine(MemosPath(workRoot), $"{memoId}.json");
+    /// <summary>文本编辑历史快照文件：WorkData\Config\text_history.json</summary>
+    public static string TextHistoryFile(string workRoot) => Path.Combine(ConfigPath(workRoot), "text_history.json");
 
     // ===== JSON 读写 =====
     public static T? ReadJson<T>(string filePath) where T : class
@@ -205,7 +245,7 @@ public static class FileService
         var dir = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(dir)) EnsureDirectory(dir);
         var json = JsonSerializer.Serialize(data, JsonOptions);
-        File.WriteAllText(filePath, json, Encoding.UTF8);
+        AtomicWriteAllText(filePath, json);
     }
 
     // ===== 文本文件读写 =====
@@ -219,7 +259,55 @@ public static class FileService
     {
         var dir = Path.GetDirectoryName(filePath);
         if (!string.IsNullOrEmpty(dir)) EnsureDirectory(dir);
-        File.WriteAllText(filePath, content, Encoding.UTF8);
+        AtomicWriteAllText(filePath, content);
+    }
+
+    // ===== 文本历史快照读写（仅应用关闭时持久化） =====
+    /// <summary>加载文本编辑历史快照，文件不存在或损坏时返回空列表</summary>
+    public static List<HistorySnapshot> LoadTextHistory(string workRoot)
+    {
+        var file = TextHistoryFile(workRoot);
+        if (!File.Exists(file)) return new List<HistorySnapshot>();
+        try
+        {
+            var list = ReadJson<List<HistorySnapshot>>(file);
+            return list ?? new List<HistorySnapshot>();
+        }
+        catch { return new List<HistorySnapshot>(); }
+    }
+
+    /// <summary>持久化文本编辑历史快照（原子写入，防止关闭时写坏）</summary>
+    public static void SaveTextHistory(string workRoot, List<HistorySnapshot> snapshots)
+    {
+        try
+        {
+            WriteJson(TextHistoryFile(workRoot), snapshots);
+        }
+        catch
+        {
+            // 历史持久化失败不应影响应用正常退出
+        }
+    }
+
+    /// <summary>
+    /// 原子写入：先写同目录临时文件，再重命名替换目标文件。
+    /// 即使写入过程中程序崩溃/断电，目标文件要么是旧完整内容、要么是新完整内容，
+    /// 不会出现半写损坏（这是 chapters.json / info.json 等数据防丢的关键保障）。
+    /// </summary>
+    private static void AtomicWriteAllText(string filePath, string content)
+    {
+        var tmpPath = filePath + ".tmp";
+        try
+        {
+            File.WriteAllText(tmpPath, content, Encoding.UTF8);
+            File.Move(tmpPath, filePath, overwrite: true);
+        }
+        catch
+        {
+            // 写入失败：清理临时文件，保留原文件完整，并向上抛出由调用方记录/提示
+            try { if (File.Exists(tmpPath)) File.Delete(tmpPath); } catch { }
+            throw;
+        }
     }
 
     // ===== 目录操作 =====
@@ -402,6 +490,19 @@ public static class FileService
         FileRestored?.Invoke(info.OriginalPath);
     }
 
+    /// <summary>一键恢复回收站中的所有项目，返回成功还原的数量</summary>
+    public static int RestoreAllTrashItems(string workRoot)
+    {
+        var items = GetTrashItems(workRoot);
+        var restored = 0;
+        foreach (var item in items)
+        {
+            try { RestoreTrashItem(item.Id); restored++; }
+            catch { /* 单个失败不影响其余项目 */ }
+        }
+        return restored;
+    }
+
     /// <summary>文件还原事件，通知各页面刷新内容</summary>
     public static event Action<string>? FileRestored;
 
@@ -415,19 +516,31 @@ public static class FileService
     }
 
     // ===== 配置读写（带内存缓存，避免同一流程反复读磁盘） =====
+    // 使用 lock 保证缓存字段的线程安全（AI 任务后台线程也会调用 LoadConfig/SaveConfig）
+    private static readonly object _configLock = new();
     private static AppConfig? _cachedConfig;
     private static string? _cachedWorkRoot;
 
     public static AppConfig LoadConfig(string workRoot)
     {
         // 命中缓存：同 workRoot 且缓存有效
-        if (_cachedConfig != null && _cachedWorkRoot == workRoot)
-            return _cachedConfig;
+        lock (_configLock)
+        {
+            if (_cachedConfig != null && _cachedWorkRoot == workRoot)
+                return _cachedConfig;
+        }
 
         var config = ReadJson<AppConfig>(SettingsFile(workRoot)) ?? new AppConfig();
         config.WorkDataPath = workRoot;
-        _cachedConfig = config;
-        _cachedWorkRoot = workRoot;
+
+        lock (_configLock)
+        {
+            // 双重检查：避免在读盘期间其他线程写入覆盖有效缓存
+            if (_cachedConfig != null && _cachedWorkRoot == workRoot && ReferenceEquals(_cachedConfig, config))
+                return _cachedConfig;
+            _cachedConfig = config;
+            _cachedWorkRoot = workRoot;
+        }
         return config;
     }
 
@@ -435,15 +548,21 @@ public static class FileService
     {
         WriteJson(SettingsFile(workRoot), config);
         // 保存后同步更新缓存，避免后续操作重复读盘
-        _cachedConfig = config;
-        _cachedWorkRoot = workRoot;
+        lock (_configLock)
+        {
+            _cachedConfig = config;
+            _cachedWorkRoot = workRoot;
+        }
     }
 
     /// <summary>主动刷新配置缓存（外部修改配置文件后调用）</summary>
     public static void InvalidateConfigCache()
     {
-        _cachedConfig = null;
-        _cachedWorkRoot = null;
+        lock (_configLock)
+        {
+            _cachedConfig = null;
+            _cachedWorkRoot = null;
+        }
     }
 
     public static void SaveAppSetting(string workRoot, string key, object value)
@@ -490,9 +609,154 @@ public static class FileService
                 WriteJson(infoFile, info);
             }
 
+            // 迁移：清理历史遗留的混乱文件夹名（书名号/括号/网址水印），统一目录命名
+            MigrateLegacyFolderNames(workRoot, info, infoFile, dir);
+
             novels.Add(info);
         }
         return novels;
+    }
+
+    /// <summary>
+    /// 迁移历史遗留的混乱文件夹名：若 MediaFolder/FolderName 含书名号、括号、网址水印等，
+    /// 自动重命名对应目录为清理后的名称，并更新 info.json。
+    /// 迁移仅重命名目录与更新字段，不移动/删除任何文件内容。
+    /// 注意：重命名目录后 info.json 的路径会变化，因此重命名前先更新字段，再移动目录，最后写新路径的 info.json。
+    /// </summary>
+    private static void MigrateLegacyFolderNames(string workRoot, NovelInfo info, string infoFile, string novelDir)
+    {
+        bool mediaChanged = false;
+        bool folderChanged = false;
+
+        // 1. 迁移 MediaFolder（Image/Video/Audio 顶层目录下的分类子目录）
+        if (!string.IsNullOrWhiteSpace(info.MediaFolder))
+        {
+            var cleaned = SanitizeFolderName(info.MediaFolder);
+            if (cleaned != info.MediaFolder && cleaned != "未命名")
+            {
+                MigrateMediaFolder(workRoot, info.MediaFolder, cleaned);
+                info.MediaFolder = cleaned;
+                mediaChanged = true;
+            }
+        }
+
+        // 2. 迁移 FolderName（Novels 目录下的文件夹名）
+        //    注意：novelDir 是外层 foreach 传入的当前目录路径，重命名前用它定位，
+        //    重命名后 info.json 位于新目录，需重新计算写入路径。
+        string? newInfoFile = null;
+        if (!string.IsNullOrWhiteSpace(info.FolderName))
+        {
+            var cleanedFolder = SanitizeFolderName(info.FolderName);
+            if (cleanedFolder != info.FolderName && cleanedFolder != "未命名")
+            {
+                // 用 novelDir（实际存在的目录）而非 info.FolderName 拼接，避免 FolderName 与磁盘目录不一致
+                var actualOldDir = novelDir;
+                var newDir = Path.Combine(NovelsPath(workRoot), cleanedFolder);
+                bool moved = false;
+                if (Directory.Exists(actualOldDir) && !Directory.Exists(newDir)
+                    && !string.Equals(actualOldDir, newDir, StringComparison.OrdinalIgnoreCase))
+                {
+                    try { Directory.Move(actualOldDir, newDir); moved = true; } catch { }
+                }
+                info.FolderName = cleanedFolder;
+                folderChanged = true;
+                // 目录重命名成功后，info.json 的新路径
+                newInfoFile = moved
+                    ? Path.Combine(newDir, "info.json")
+                    : Path.Combine(actualOldDir, "info.json");
+            }
+        }
+
+        // 3. 写回 info.json（优先用重命名后的新路径，回退到原路径）
+        if (mediaChanged || folderChanged)
+        {
+            var writePath = newInfoFile ?? infoFile;
+            try { WriteJson(writePath, info); }
+            catch { try { WriteJson(infoFile, info); } catch { } }
+        }
+    }
+
+    /// <summary>迁移单个 MediaFolder 在所有媒体根目录（Image/Video/Audio）下的子目录</summary>
+    private static void MigrateMediaFolder(string workRoot, string oldFolder, string newFolder)
+    {
+        // 若目标目录名已被其他小说占用（重名冲突），追加短后缀避免覆盖
+        var unique = EnsureUniqueFolderName(workRoot, newFolder);
+
+        // Image 下的分类：小说、人物素材
+        MigrateSubFolder(Path.Combine(ImageRoot(workRoot), "小说"), oldFolder, unique);
+        MigrateSubFolder(Path.Combine(ImageRoot(workRoot), "人物素材"), oldFolder, unique);
+        // Video / Audio 顶层直接是 mediaFolder
+        MigrateSubFolder(VideoRoot(workRoot), oldFolder, unique);
+        MigrateSubFolder(AudioRoot(workRoot), oldFolder, unique);
+    }
+
+    /// <summary>确保文件夹名在媒体根目录下唯一（避免两本书同名冲突）</summary>
+    private static string EnsureUniqueFolderName(string workRoot, string baseName)
+    {
+        // 检查各媒体根目录下是否已有同名目录
+        bool Conflict(string parent) =>
+            Directory.Exists(Path.Combine(parent, baseName));
+
+        bool hasConflict =
+            Conflict(Path.Combine(ImageRoot(workRoot), "小说")) ||
+            Conflict(Path.Combine(ImageRoot(workRoot), "人物素材")) ||
+            Conflict(VideoRoot(workRoot)) ||
+            Conflict(AudioRoot(workRoot));
+
+        if (!hasConflict) return baseName;
+
+        // 存在冲突：追加数字后缀
+        for (int i = 2; i < 1000; i++)
+        {
+            var candidate = $"{baseName}_{i}";
+            if (!Conflict(Path.Combine(ImageRoot(workRoot), "小说")) &&
+                !Conflict(Path.Combine(ImageRoot(workRoot), "人物素材")) &&
+                !Conflict(VideoRoot(workRoot)) &&
+                !Conflict(AudioRoot(workRoot)))
+                return candidate;
+        }
+        // 兜底：加 GUID 后缀
+        return $"{baseName}_{Guid.NewGuid().ToString("N")[..6]}";
+    }
+
+    /// <summary>在指定父目录下把 oldFolder 子目录重命名为 newFolder</summary>
+    private static void MigrateSubFolder(string parent, string oldFolder, string newFolder)
+    {
+        var oldPath = Path.Combine(parent, oldFolder);
+        var newPath = Path.Combine(parent, newFolder);
+        if (!Directory.Exists(oldPath)) return;
+        if (Directory.Exists(newPath))
+        {
+            // 目标已存在：合并内容（避免丢失），失败则跳过
+            try { MergeDirectory(oldPath, newPath); } catch { }
+            return;
+        }
+        try { Directory.Move(oldPath, newPath); } catch { }
+    }
+
+    /// <summary>把 src 目录内容合并到 dst（同名文件不覆盖，跳过冲突）</summary>
+    private static void MergeDirectory(string src, string dst)
+    {
+        foreach (var file in Directory.GetFiles(src))
+        {
+            var target = Path.Combine(dst, Path.GetFileName(file));
+            if (!File.Exists(target))
+                File.Move(file, target);
+        }
+        foreach (var dir in Directory.GetDirectories(src))
+        {
+            var targetDir = Path.Combine(dst, Path.GetFileName(dir));
+            if (!Directory.Exists(targetDir))
+            {
+                Directory.Move(dir, targetDir);
+            }
+            else
+            {
+                MergeDirectory(dir, targetDir);
+            }
+        }
+        // 源目录内容已合并，尝试删除空目录
+        try { Directory.Delete(src, true); } catch { }
     }
 
     /// <summary>根据小说名生成不会与其他小说碰撞的媒体文件夹名</summary>
@@ -650,24 +914,88 @@ public static class FileService
 
         // 公告（每次启动更新，确保版本号同步）
         WriteText(NoticeFile(workRoot), "欢迎使用 Yangzai Workshop 小说漫剧创作工作台！\n\n" +
-            $"v{appVersion ?? "1.0"} 版本功能：\n" +
-            "• 支持小说导入与智能分章\n" +
-            "• 剧本改编与素材管理\n" +
-            "• 平台数据统计与可视化\n\n" +
+            $"v{appVersion ?? "1.0"} 更新内容：\n" +
+            "• 新增本地 ComfyUI 生图引擎（支持读取工作流 JSON）\n" +
+            "• 新增文本历史撤销/重做与历史版本回退\n" +
+            "• 新增 AI 生成任务队列（视频 + 图像统一管理）\n" +
+            "• 优化图像素材瀑布流布局与图片预览体验\n" +
+            "• 优化存储目录结构，自动清理文件名水印\n\n" +
             "点击「+」按钮导入你的第一本小说吧！");
     }
 
     // ===== 数据备份与恢复 =====
+    /// <summary>
+    /// 打包工作目录为 zip。逐文件写入，单个文件被占用/读取失败时跳过（保证备份整体可用），
+    /// 并自动跳过写入过程中的临时文件。
+    /// </summary>
     public static void BackupData(string workRoot, string zipPath)
     {
-        ZipFile.CreateFromDirectory(workRoot, zipPath, CompressionLevel.Optimal, false);
+        if (!Directory.Exists(workRoot)) return;
+        var dir = Path.GetDirectoryName(zipPath);
+        if (!string.IsNullOrEmpty(dir)) EnsureDirectory(dir);
+        if (File.Exists(zipPath)) File.Delete(zipPath);
+
+        using var fs = new FileStream(zipPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+        using var archive = new ZipArchive(fs, ZipArchiveMode.Create);
+        foreach (var file in Directory.EnumerateFiles(workRoot, "*", SearchOption.AllDirectories))
+        {
+            // 跳过原子写入的临时文件
+            if (file.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase)) continue;
+            try
+            {
+                var entryName = Path.GetRelativePath(workRoot, file);
+                var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+                using var src = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var dst = entry.Open();
+                src.CopyTo(dst);
+            }
+            catch
+            {
+                // 单个文件被占用等原因无法读取：跳过该文件，保证备份包整体生成成功
+            }
+        }
     }
 
+    /// <summary>
+    /// 安全恢复：先把现有工作目录改名为临时目录（而不是直接删除），
+    /// 解压成功后再删除旧数据；解压失败则删除新目录并回滚旧数据，绝不让恢复操作本身丢数据。
+    /// </summary>
     public static void RestoreData(string workRoot, string zipPath)
     {
+        var oldDir = workRoot + "_old_" + DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var moved = false;
         if (Directory.Exists(workRoot))
-            Directory.Delete(workRoot, true);
+        {
+            try
+            {
+                Directory.Move(workRoot, oldDir);
+                moved = true;
+            }
+            catch
+            {
+                // 改名失败（目录被占用等），退回直接删除
+                try { Directory.Delete(workRoot, true); } catch { }
+            }
+        }
         Directory.CreateDirectory(workRoot);
-        ZipFile.ExtractToDirectory(zipPath, workRoot);
+        try
+        {
+            ZipFile.ExtractToDirectory(zipPath, workRoot);
+            if (moved)
+            {
+                // 解压成功，清理旧数据目录
+                try { Directory.Delete(oldDir, true); } catch { }
+            }
+        }
+        catch
+        {
+            // 解压失败：删除不完整的新目录，回滚旧数据，保证原数据不丢失
+            try { if (Directory.Exists(workRoot)) Directory.Delete(workRoot, true); } catch { }
+            if (moved)
+            {
+                try { Directory.Move(oldDir, workRoot); } catch { }
+            }
+            throw;
+        }
     }
 }

@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Yangzai Workshop 安装包配置（WiX Toolset v5 / wix v7.0.0）
+  功能：
+    - 自定义安装路径（WixUI_InstallDir）
+    - 桌面快捷方式（可选功能，默认勾选）
+    - 开机自启动（可选功能，默认不勾选，写入 HKCU Run）
+    - 开始菜单快捷方式
+    - 卸载支持
+  构建命令见同目录 build.ps1
+
+  注意（WiX v5 语法变化）：
+    - Codepage 用 "936" 支持中文
+    - 需要先执行 "wix eula accept wix7" 接受协议
+    - StandardDirectory Id 用 ProgramFiles6432Folder / ProgramMenuFolder / DesktopFolder
+    - Files 元素不支持 Exclude 属性
+    - Feature 不支持 Absent 属性
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <!-- ==================== 基本信息 ==================== -->
+  <Package Name="Yangzai Workshop 小说漫剧创作工作台"
+           Manufacturer="CookuBlack"
+           Version="3.4.0"
+           UpgradeCode="3D2C5F8E-9A4B-4C6D-8E7F-1A2B3C4D5E6F"
+           Language="2052"
+           Codepage="936"
+           InstallerVersion="500"
+           Compressed="yes"
+           Scope="perMachine">
+
+    <!-- 媒体模板：将 CAB 内嵌进 MSI，生成单一 .msi 文件 -->
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- 图标 -->
+    <Icon Id="icon.ico" SourceFile="..\Assets\Icon\Yangzai.ico" />
+    <Property Id="ARPPRODUCTICON" Value="icon.ico" />
+
+    <!-- 控制面板显示信息 -->
+    <Property Id="ARPHELPLINK" Value="https://github.com/CookuBlack/Yangzai-Workshop" />
+    <Property Id="ARPCOMMENTS" Value="小说漫剧创作工作台 - AI 生图/生视频/剧本改编" />
+
+    <!-- ==================== 升级检测 ==================== -->
+    <MajorUpgrade DowngradeErrorMessage="检测到已安装更高版本，请先卸载后再安装。" AllowSameVersionUpgrades="yes" />
+
+    <!-- ==================== 目录结构 ==================== -->
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="YangzaiWorkshop" />
+    </StandardDirectory>
+
+    <!-- 开始菜单 -->
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Yangzai Workshop" />
+    </StandardDirectory>
+
+    <!-- 桌面 -->
+    <StandardDirectory Id="DesktopFolder" />
+
+    <!-- ==================== 功能（Feature） ==================== -->
+    <Feature Id="MainFeature" Title="主程序" Level="1">
+      <ComponentGroupRef Id="MainComponents" />
+      <ComponentRef Id="StartMenuShortcutComponent" />
+    </Feature>
+
+    <!-- 桌面快捷方式（默认勾选 Level=1） -->
+    <Feature Id="DesktopShortcutFeature" Title="桌面快捷方式" Level="1">
+      <ComponentRef Id="DesktopShortcutComponent" />
+    </Feature>
+
+    <!-- 开机自启动（默认不勾选 Level=2，需手动勾选） -->
+    <Feature Id="AutoStartFeature" Title="开机自启动" Level="2">
+      <ComponentRef Id="AutoStartComponent" />
+    </Feature>
+
+    <!-- ==================== 主程序文件 ==================== -->
+    <ComponentGroup Id="MainComponents" Directory="INSTALLFOLDER">
+      <Files Include="..\publish\YangzaiWorkshop.exe" />
+      <Files Include="..\publish\YangzaiWorkshop.deps.json" />
+      <Files Include="..\publish\YangzaiWorkshop.runtimeconfig.json" />
+      <Files Include="..\publish\*.dll" />
+      <Files Include="..\publish\Assets\**" />
+    </ComponentGroup>
+
+    <!-- ==================== 快捷方式 ==================== -->
+    <!-- 开始菜单快捷方式（主程序必备） -->
+    <Component Id="StartMenuShortcutComponent" Directory="ApplicationProgramsFolder" Guid="*">
+      <Shortcut Id="StartMenuShortcut"
+                Name="Yangzai Workshop"
+                Description="小说漫剧创作工作台"
+                Target="[INSTALLFOLDER]YangzaiWorkshop.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="icon.ico" />
+      <RemoveFolder Id="RemoveApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="Software\CookuBlack\YangzaiWorkshop"
+                     Name="Installed" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- 桌面快捷方式（可选） -->
+    <Component Id="DesktopShortcutComponent" Directory="DesktopFolder" Guid="*">
+      <Shortcut Id="DesktopShortcut"
+                Name="Yangzai Workshop"
+                Description="小说漫剧创作工作台"
+                Target="[INSTALLFOLDER]YangzaiWorkshop.exe"
+                WorkingDirectory="INSTALLFOLDER"
+                Icon="icon.ico" />
+      <RegistryValue Root="HKCU" Key="Software\CookuBlack\YangzaiWorkshop"
+                     Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      <RemoveFolder Id="RemoveDesktopShortcut" Directory="DesktopFolder" On="uninstall" />
+    </Component>
+
+    <!-- 开机自启动（可选）：写入 HKCU Run 注册表 -->
+    <Component Id="AutoStartComponent" Directory="INSTALLFOLDER" Guid="*">
+      <RegistryValue Root="HKCU"
+                     Key="Software\Microsoft\Windows\CurrentVersion\Run"
+                     Name="YangzaiWorkshop"
+                     Type="string"
+                     Value="&quot;[INSTALLFOLDER]YangzaiWorkshop.exe&quot;"
+                     KeyPath="yes" />
+    </Component>
+
+    <!-- ==================== UI ==================== -->
+    <UI>
+      <ui:WixUI Id="WixUI_InstallDir" />
+      <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    </UI>
+  </Package>
+</Wix>

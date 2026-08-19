@@ -53,6 +53,9 @@ public class NavigationService
         return _cache.TryGetValue(pageName, out var p) ? p as T : null;
     }
 
+    /// <summary>获取所有缓存的页面实例（用于跨页面的实时刷新，如 AI 任务完成通知）</summary>
+    public System.Collections.Generic.IEnumerable<UserControl> AllPages => _cache.Values;
+
     /// <summary>清除指定页面缓存</summary>
     public void ClearPage(string pageName)
     {

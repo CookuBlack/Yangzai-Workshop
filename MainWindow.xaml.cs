@@ -34,10 +34,21 @@ public partial class MainWindow : Window
     private string _lastPlayMode = "";
     private bool _lastIsMuted;
     private double _lastVolume = -1;
+    private static MainWindow? _instance;
+    private DispatcherTimer? _toastTimer;
+    /// <summary>打开的 AI 子窗口/资产选择器数量。&gt;0 期间屏蔽主窗口被动最小化（WPF 关闭 owned 窗口会误发 SC_MINIMIZE）</summary>
+    private static int _childWindowCount;
+
+    /// <summary>子窗口（AI 生成窗口/项目资产选择器）打开前调用</summary>
+    public static void EnterChildWindow() => _childWindowCount++;
+
+    /// <summary>子窗口关闭后延迟调用，解除屏蔽</summary>
+    public static void LeaveChildWindow() => _childWindowCount = Math.Max(0, _childWindowCount - 1);
 
     public MainWindow()
     {
         InitializeComponent();
+        _instance = this;
         SourceInitialized += (_, _) =>
         {
             var source = PresentationSource.FromVisual(this) as HwndSource;
@@ -135,8 +146,79 @@ public partial class MainWindow : Window
         LoadAvatars();
         StyleSliderThumbs();
 
+        // 订阅 AI 任务队列变化，实时更新标题栏角标（后台线程触发时自动切回 UI 线程）
+        AiTaskManager.Changed += OnAiTaskChanged;
+        UpdateAiQueueBadge();
+
+        // 初始化文本历史服务：应用配置的最大次数 + 加载上次关闭时持久化的历史快照
+        TextHistoryService.Instance.MaxHistory = _configCache.TextHistoryMaxCount;
+        TextHistoryService.Instance.LoadSnapshots(App.WorkRoot);
+
+        // 全局快捷键：Ctrl+Z 撤销 / Ctrl+Y 重做（作用于当前正在编辑的文本）
+        // Ctrl+Shift+H 恢复最近隐藏的浮动窗口
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.H && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
+            {
+                FloatingWindowManager.Instance.RestoreLastHidden();
+                e.Handled = true;
+                return;
+            }
+
+            if (Keyboard.Modifiers != ModifierKeys.Control) return;
+            if (e.Key == Key.Z)
+            {
+                NavigationService.Instance.GetPage<ScriptPage>("Script")?.UndoCurrentEditor();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Y)
+            {
+                NavigationService.Instance.GetPage<ScriptPage>("Script")?.RedoCurrentEditor();
+                e.Handled = true;
+            }
+        };
+
         if (_configCache.MusicAutoPlay && MusicPlayerService.Instance.Playlist.Count > 0)
             MusicPlayerService.Instance.Play(0);
+    }
+
+    /// <summary>全局底部通知：供各页面（含后台 AI 任务）随时调用，线程安全</summary>
+    public static void Notify(string message, bool success = true)
+    {
+        var win = _instance;
+        if (win == null) return;
+        win.Dispatcher.BeginInvoke(new Action(() => win.ShowToast(message, success)));
+    }
+
+    /// <summary>在窗口底部显示通知条，3.2 秒后自动淡出</summary>
+    private void ShowToast(string message, bool success)
+    {
+        ToastIcon.Text = success ? "\uE73E" : "\uE711";
+        ToastText.Text = message;
+        ToastBar.Visibility = Visibility.Visible;
+
+        // 取消上一次动画/定时器
+        ToastBar.BeginAnimation(OpacityProperty, null);
+        _toastTimer?.Stop();
+
+        var fadeIn = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        };
+        ToastBar.BeginAnimation(OpacityProperty, fadeIn);
+
+        _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3.2) };
+        _toastTimer.Tick += (_, _) =>
+        {
+            _toastTimer.Stop();
+            var fadeOut = new DoubleAnimation(1, 0, TimeSpan.FromMilliseconds(350))
+            {
+                EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseIn }
+            };
+            fadeOut.Completed += (_, _) => ToastBar.Visibility = Visibility.Collapsed;
+            ToastBar.BeginAnimation(OpacityProperty, fadeOut);
+        };
+        _toastTimer.Start();
     }
 
     /// <summary>代码设置圆形 Thumb，避免 XAML 模板冲突</summary>
@@ -339,8 +421,27 @@ public partial class MainWindow : Window
     // ===== 窗口控制 =====
     private void TitleBar_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
+        // 若点击的是按钮、滑块等交互控件，则不触发拖动（避免误拖）
+        if (IsInteractiveControl(e.OriginalSource as DependencyObject))
+            return;
+
         if (e.ClickCount == 2) ToggleMaximize();
         else if (e.LeftButton == MouseButtonState.Pressed) DragMove();
+    }
+
+    /// <summary>
+    /// 判断点击源是否属于按钮/滑块等交互控件。
+    /// 标题栏整条可拖动，但这些控件应保持可点击/可拖动，不触发窗口移动。
+    /// </summary>
+    private static bool IsInteractiveControl(DependencyObject? source)
+    {
+        while (source != null)
+        {
+            if (source is Button || source is Slider || source is TextBox || source is ComboBox)
+                return true;
+            source = System.Windows.Media.VisualTreeHelper.GetParent(source);
+        }
+        return false;
     }
 
     private void MinimizeButton_Click(object sender, RoutedEventArgs e)
@@ -402,6 +503,86 @@ public partial class MainWindow : Window
     private void MemoButton_Click(object sender, RoutedEventArgs e)
     {
         ToolboxPage.OpenMemoWindow(this);
+    }
+
+    // ===== 全局 AI 生成队列 =====
+    private AiTaskQueueWindow? _aiQueueWindow;
+
+    /// <summary>点击标题栏队列按钮：打开/聚焦 AI 任务队列窗口（Topmost 置顶，不设 Owner 避免最小化联动）</summary>
+    private void AiQueueBtn_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_aiQueueWindow != null && _aiQueueWindow.IsVisible)
+            {
+                _aiQueueWindow.Activate();
+                return;
+            }
+
+            _aiQueueWindow = new AiTaskQueueWindow();
+            _aiQueueWindow.Closed += (_, _) => _aiQueueWindow = null;
+            _aiQueueWindow.Show();
+        }
+        catch (Exception ex)
+        {
+            Notify($"⚠ 无法打开队列：{ex.Message}", success: false);
+        }
+    }
+
+    /// <summary>任务队列变化时更新角标（统计排队中 + 运行中的任务数）</summary>
+    private void OnAiTaskChanged()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(UpdateAiQueueBadge);
+            return;
+        }
+        UpdateAiQueueBadge();
+    }
+
+    /// <summary>刷新标题栏队列角标：显示进行中任务数，无任务时隐藏</summary>
+    private void UpdateAiQueueBadge()
+    {
+        int active = 0;
+        foreach (var t in AiTaskManager.Tasks)
+            if (t.Status is AiTaskStatus.Queued or AiTaskStatus.Running) active++;
+
+        if (active <= 0)
+        {
+            AiQueueBadge.Visibility = Visibility.Collapsed;
+            AiQueueBtn.ToolTip = "AI 生成队列";
+        }
+        else
+        {
+            AiQueueBadge.Visibility = Visibility.Visible;
+            AiQueueBadgeText.Text = active > 99 ? "99+" : active.ToString();
+            AiQueueBtn.ToolTip = $"AI 生成队列（{active} 个进行中）";
+        }
+    }
+
+    // ===== 文本历史（撤销/重做 + 历史版本） =====
+    private TextHistoryWindow? _textHistoryWindow;
+
+    /// <summary>点击标题栏历史按钮：打开/聚焦文本历史窗口</summary>
+    private void TextHistoryBtn_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (_textHistoryWindow != null && _textHistoryWindow.IsVisible)
+            {
+                _textHistoryWindow.Activate();
+                return;
+            }
+
+            // 不设置 Owner，避免 owned 窗口关闭时与主窗口产生关闭联动（与 AI 队列窗口一致）
+            _textHistoryWindow = new TextHistoryWindow();
+            _textHistoryWindow.Closed += (_, _) => _textHistoryWindow = null;
+            _textHistoryWindow.Show();
+        }
+        catch (Exception ex)
+        {
+            Notify($"⚠ 无法打开历史：{ex.Message}", success: false);
+        }
     }
 
     // ===== AI 网站书签 =====
@@ -727,6 +908,13 @@ public partial class MainWindow : Window
             int cmd = wParam.ToInt32() & 0xFFF0;
             if (cmd == SC_MINIMIZE)
             {
+                // 有子窗口（AI 生成窗口/项目资产选择器等）打开期间，
+                // WPF 关闭 owned 窗口会误发 SC_MINIMIZE，这里屏蔽，避免主窗口被联动最小化。
+                if (_childWindowCount > 0)
+                {
+                    handled = true;
+                    return IntPtr.Zero;
+                }
                 WindowState = WindowState.Minimized;
                 handled = true;
             }
@@ -936,10 +1124,14 @@ public partial class MainWindow : Window
     {
         base.OnClosing(e);
         NavigationService.Instance.PageChanged -= OnPageChanged;
+        AiTaskManager.Changed -= OnAiTaskChanged;
         // 保存音乐设置
         var config = FileService.LoadConfig(App.WorkRoot);
         MusicPlayerService.Instance.SaveSettings(config);
         FileService.SaveConfig(App.WorkRoot, config);
+
+        // 持久化文本历史快照（仅关闭软件时写盘，符合"仅在关闭时持久化"的要求）
+        try { TextHistoryService.Instance.SaveSnapshots(App.WorkRoot); } catch { }
     }
 
     private static T? FindParent<T>(DependencyObject? child) where T : DependencyObject

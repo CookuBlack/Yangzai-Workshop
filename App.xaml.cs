@@ -16,7 +16,7 @@ public partial class App : Application
     public static string AvatarDir => FileService.AssetsAvatarPath;
 
     private const string GitHubRepo = "CookuBlack/Yangzai-Workshop";
-    private const string CurrentVersion = "3.3.1";
+    private const string CurrentVersion = "3.4.0";
     public static string AppVersion => CurrentVersion;
 
     /// <summary>版本信息 JSON 地址（GitHub Raw 优先确保实时性，CDN 作为加速备用）</summary>
@@ -140,9 +140,67 @@ public partial class App : Application
         if (!System.ComponentModel.DesignerProperties.GetIsInDesignMode(new Window()))
             RestartBackupTimer();
 
+        // 启动后延迟执行数据快照备份（不阻塞启动，防止 WorkData 整体损坏/误删时无恢复点）
+        try
+        {
+            var snapshotTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(8)
+            };
+            snapshotTimer.Tick += (_, _) =>
+            {
+                snapshotTimer.Stop();
+                CreateStartupSnapshot();
+            };
+            snapshotTimer.Start();
+        }
+        catch (Exception ex) { Debug.WriteLine($"[启动快照定时器] {ex.Message}"); }
+
         // 启动时静默检查（不弹窗，缓存结果即可）
         try { await CheckForUpdateCoreAsync(false, silent: true); }
         catch (Exception ex) { Debug.WriteLine($"[更新检查] {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// 启动快照备份：每次启动后自动将 WorkData 打包到独立安全目录
+    /// （%LOCALAPPDATA%\YangzaiWorkshop\StartupBackups，与 WorkData 分开存放），
+    /// 即使工作目录整体损坏或误删，也能恢复到最近一次启动时的数据。
+    /// 保留最近 5 份快照。
+    /// </summary>
+    private static void CreateStartupSnapshot()
+    {
+        try
+        {
+            if (!Directory.Exists(WorkRoot)) return;
+            var snapshotRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "YangzaiWorkshop", "StartupBackups");
+            Directory.CreateDirectory(snapshotRoot);
+            var zipPath = Path.Combine(snapshotRoot, $"Snapshot_{DateTime.Now:yyyyMMdd_HHmmss}.zip");
+            FileService.BackupData(WorkRoot, zipPath);
+
+            // 清理旧快照：保留最近 5 份
+            try
+            {
+                var files = Directory.GetFiles(snapshotRoot, "Snapshot_*.zip")
+                    .OrderByDescending(f => f).ToArray();
+                for (int i = 5; i < files.Length; i++)
+                {
+                    try { File.Delete(files[i]); } catch { }
+                }
+            }
+            catch { }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[启动快照备份失败] {ex.Message}");
+            try
+            {
+                File.AppendAllText(Path.Combine(WorkRoot, "error.log"),
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} 启动快照备份失败: {ex.Message}\n");
+            }
+            catch { }
+        }
     }
 
     private static void CleanupUpdateFiles()

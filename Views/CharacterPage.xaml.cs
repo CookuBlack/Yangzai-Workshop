@@ -18,7 +18,8 @@ public partial class CharacterPage : UserControl
     private List<CharacterInfo> _characters = new();
     private CharacterInfo? _currentCharacter;
     private bool _isEditingPersonality;
-    private static string _lastImageSize = "1024x768";
+    private static string _lastImageRatio = "16:9";
+    private static string _lastImageLevel = "1K";
     private bool _multiSelectMode;
     private readonly HashSet<string> _selectedFiles = new();
     private CancellationTokenSource? _aiCts;
@@ -106,7 +107,6 @@ public partial class CharacterPage : UserControl
             var coverBox = new Border
             {
                 Width = 70, Height = 95, CornerRadius = new CornerRadius(4),
-                Background = ParseColor(novel.CoverColor),
                 Margin = new Thickness(0, 0, 0, 6), ClipToBounds = true
             };
             if (novel.HasCoverImage)
@@ -119,11 +119,20 @@ public partial class CharacterPage : UserControl
                     using var ms = new MemoryStream(data);
                     bmp.StreamSource = ms;
                     bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
+                    // 有封面图时不设置背景，保留 PNG 透明区域（否则会透出默认蓝色背景）
                     coverBox.Child = new Image { Source = bmp, Stretch = Stretch.UniformToFill };
                 }
-                catch { coverBox.Child = CoverFb(novel.Name); }
+                catch
+                {
+                    coverBox.Background = ParseColor(novel.CoverColor);
+                    coverBox.Child = CoverFb(novel.Name);
+                }
             }
-            else coverBox.Child = CoverFb(novel.Name);
+            else
+            {
+                coverBox.Background = ParseColor(novel.CoverColor);
+                coverBox.Child = CoverFb(novel.Name);
+            }
             stack.Children.Add(coverBox);
             stack.Children.Add(new TextBlock
             {
@@ -1434,31 +1443,53 @@ public partial class CharacterPage : UserControl
         // 预填角色性格设定作为提示词参考
         var personalityHint = _currentCharacter.Personality ?? "";
 
+        // 关键：不设置 Owner！WPF 关闭 owned 子窗口时会激活/最小化 AllowsTransparency 主窗口。
+        // 去掉 Owner 彻底切断 owned 关系，用 Topmost + 手动居中保持使用体验。
         var win = new Window
         {
             Title = $"AI 生成角色图片 - {_currentCharacter.Name}",
-            Width = 500, Height = 360,
-            MinWidth = 400, MinHeight = 300,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Owner = Window.GetWindow(this),
+            Width = 500, Height = 430,
+            MinWidth = 400, MinHeight = 360,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Topmost = true,
+            ShowInTaskbar = false,
             ResizeMode = ResizeMode.CanResize,
             Background = (Brush)FindResource("WindowBackgroundBrush")
         };
+        ViewHelpers.CenterWindowOnOwner(win, Window.GetWindow(this));
 
         var grid = new Grid { Margin = new Thickness(16) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        grid.Children.Add(new TextBlock
+        // 标题（带优化按钮）
+        var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.Children.Add(new TextBlock
         {
             Text = $"为角色「{_currentCharacter.Name}」输入图片生成提示词",
             FontSize = 14, FontWeight = FontWeights.SemiBold,
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            Margin = new Thickness(0, 0, 0, 4)
+            VerticalAlignment = VerticalAlignment.Center
         });
+        var optimizeBtn = new Button
+        {
+            Content = "✨ 优化提示词",
+            FontSize = 12, Padding = new Thickness(14, 5, 14, 5),
+            Style = (Style)FindResource("PrimaryButtonStyle"),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "AI 将您的简短提示词丰富为高质量图片生成提示词（融入角色人设）"
+        };
+        Grid.SetColumn(optimizeBtn, 1);
+        headerGrid.Children.Add(optimizeBtn);
+        Grid.SetRow(headerGrid, 0);
+        grid.Children.Add(headerGrid);
 
         var promptBox = new TextBox
         {
@@ -1466,16 +1497,109 @@ public partial class CharacterPage : UserControl
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontSize = 13,
+            FontSize = 13.5,
             FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             Background = (Brush)FindResource("CardBackgroundBrush"),
             BorderBrush = (Brush)FindResource("BorderBrush"),
             BorderThickness = new Thickness(1),
-            Padding = new Thickness(10)
+            Padding = new Thickness(12, 10, 12, 10),
+            VerticalContentAlignment = VerticalAlignment.Top
         };
         Grid.SetRow(promptBox, 2);
         grid.Children.Add(promptBox);
+
+        // ===== 参考图区域（0 张=文生图，1 张=图生图，多张=多图编辑） =====
+        var refImages = new List<string>(); // Data URI Base64
+        var refPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
+        var addRefBtn = new Button
+        {
+            Content = "🖼️ 添加参考图", FontSize = 11,
+            Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(0, 0, 6, 0),
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            ToolTip = "选择本地图片作为参考：1 张=图生图，多张=多图编辑/合成（在提示词中说明组合方式）"
+        };
+        refPanel.Children.Add(addRefBtn);
+        var assetRefBtn = new Button
+        {
+            Content = "📁 项目资产", FontSize = 11,
+            Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(0, 0, 6, 0),
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            ToolTip = "从当前项目的图片资产中选择参考图（章节图片 / 人物素材 / 封面 / 头像）"
+        };
+        refPanel.Children.Add(assetRefBtn);
+        var clearRefBtn = new Button
+        {
+            Content = "✕ 清除", FontSize = 11,
+            Padding = new Thickness(8, 4, 8, 4),
+            Margin = new Thickness(0, 0, 8, 0),
+            Visibility = Visibility.Collapsed,
+            Style = (Style)FindResource("SecondaryButtonStyle")
+        };
+        refPanel.Children.Add(clearRefBtn);
+        var refHintText = new TextBlock
+        {
+            Text = "可添加 1 张（图生图）或多张（多图编辑）参考图",
+            FontSize = 10.5,
+            Foreground = (Brush)FindResource("TextTertiaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        refPanel.Children.Add(refHintText);
+
+        addRefBtn.Click += (_, _) =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "图片文件|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif",
+                Multiselect = true,
+                Title = "选择参考图片（可多选）"
+            };
+            // 显式绑定 owner 为 AI 小窗口，避免对话框关闭后激活主窗口触发其误最小化
+            if (dlg.ShowDialog(win) != true) return;
+            foreach (var file in dlg.FileNames)
+            {
+                ViewHelpers.AddReferenceThumb(refPanel, file, refImages,
+                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn));
+            }
+            ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+        };
+        // 从项目资产中选择参考图（owner 传 AI 小窗口，避免模态选择器关闭时激活主窗口触发其误最小化）
+        assetRefBtn.Click += (_, _) =>
+        {
+            try
+            {
+                if (_currentNovel == null) { Toast("⚠ 请先选择小说"); return; }
+                var path = ViewHelpers.PickProjectImage(
+                    win, "选择项目图片作为参考图",
+                    App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder);
+                if (path == null) return;
+                ViewHelpers.AddReferenceThumb(refPanel, path, refImages,
+                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn));
+                ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            }
+            catch (Exception ex)
+            {
+                Toast($"⚠ 无法打开项目资产：{ex.Message}");
+            }
+        };
+        clearRefBtn.Click += (_, _) =>
+        {
+            refImages.Clear();
+            for (int i = refPanel.Children.Count - 1; i >= 0; i--)
+            {
+                if (refPanel.Children[i] is Border b && b.Tag is string t && t == "refthumb")
+                    refPanel.Children.RemoveAt(i);
+            }
+            ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+        };
+
+        var refRow = new DockPanel();
+        DockPanel.SetDock(refPanel, Dock.Left);
+        refRow.Children.Add(refPanel);
+        Grid.SetRow(refRow, 4);
+        grid.Children.Add(refRow);
 
         // 底部：尺寸选择 + 生成按钮
         var footer = new DockPanel { Margin = new Thickness(0, 4, 0, 0) };
@@ -1492,24 +1616,61 @@ public partial class CharacterPage : UserControl
         var sizePanel = new StackPanel { Orientation = Orientation.Horizontal };
         sizePanel.Children.Add(new TextBlock
         {
-            Text = "📐 尺寸", FontSize = 12, FontWeight = FontWeights.Medium,
+            Text = "📐", FontSize = 12, FontWeight = FontWeights.Medium,
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0)
+            Margin = new Thickness(0, 0, 6, 0)
         });
-        var sizeBox = new ComboBox
+        // 比例选择
+        var ratioBox = new ComboBox
         {
-            Width = 140, Height = 28, FontSize = 13,
-            IsEditable = true, IsReadOnly = false,
-            Text = _lastImageSize,
-            ItemsSource = new[] { "1024x768", "1024x1024", "768x1024", "1280x720", "1920x1080", "512x512", "2560x1440" },
+            Width = 62, Height = 28, FontSize = 12,
+            ItemsSource = ViewHelpers.ImageRatios,
+            SelectedItem = _lastImageRatio,
+            ToolTip = "选择宽高比例",
             Style = (Style)Application.Current.FindResource("ModernComboBoxStyle"),
             Background = (Brush)FindResource("CardBackgroundBrush"),
             BorderBrush = (Brush)FindResource("BorderBrush"),
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            Padding = new Thickness(8, 0, 8, 0)
+            Padding = new Thickness(6, 0, 6, 0)
         };
-        sizePanel.Children.Add(sizeBox);
+        sizePanel.Children.Add(ratioBox);
+        // 像素档位选择
+        var levelBox = new ComboBox
+        {
+            Width = 66, Height = 28, FontSize = 12,
+            Margin = new Thickness(6, 0, 0, 0),
+            ItemsSource = ViewHelpers.ImageLevels,
+            SelectedItem = _lastImageLevel,
+            ToolTip = "像素档位（短边像素，1K=1024）",
+            Style = (Style)Application.Current.FindResource("ModernComboBoxStyle"),
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Padding = new Thickness(6, 0, 6, 0)
+        };
+        sizePanel.Children.Add(levelBox);
+        // 计算结果展示
+        var sizeResultText = new TextBlock
+        {
+            Text = "", FontSize = 11,
+            Foreground = (Brush)FindResource("AccentBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+            MinWidth = 70
+        };
+        sizePanel.Children.Add(sizeResultText);
+
+        void UpdateSizeResult()
+        {
+            var ratio = ratioBox.SelectedItem?.ToString() ?? "1:1";
+            var level = levelBox.SelectedItem?.ToString() ?? "1K";
+            sizeResultText.Text = ViewHelpers.CalcImageSize(ratio, level);
+        }
+        ratioBox.SelectionChanged += (_, _) => UpdateSizeResult();
+        levelBox.SelectionChanged += (_, _) => UpdateSizeResult();
+        UpdateSizeResult();
+
         sizeCard.Child = sizePanel;
         DockPanel.SetDock(sizeCard, Dock.Left);
         footer.Children.Add(sizeCard);
@@ -1519,6 +1680,15 @@ public partial class CharacterPage : UserControl
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Right
         };
+        var queueBtn = new Button
+        {
+            Content = "📋 查看队列",
+            FontSize = 12, Padding = new Thickness(12, 6, 12, 6),
+            Margin = new Thickness(0, 0, 8, 0),
+            Style = (Style)FindResource("SecondaryButtonStyle")
+        };
+        queueBtn.Click += (_, _) => OpenQueueWindow();
+        btnPanel.Children.Add(queueBtn);
         var genBtn = new Button
         {
             Content = "🎨 开始生成",
@@ -1527,14 +1697,49 @@ public partial class CharacterPage : UserControl
         };
         btnPanel.Children.Add(genBtn);
         footer.Children.Add(btnPanel);
-        Grid.SetRow(footer, 4);
+        Grid.SetRow(footer, 6);
         grid.Children.Add(footer);
 
         win.Content = grid;
 
-        var cts = new CancellationTokenSource();
+        // 优化提示词按钮事件（融入角色名+性格设定）
+        optimizeBtn.Click += async (_, _) =>
+        {
+            var rawPrompt = promptBox.Text.Trim();
+            if (string.IsNullOrWhiteSpace(rawPrompt))
+            {
+                Toast("⚠ 请先输入提示词再优化");
+                return;
+            }
+            optimizeBtn.IsEnabled = false;
+            optimizeBtn.Content = "⏳ 优化中...";
+            try
+            {
+                var sys = "你是一位专业的 AI 图像生成提示词优化师。请根据用户提供的角色信息和简短提示词，扩展为一段详细、专业的图像生成提示词。"
+                    + "要求：1. 详细描述主体外观、表情、姿态、服饰 2. 描述场景背景、构图、景深 "
+                    + "3. 丰富光影、色彩、氛围 4. 指定摄影/绘画风格（如电影剧照、肖像摄影、动漫风）"
+                    + "5. 使用流畅的英文或中英混合（英文术语更准确）"
+                    + "6. 保持角色人设一致性 7. 只输出优化后的提示词，不要任何解释。";
+                var userMsg = $"角色名：{_currentCharacter?.Name ?? ""}\n角色性格：{personalityHint}\n\n请优化以下角色图片生成提示词：\n{rawPrompt}";
+                var result = await ApiService.ChatAsync(
+                    config.ApiEndpoint, config.ApiKey, config.ApiModel, sys, userMsg);
+                if (!string.IsNullOrWhiteSpace(result))
+                {
+                    promptBox.Text = result.Trim();
+                    Toast("✓ 提示词已优化");
+                }
+            }
+            catch (ApiException ex) { Toast($"⚠ {ex.Message}"); }
+            catch (Exception ex) { Toast($"⚠ 优化失败：{ex.Message}"); }
+            finally
+            {
+                optimizeBtn.IsEnabled = true;
+                optimizeBtn.Content = "✨ 优化提示词";
+            }
+        };
 
-        genBtn.Click += async (_, _) =>
+        // 生成按钮：创建任务并入队后立即关闭窗口，生成交给后台队列串行执行
+        genBtn.Click += (_, _) =>
         {
             var prompt = promptBox.Text.Trim();
             if (string.IsNullOrWhiteSpace(prompt))
@@ -1543,54 +1748,60 @@ public partial class CharacterPage : UserControl
                 return;
             }
 
-            genBtn.IsEnabled = false;
-            genBtn.Content = "⏳ 生成中...";
-            sizeBox.IsEnabled = false;
+            var ratio = ratioBox.SelectedItem?.ToString() ?? "1:1";
+            var level = levelBox.SelectedItem?.ToString() ?? "1K";
+            _lastImageRatio = ratio;
+            _lastImageLevel = level;
+            var size = ViewHelpers.CalcImageSize(ratio, level);
 
-            try
+            // 快照当前小说/角色，防止用户切换后任务保存到错误目录
+            var novel = _currentNovel;
+            var character = _currentCharacter;
+            var task = new AiTask
             {
-                var size = sizeBox.Text.Trim();
-                _lastImageSize = size;
-                var imageUrl = await ApiService.GenerateImageAsync(
-                    config.ApiEndpoint, config.ApiKey, prompt, config.ImageModel, size, cts.Token);
-
-                var imageBytes = await ApiService.DownloadImageAsync(imageUrl, cts.Token);
-
-                var targetDir = FileService.CharacterImagesPath(
-                    App.WorkRoot, _currentNovel.MediaFolder, _currentCharacter.Id);
-                FileService.EnsureDirectory(targetDir);
-                var fileName = $"AI_{DateTime.Now:yyyyMMdd_HHmmss}.png";
-                var filePath = Path.Combine(targetDir, fileName);
-                await File.WriteAllBytesAsync(filePath, imageBytes, cts.Token);
-
-                // 已经回到 UI 线程，直接操作 UI
-                RefreshCharacterImages();
-                Toast("✓ 图片已生成并保存");
-                try { win.Close(); } catch { }
-            }
-            catch (OperationCanceledException)
-            {
-                Toast("⚠ 已取消");
-            }
-            catch (ApiException ex)
-            {
-                Toast($"⚠ {ex.Message}");
-            }
-            catch (Exception ex)
-            {
-                Toast($"⚠ 生成失败：{ex.Message}");
-            }
-            finally
-            {
-                try { cts.Dispose(); } catch { }
-                genBtn.IsEnabled = true;
-                genBtn.Content = "🎨 开始生成";
-                sizeBox.IsEnabled = true;
-            }
+                Type = AiTaskType.Image,
+                Prompt = prompt,
+                Detail = refImages.Count > 0 ? $"参考图×{refImages.Count}·{size}" : size,
+                ReferenceImages = refImages.Count > 0 ? new List<string>(refImages) : null,
+                ApiEndpoint = config.ApiEndpoint,
+                ApiKey = config.ApiKey,
+                Model = config.ImageModel,
+                TargetDir = FileService.CharacterImagesPath(App.WorkRoot, novel.MediaFolder, character.Id),
+                FileNameBase = $"AI_{DateTime.Now:yyyyMMdd_HHmmss}",
+                ImageSize = size,
+                NovelName = novel.Name,
+                ScopeName = $"角色「{character.Name}」"
+            };
+            AiTaskManager.Enqueue(task);
+            Toast("✓ 已加入 AI 任务队列");
+            try { win.Close(); } catch { }
         };
 
-        win.Closed += (_, _) => cts.Cancel();
-        win.ShowDialog();
+        // 异步窗口：非模态显示且无 Owner，用户可关闭窗口/离开页面做其他事，生成在后台队列中继续
+        win.Show();
+    }
+
+    /// <summary>打开 AI 任务队列窗口（Topmost 置顶显示，不设 Owner 避免遮挡与主窗口最小化问题）</summary>
+    private void OpenQueueWindow()
+    {
+        try
+        {
+            var qw = new AiTaskQueueWindow();
+            qw.Show();
+        }
+        catch (Exception ex)
+        {
+            Toast($"⚠ 无法打开队列：{ex.Message}");
+        }
+    }
+
+    /// <summary>AI 任务完成后，若目标目录是当前角色的图片目录则实时刷新素材列表</summary>
+    public void TryRefreshAfterAiTask(AiTask task)
+    {
+        if (_currentNovel == null || _currentCharacter == null) return;
+        var target = FileService.CharacterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, _currentCharacter.Id);
+        if (string.Equals(target.TrimEnd('\\', '/'), task.TargetDir.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
+            RefreshCharacterImages();
     }
 
     // ===== 多选模式 =====

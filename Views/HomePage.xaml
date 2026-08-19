@@ -27,7 +27,12 @@
                               UnloadedBehavior="Stop"
                               Stretch="UniformToFill" ScrubbingEnabled="True"
                               RenderOptions.BitmapScalingMode="HighQuality"/>
-                <TextBlock x:Name="BannerPlaceholder" Text="&#xE714; 暂无轮播视频"
+                <!-- 轮播图片（与视频共用同一区域，按文件类型切换显隐） -->
+                <Image x:Name="BannerImage2" Stretch="UniformToFill" Opacity="0"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                <Image x:Name="BannerImage" Stretch="UniformToFill" Opacity="0"
+                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                <TextBlock x:Name="BannerPlaceholder" Text="&#xE714; 暂无轮播内容"
                            FontFamily="Microsoft YaHei UI" FontSize="16"
                            Foreground="{DynamicResource BorderBrush}"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -56,10 +61,15 @@
                 <ColumnDefinition Width="1.4*"/>
             </Grid.ColumnDefinitions>
 
-            <!-- 左侧：目录卡片 + 一键开始 -->
-            <StackPanel Grid.Column="0" Margin="0,0,8,0">
-                <!-- 三个目录卡片 -->
-                <Grid>
+            <!-- 左侧：目录卡片 + 一键开始（一键开始板块底部对齐） -->
+            <Grid Grid.Column="0" Margin="0,0,8,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <!-- 四个目录卡片 -->
+                <Grid Grid.Row="0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition/>
                         <ColumnDefinition/>
@@ -69,8 +79,8 @@
 
                     <!-- 根目录 -->
                     <Border x:Name="RootDirCard" Grid.Column="0"
-                            Style="{StaticResource CardStyle}" Cursor="Hand" Padding="16,14"
-                            Margin="0,0,8,0"
+                            Style="{StaticResource CardStyle}" Cursor="Hand" Padding="14,12"
+                            Margin="0,0,6,0"
                             MouseLeftButtonDown="Card_MouseDown"
                             MouseLeftButtonUp="Card_MouseUp"
                             MouseEnter="Card_MouseEnter"
@@ -85,28 +95,31 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Width="36" Height="36" CornerRadius="8"
+                            <Border Grid.Column="0" Width="40" Height="40" CornerRadius="10"
                                     Background="#1A1976D2" VerticalAlignment="Center">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="#1976D2" BlurRadius="6" ShadowDepth="0" Opacity="0.18"/>
+                                </Border.Effect>
                                 <TextBlock Text="&#xED25;" FontFamily="Segoe MDL2 Assets"
-                                           FontSize="18" Foreground="{DynamicResource PrimaryBrush}"
+                                           FontSize="19" Foreground="{DynamicResource PrimaryBrush}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
-                            <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
-                                <TextBlock Text="根目录" FontSize="14" FontWeight="SemiBold"
+                            <StackPanel Grid.Column="1" Margin="10,0,6,0" VerticalAlignment="Center">
+                                <TextBlock Text="根目录" FontSize="13" FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                <TextBlock Text="访问工作根目录" FontSize="11"
-                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0"/>
+                                <TextBlock Text="访问工作根目录" FontSize="10"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <TextBlock Grid.Column="2" Text="&#xE76C;" FontFamily="Segoe MDL2 Assets"
-                                       FontSize="14" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="13" Foreground="{DynamicResource TextTertiaryBrush}"
                                        VerticalAlignment="Center"/>
                         </Grid>
                     </Border>
 
                     <!-- 图片目录 -->
                     <Border x:Name="ImageDirCard" Grid.Column="1"
-                            Style="{StaticResource CardStyle}" Cursor="Hand" Padding="16,14"
-                            Margin="4,0,4,0"
+                            Style="{StaticResource CardStyle}" Cursor="Hand" Padding="14,12"
+                            Margin="2,0,2,0"
                             MouseLeftButtonDown="Card_MouseDown"
                             MouseLeftButtonUp="Card_MouseUp"
                             MouseEnter="Card_MouseEnter"
@@ -121,28 +134,31 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Width="36" Height="36" CornerRadius="8"
+                            <Border Grid.Column="0" Width="40" Height="40" CornerRadius="10"
                                     Background="#1A66BB6A" VerticalAlignment="Center">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="#66BB6A" BlurRadius="6" ShadowDepth="0" Opacity="0.18"/>
+                                </Border.Effect>
                                 <TextBlock Text="&#xEB9F;" FontFamily="Segoe MDL2 Assets"
-                                           FontSize="18" Foreground="{DynamicResource SuccessBrush}"
+                                           FontSize="19" Foreground="{DynamicResource SuccessBrush}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
-                            <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
-                                <TextBlock Text="图片目录" FontSize="14" FontWeight="SemiBold"
+                            <StackPanel Grid.Column="1" Margin="10,0,6,0" VerticalAlignment="Center">
+                                <TextBlock Text="图片目录" FontSize="13" FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                <TextBlock Text="浏览素材图片" FontSize="11"
-                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0"/>
+                                <TextBlock Text="浏览素材图片" FontSize="10"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <TextBlock Grid.Column="2" Text="&#xE76C;" FontFamily="Segoe MDL2 Assets"
-                                       FontSize="14" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="13" Foreground="{DynamicResource TextTertiaryBrush}"
                                        VerticalAlignment="Center"/>
                         </Grid>
                     </Border>
 
                     <!-- 视频目录 -->
                     <Border x:Name="VideoDirCard" Grid.Column="2"
-                            Style="{StaticResource CardStyle}" Cursor="Hand" Padding="16,14"
-                            Margin="8,0,0,0"
+                            Style="{StaticResource CardStyle}" Cursor="Hand" Padding="14,12"
+                            Margin="2,0,2,0"
                             MouseLeftButtonDown="Card_MouseDown"
                             MouseLeftButtonUp="Card_MouseUp"
                             MouseEnter="Card_MouseEnter"
@@ -157,28 +173,31 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Width="36" Height="36" CornerRadius="8"
+                            <Border Grid.Column="0" Width="40" Height="40" CornerRadius="10"
                                     Background="#1AFF7043" VerticalAlignment="Center">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="#FF7043" BlurRadius="6" ShadowDepth="0" Opacity="0.18"/>
+                                </Border.Effect>
                                 <TextBlock Text="&#xE714;" FontFamily="Segoe MDL2 Assets"
-                                           FontSize="18" Foreground="{DynamicResource AccentBrush}"
+                                           FontSize="19" Foreground="{DynamicResource AccentBrush}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
-                            <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
-                                <TextBlock Text="视频目录" FontSize="14" FontWeight="SemiBold"
+                            <StackPanel Grid.Column="1" Margin="10,0,6,0" VerticalAlignment="Center">
+                                <TextBlock Text="视频目录" FontSize="13" FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                <TextBlock Text="浏览视频素材" FontSize="11"
-                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0"/>
+                                <TextBlock Text="浏览视频素材" FontSize="10"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <TextBlock Grid.Column="2" Text="&#xE76C;" FontFamily="Segoe MDL2 Assets"
-                                       FontSize="14" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="13" Foreground="{DynamicResource TextTertiaryBrush}"
                                        VerticalAlignment="Center"/>
                         </Grid>
                     </Border>
 
                     <!-- 音频目录 -->
                     <Border x:Name="AudioDirCard" Grid.Column="3"
-                            Style="{StaticResource CardStyle}" Cursor="Hand" Padding="16,14"
-                            Margin="8,0,0,0"
+                            Style="{StaticResource CardStyle}" Cursor="Hand" Padding="14,12"
+                            Margin="6,0,0,0"
                             MouseLeftButtonDown="Card_MouseDown"
                             MouseLeftButtonUp="Card_MouseUp"
                             MouseEnter="Card_MouseEnter"
@@ -193,33 +212,42 @@
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Width="36" Height="36" CornerRadius="8"
-                                    Background="#1A9C27B0" VerticalAlignment="Center">
+                            <Border Grid.Column="0" Width="40" Height="40" CornerRadius="10"
+                                    Background="#1AAB47BC" VerticalAlignment="Center">
+                                <Border.Effect>
+                                    <DropShadowEffect Color="#AB47BC" BlurRadius="6" ShadowDepth="0" Opacity="0.18"/>
+                                </Border.Effect>
                                 <TextBlock Text="&#xE767;" FontFamily="Segoe MDL2 Assets"
-                                           FontSize="18" Foreground="#E1BEE7"
+                                           FontSize="19" Foreground="#CE93D8"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
-                            <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
-                                <TextBlock Text="音频目录" FontSize="14" FontWeight="SemiBold"
+                            <StackPanel Grid.Column="1" Margin="10,0,6,0" VerticalAlignment="Center">
+                                <TextBlock Text="音频目录" FontSize="13" FontWeight="SemiBold"
                                            Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                <TextBlock Text="浏览音频素材" FontSize="11"
-                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0"/>
+                                <TextBlock Text="浏览音频素材" FontSize="10"
+                                           Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,2,0,0"/>
                             </StackPanel>
                             <TextBlock Grid.Column="2" Text="&#xE76C;" FontFamily="Segoe MDL2 Assets"
-                                       FontSize="14" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       FontSize="13" Foreground="{DynamicResource TextTertiaryBrush}"
                                        VerticalAlignment="Center"/>
                         </Grid>
                     </Border>
                 </Grid>
 
-                <!-- 一键开始 + GitHub -->
-                <Border Style="{StaticResource CardStyle}" Margin="0,12,0,0" Padding="20">
+                <!-- 一键开始 + GitHub（底部对齐） -->
+                <Border Grid.Row="2" Style="{StaticResource CardStyle}" Margin="0,12,0,0" Padding="22,18">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="{DynamicResource CardBackgroundGradientStart}" Offset="0"/>
+                            <GradientStop Color="{DynamicResource CardBackgroundGradientEnd}" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0">
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
                             <TextBlock Text="准备开始创作" FontSize="16" FontWeight="Bold"
                                        Foreground="{DynamicResource TextPrimaryBrush}"/>
                             <TextBlock x:Name="NovelCountText" Text="已导入 0 本小说"
@@ -232,7 +260,7 @@
                                         MouseLeftButtonDown="GitHubLink_Click"
                                         ToolTip="https://github.com/CookuBlack/Yangzai-Workshop">
                                 <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets"
-                                           FontSize="13" Foreground="{DynamicResource PrimaryBrush}"
+                                           FontSize="12" Foreground="{DynamicResource PrimaryBrush}"
                                            VerticalAlignment="Center" Margin="0,0,6,0"/>
                                 <TextBlock Text="github.com/CookuBlack/Yangzai-Workshop"
                                            FontSize="11"
@@ -242,32 +270,44 @@
                             </StackPanel>
                         </StackPanel>
                         <Button Grid.Column="1" Click="StartButton_Click"
-                                Background="{DynamicResource AccentBrush}"
+                                Background="#D9743B"
                                 Foreground="White" BorderThickness="0"
                                 FontSize="15" FontFamily="Microsoft YaHei UI"
-                                Cursor="Hand" Padding="28,14">
+                                Cursor="Hand" Padding="30,15"
+                                VerticalAlignment="Center">
                             <Button.Resources>
                                 <Style TargetType="Button">
                                     <Setter Property="Template">
                                         <Setter.Value>
                                             <ControlTemplate TargetType="Button">
-                                                <Border x:Name="bd" CornerRadius="8"
+                                                <Border x:Name="bd" CornerRadius="10"
                                                         Background="{TemplateBinding Background}"
-                                                        Padding="{TemplateBinding Padding}">
+                                                        Padding="{TemplateBinding Padding}"
+                                                        RenderTransformOrigin="0.5,0.5">
+                                                    <Border.RenderTransform>
+                                                        <ScaleTransform ScaleX="1" ScaleY="1"/>
+                                                    </Border.RenderTransform>
+                                                    <Border.Effect>
+                                                        <DropShadowEffect Color="#8A4A20" BlurRadius="10" ShadowDepth="0" Opacity="0.28"/>
+                                                    </Border.Effect>
                                                     <ContentPresenter HorizontalAlignment="Center"
                                                                     VerticalAlignment="Center"/>
                                                 </Border>
                                                 <ControlTemplate.Triggers>
+                                                    <!-- 悬浮：不发亮，仅轻微加深以示可交互 -->
                                                     <Trigger Property="IsMouseOver" Value="True">
-                                                  
-                                                      <Setter TargetName="bd"
-                                                                Property="Background"
-                                                                Value="#FF8A65"/>
+                                                        <Setter TargetName="bd" Property="Background"
+                                                                Value="#C9662F"/>
                                                     </Trigger>
+                                                    <!-- 按下：明显变暗 + 缩小，产生按压反馈 -->
                                                     <Trigger Property="IsPressed" Value="True">
-                                                        <Setter TargetName="bd"
-                                                                Property="Background"
-                                                                Value="#E64A19"/>
+                                                        <Setter TargetName="bd" Property="Background"
+                                                                Value="#A84D1E"/>
+                                                        <Setter TargetName="bd" Property="RenderTransform">
+                                                            <Setter.Value>
+                                                                <ScaleTransform ScaleX="0.96" ScaleY="0.96"/>
+                                                            </Setter.Value>
+                                                        </Setter>
                                                     </Trigger>
                                                 </ControlTemplate.Triggers>
                                             </ControlTemplate>
@@ -279,33 +319,61 @@
                                 <TextBlock Text="&#xE768;" FontFamily="Segoe MDL2 Assets"
                                            FontSize="17" Foreground="White"
                                            VerticalAlignment="Center"/>
-                                <TextBlock Text="  一键开始" FontSize="15"
+                                <TextBlock Text="  一键开始" FontSize="15" FontWeight="SemiBold"
                                            VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
                     </Grid>
                 </Border>
-            </StackPanel>
+            </Grid>
 
-            <!-- 右侧公告栏 -->
+            <!-- 右侧公告栏（顶部加渐变点 + 更好排版） -->
             <Border Grid.Column="1" Style="{StaticResource CardStyle}">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <TextBlock Grid.Row="0" Text="&#xE789;" FontFamily="Segoe MDL2 Assets" FontSize="16"
-                               Foreground="{DynamicResource AccentBrush}"/>
-                    <TextBlock Grid.Row="1" Text="公告" FontSize="16" FontWeight="Bold"
-                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,8,0,12"/>
-                    <ScrollViewer Grid.Row="2" x:Name="NoticeScroller"
-                                  VerticalScrollBarVisibility="Hidden"
-                                  PreviewMouseWheel="NoticeScroller_PreviewMouseWheel">
-                        <TextBlock x:Name="NoticeText" Text="加载中..."
-                                   FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
-                                   TextWrapping="Wrap" LineHeight="20"/>
-                    </ScrollViewer>
+                    <!-- 标题区：图标 + 标题 -->
+                    <Grid Grid.Row="0" Margin="0,0,0,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Width="32" Height="32" CornerRadius="8"
+                                Background="#1AFF7043" VerticalAlignment="Center">
+                            <Border.Effect>
+                                <DropShadowEffect Color="#FF7043" BlurRadius="6" ShadowDepth="0" Opacity="0.18"/>
+                            </Border.Effect>
+                            <TextBlock Text="&#xE789;" FontFamily="Segoe MDL2 Assets" FontSize="15"
+                                       Foreground="{DynamicResource AccentBrush}"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0,0,0">
+                            <TextBlock Text="公告" FontSize="14" FontWeight="Bold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock Text="最新动态与更新说明" FontSize="10"
+                                       Foreground="{DynamicResource TextTertiaryBrush}"
+                                       Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                    <!-- 分隔线 + 滚动公告 -->
+                    <Grid Grid.Row="1">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <Border Grid.Row="0" BorderBrush="{DynamicResource BorderBrush}"
+                                BorderThickness="0,1,0,0" Opacity="0.5" Margin="0,0,0,12"/>
+                        <ScrollViewer Grid.Row="1" x:Name="NoticeScroller"
+                                      VerticalScrollBarVisibility="Hidden"
+                                      PreviewMouseWheel="NoticeScroller_PreviewMouseWheel">
+                            <TextBlock x:Name="NoticeText" Text="加载中..."
+                                       FontFamily="Microsoft YaHei UI"
+                                       FontSize="12" Foreground="{DynamicResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" LineHeight="22"/>
+                        </ScrollViewer>
+                    </Grid>
                 </Grid>
             </Border>
         </Grid>

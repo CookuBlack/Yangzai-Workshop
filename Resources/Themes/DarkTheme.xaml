@@ -33,4 +33,8 @@
     <SolidColorBrush x:Key="HoverBrush" Color="{StaticResource HoverColor}"/>
     <SolidColorBrush x:Key="PrimaryLowBrush" Color="#1AC07040"/>
 
+    <!-- 卡片渐变背景（暗色主题下用稍亮的渐变） -->
+    <Color x:Key="CardBackgroundGradientStart">#3D3D3D</Color>
+    <Color x:Key="CardBackgroundGradientEnd">#333333</Color>
+
 </ResourceDictionary>

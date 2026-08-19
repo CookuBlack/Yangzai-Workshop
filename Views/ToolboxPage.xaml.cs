@@ -71,6 +71,15 @@ public partial class ToolboxPage : UserControl
             VerticalAlignment = VerticalAlignment.Center
         };
         toolbar.Children.Add(countText);
+        var restoreAllBtn = new Button
+        {
+            Content = "全部还原", FontSize = 11,
+            Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(12, 0, 0, 0),
+            Foreground = (Brush)Application.Current.FindResource("SuccessBrush"),
+            Style = (Style)Application.Current.FindResource("SecondaryButtonStyle")
+        };
+        toolbar.Children.Add(restoreAllBtn);
         var emptyBtn = new Button
         {
             Content = "清空回收站", FontSize = 11,
@@ -88,6 +97,23 @@ public partial class ToolboxPage : UserControl
         scroll.Content = trashList;
         Grid.SetRow(scroll, 2);
         root.Children.Add(scroll);
+
+        // 绑定"全部还原"按钮事件
+        restoreAllBtn.Click += (_, _) =>
+        {
+            var items = FileService.GetTrashItems(App.WorkRoot);
+            if (items.Count == 0)
+            {
+                MessageDialog.Show("提示", "回收站为空，没有可还原的项目。");
+                return;
+            }
+            if (MessageDialog.Confirm("确认", $"确定还原回收站中的全部 {items.Count} 个项目？还原后文件将回到原位置。"))
+            {
+                var restored = FileService.RestoreAllTrashItems(App.WorkRoot);
+                LoadTrashList(trashList, countText);
+                MessageDialog.Show("还原完成", $"已还原 {restored} 个项目。");
+            }
+        };
 
         // 绑定清空按钮事件
         emptyBtn.Click += (_, _) =>
@@ -186,8 +212,11 @@ public partial class ToolboxPage : UserControl
                 catch { }
                 LoadTrashList(list, countText);
             };
-            delBtn.MouseEnter += (s, _) => ((Button)s).Background = (Brush)Application.Current.FindResource("HoverBrush");
-            delBtn.MouseLeave += (s, _) => ((Button)s).Background = Brushes.Transparent;
+            delBtn.MouseEnter += (s, _) =>
+            {
+                if (s is Button b) b.Background = (Application.Current?.FindResource("HoverBrush") as Brush) ?? Brushes.Transparent;
+            };
+            delBtn.MouseLeave += (s, _) => { if (s is Button b) b.Background = Brushes.Transparent; };
             Grid.SetColumn(delBtn, 2);
             grid.Children.Add(delBtn);
 

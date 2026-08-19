@@ -17,7 +17,7 @@ public class AppConfig
     public bool AutoBackup { get; set; } = false;
     public int BackupIntervalHours { get; set; } = 24;
     /// <summary>大模型 API 地址（兼容 OpenAI 格式）</summary>
-    public string ApiEndpoint { get; set; } = "https://api.openai.com/v1";
+    public string ApiEndpoint { get; set; } = "https://api.agnes-ai.cn/v1";
     /// <summary>API 密钥</summary>
     public string ApiKey { get; set; } = string.Empty;
     /// <summary>文本模型名称（聊天/剧本/提示词）</summary>
@@ -26,6 +26,14 @@ public class AppConfig
     public string ImageModel { get; set; } = "agnes-image-2.0-flash";
     /// <summary>视频生成模型名称</summary>
     public string VideoModel { get; set; } = "agnes-video-v2.0";
+    /// <summary>默认图片生成引擎：Api=云端在线 API，ComfyUI=本地 ComfyUI</summary>
+    public string DefaultImageProvider { get; set; } = "Api";
+
+    // ====== ComfyUI 本地生图 ======
+    /// <summary>ComfyUI 服务地址（例如 http://127.0.0.1:8188）</summary>
+    public string ComfyUiEndpoint { get; set; } = "http://127.0.0.1:8188";
+    /// <summary>ComfyUI 工作流 JSON 文件路径（API 格式，从 ComfyUI 网页「Export (API)」导出）</summary>
+    public string ComfyUiWorkflowFile { get; set; } = "";
     /// <summary>生成剧本的 System Prompt（基于当前章节原文生成剧本）</summary>
     public string ScriptSkill { get; set; } = "你是一位专业的漫剧编剧。请将以下小说章节内容改编为漫剧剧本。\n要求：\n1. 采用分镜脚本格式，每个场景标注【场景X：地点 - 时间】\n2. 对话前标注角色名，例如「角色名：台词」\n3. 动作描述用括号括起，例如（推门走进房间）\n4. 保留原著的精彩对白和情节，适当精简描述性文字\n5. 输出完整的剧本，不要省略";
     /// <summary>生成提示词的 System Prompt（基于剧本内容生成场景提示词）</summary>
@@ -41,7 +49,7 @@ public class AppConfig
         new() { Name = "Hugging Face", Url = "https://huggingface.co" },
     };
     public string LastUpdateDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
-    public string Version { get; set; } = "3.3.1";
+    public string Version { get; set; } = "3.4.0";
     public int GitHubStars { get; set; } = 128;
 
     // ====== 自定义主题：单一背景色或背景图 ======
@@ -60,4 +68,8 @@ public class AppConfig
     public bool MusicAutoPlay { get; set; } = false;
     /// <summary>播放模式：RepeatAll / Shuffle</summary>
     public string MusicPlayMode { get; set; } = "RepeatAll";
+
+    // ====== 文本历史（撤销/重做 + 历史版本） ======
+    /// <summary>文本历史记录的最大变动次数（默认 50，范围 1~500）</summary>
+    public int TextHistoryMaxCount { get; set; } = 50;
 }

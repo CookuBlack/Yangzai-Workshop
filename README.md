@@ -6,7 +6,7 @@
 [![WPF](https://img.shields.io/badge/UI-WPF-blue)](https://github.com/dotnet/wpf)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-lightgrey)]()
-[![Release](https://img.shields.io/badge/release-v3.2.3-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
+[![Release](https://img.shields.io/badge/release-v3.4.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
 
 ![front](./README.assets/front.png)
 
@@ -25,6 +25,9 @@
 - **数据可视化** — 三平台（抖音 / 快手 / Bilibili）折线图，CSV 数据导入
 - **安全备份** — 一键 ZIP 备份与恢复，回收站 30 天自动清理，图片/视频内嵌预览
 - **自动更新** — 从 GitHub Release 自动检测新版本，MSI 一键下载安装
+- **双引擎 AI 生图** — 支持云端 API 与本地 ComfyUI 引擎，可读取自定义工作流 JSON
+- **文本历史** — 撤销/重做 + 历史版本回退（类 Word 停顿合并，可配置步数）
+- **AI 任务队列** — 视频与图像生成任务统一管理，标题栏实时角标
 
 ---
 
@@ -57,6 +60,9 @@
   - 剧本内容 — 可编辑 RichTextBox，失焦自动保存
   - 图像素材 — 3 列网格，支持拖拽导入、大图预览（滚轮缩放+拖拽平移）
 - AI 辅助：剧本生成 + 提示词生成（兼容 OpenAI 格式 API）
+- AI 生图：支持云端 API 与本地 ComfyUI 双引擎，可配置默认引擎、比例与像素档位
+- 文本历史：撤销/重做（Ctrl+Z / Ctrl+Y）+ 历史版本回退，支持停顿合并
+- 图像素材瀑布流布局，图片异步加载不卡顿
 - 删除小说时同步清除提示词，有剩余小说自动切换到下一部
 
 ### 👤 人物素材
@@ -108,10 +114,16 @@ Yangzai Workshop/
 │   ├── Character.cs                   # 人物角色（性格 + 素材）
 │   ├── PlatformStats.cs               # 平台统计（日数据）
 │   ├── Memo.cs                        # 备忘录
+│   ├── AiTask.cs                      # AI 任务（图片/视频生成参数）
+│   ├── HistorySnapshot.cs             # 文本历史快照
 │   └── TrashItem.cs                   # 回收站
 ├── Services/                          # 业务服务层
 │   ├── FileService.cs                 # 文件 I/O、JSON 持久化、回收站、备份恢复
 │   ├── ChapterParserService.cs        # 智能分章（4 种正则 + 中文数字）
+│   ├── ApiService.cs                  # AI API 调用（文生图/生视频/多模态/ComfyUI）
+│   ├── AiTaskManager.cs               # AI 任务队列（视频 + 图像统一调度）
+│   ├── TextHistoryService.cs          # 文本历史（撤销/重做 + 快照持久化）
+│   ├── FloatingWindowManager.cs       # 浮动小窗口管理（最小化隐藏 + 恢复）
 │   ├── MusicPlayerService.cs          # 后台音乐播放器
 │   ├── NavigationService.cs           # 页面导航 + 缓存管理（单例）
 │   ├── ThemeService.cs                # 主题切换（DynamicResource 即时更新）
@@ -126,6 +138,8 @@ Yangzai Workshop/
 │   ├── ProfilePage.xaml/.cs           # 个人资料
 │   ├── SettingsPage.xaml/.cs          # 设置
 │   ├── CropWindow.xaml/.cs            # 图片裁剪工具窗口
+│   ├── AiTaskQueueWindow.xaml/.cs     # AI 任务队列窗口
+│   ├── TextHistoryWindow.xaml/.cs     # 文本历史窗口（撤销/重做/回退）
 │   └── InputDialog.xaml/.cs           # 通用输入对话框
 ├── Assets/                            # 静态资源（图标、视频）
 ├── Resources/                         # 样式与主题
