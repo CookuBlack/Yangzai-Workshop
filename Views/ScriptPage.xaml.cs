@@ -921,6 +921,9 @@ public partial class ScriptPage : UserControl
                 var item = new MenuItem { Header = header };
                 item.Click += (_, _) => ToggleChapterComplete(ch);
                 menu.Items.Add(item);
+                var renameItem = new MenuItem { Header = "重命名章节" };
+                renameItem.Click += (_, _) => RenameChapter(ch);
+                menu.Items.Add(renameItem);
                 var delItem = new MenuItem { Header = "删除章节", Foreground = (Brush)FindResource("DangerBrush") };
                 delItem.Click += (_, _) => DeleteChapter(ch);
                 menu.Items.Add(delItem);
@@ -980,7 +983,12 @@ public partial class ScriptPage : UserControl
             // 加载小说原文（RichTextBox）
             var textRange = new TextRange(OriginalTextBox.Document.ContentStart, OriginalTextBox.Document.ContentEnd);
             var content = _currentChapter.OriginalContent ?? "";
-            if (!string.IsNullOrEmpty(content))
+            if (string.IsNullOrEmpty(content))
+            {
+                // 新建/空章节：清空原文编辑器，避免残留上一小说或上一章节的内容
+                try { OriginalTextBox.Document.Blocks.Clear(); } catch { }
+            }
+            else
             {
                 try
                 {
@@ -2464,6 +2472,21 @@ public partial class ScriptPage : UserControl
         FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
         RefreshChapterTabs();
         SelectChapter(newChapter);
+    }
+
+    private void RenameChapter(Chapter chapter)
+    {
+        if (_currentNovel == null) return;
+        var dialog = new InputDialog("重命名章节", "请输入新的章节名称：", chapter.Title);
+        dialog.Owner = Window.GetWindow(this);
+        dialog.Confirmed += name =>
+        {
+            if (string.IsNullOrWhiteSpace(name)) return;
+            chapter.Title = name.Trim();
+            FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
+            RefreshChapterTabs();
+        };
+        dialog.Show();
     }
 
     private void DeleteChapter(Chapter chapter)

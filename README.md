@@ -6,7 +6,7 @@
 [![WPF](https://img.shields.io/badge/UI-WPF-blue)](https://github.com/dotnet/wpf)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-lightgrey)]()
-[![Release](https://img.shields.io/badge/release-v3.4.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
+[![Release](https://img.shields.io/badge/release-v4.0.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
 
 ![front](./README.assets/front.png)
 
@@ -28,6 +28,7 @@
 - **双引擎 AI 生图** — 支持云端 API 与本地 ComfyUI 引擎，可读取自定义工作流 JSON
 - **文本历史** — 撤销/重做 + 历史版本回退（类 Word 停顿合并，可配置步数）
 - **AI 任务队列** — 视频与图像生成任务统一管理，标题栏实时角标
+- **桌面宠物模式** — 帧动画桌面宠物「小羊」，支持跟随/散步/休息行为，托盘常驻图标，右键菜单一键控制音乐、AI 生图/生视频、任务队列与宠物资源管理
 
 ---
 
@@ -97,6 +98,13 @@
 - 公告编辑、数据 ZIP 备份与恢复
 - **自动更新** — 从 GitHub 检测新版本，支持 MSI 一键下载安装
 
+### 🐑 桌面宠物模式
+- 帧动画桌面宠物「小羊」，透明置顶悬浮窗口，支持休息 / 散步 / 跟随鼠标三种行为与奔跑速度、大小自定义
+- 单击点头、双击跳跃、拖拽移动，退出前挥手告别
+- 系统托盘常驻小羊图标，随时一键显示 / 隐藏宠物
+- 宠物右键菜单与托盘菜单：**音乐播放 / 暂停**、**AI 对话**、**AI 生图 / 生视频**（支持参考图、提示词优化）、**查看任务队列**、**宠物资源管理**
+- 宠物资源管理（工具箱入口）：图片瀑布流缩略图、视频 / 文本卡片，支持预览、定位、删除，可作为 AI 生图 / 生视频参考图素材库
+
 ---
 
 ## 📁 项目结构
@@ -127,6 +135,7 @@ Yangzai Workshop/
 │   ├── MusicPlayerService.cs          # 后台音乐播放器
 │   ├── NavigationService.cs           # 页面导航 + 缓存管理（单例）
 │   ├── ThemeService.cs                # 主题切换（DynamicResource 即时更新）
+│   ├── PetService.cs                  # 桌面宠物桥接（音乐/AI/队列/资源回调接入）
 │   └── ViewHelpers.cs                 # 通用视图工具（圆角裁切、图片查看器等）
 ├── Views/                             # 页面视图（UserControl）+ 工具窗口
 │   ├── HomePage.xaml/.cs              # 首页
@@ -140,7 +149,14 @@ Yangzai Workshop/
 │   ├── CropWindow.xaml/.cs            # 图片裁剪工具窗口
 │   ├── AiTaskQueueWindow.xaml/.cs     # AI 任务队列窗口
 │   ├── TextHistoryWindow.xaml/.cs     # 文本历史窗口（撤销/重做/回退）
-│   └── InputDialog.xaml/.cs           # 通用输入对话框
+│   ├── InputDialog.xaml/.cs           # 通用输入对话框
+│   └── PetResourceWindow.xaml/.cs     # 宠物资源管理（瀑布流预览）
+├── GaussYannin/                       # 桌面宠物模块（独立类库 DesktopPet.csproj）
+│   ├── MainWindow.xaml/.cs            # 宠物主窗口（帧动画 / 行为 / 拖拽）
+│   ├── AnimResources.cs               # 动画资源读取与帧解码
+│   ├── PetActions.cs / PetHost.cs     # 回调委托与宠物窗口生命周期
+│   ├── PetTray.cs / PetSettings.cs    # 系统托盘图标 / 设置
+│   └── Assets/                        # 宠物动画帧（编译进 exe 的嵌入资源）
 ├── Assets/                            # 静态资源（图标、视频）
 ├── Resources/                         # 样式与主题
 │    ├── Themes/
@@ -217,6 +233,7 @@ WorkData/
 │   └── {mediaFolder}/         # 按小说 MediaFolder
 │       └── {第X章}/           # 章节视频（按章节分目录）
 ├── Music/                     # 背景音乐文件
+├── PetResources/              # 宠物资源（图片 / 视频 / 文本素材）
 └── .trash/                    # 回收站（30 天自动清理）
 ```
 

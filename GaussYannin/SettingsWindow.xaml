@@ -1,0 +1,285 @@
+<Window x:Class="DesktopPet.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="设置"
+        Width="360"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Topmost="True"
+        Background="#FBF3E4"
+        FontFamily="Microsoft YaHei UI, Segoe UI"
+        TextOptions.TextFormattingMode="Display"
+        KeyDown="Window_KeyDown"
+        Closing="Window_Closing">
+
+    <Window.Resources>
+        <!-- 圆角轨道 + 圆形滑块把手的滑动条模板 -->
+        <Style x:Key="PetSlider" TargetType="Slider">
+            <Setter Property="IsMoveToPointEnabled" Value="True" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Focusable" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid Height="26" Background="Transparent">
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.DecreaseLarge}"
+                                                  Focusable="False" IsTabStop="False"
+                                                  HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border x:Name="dcd"
+                                                        CornerRadius="4"
+                                                        Height="8"
+                                                        Background="#D3A35F" />
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="{x:Static Slider.IncreaseLarge}"
+                                                  Focusable="False" IsTabStop="False"
+                                                  HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                        <RepeatButton.Template>
+                                            <ControlTemplate TargetType="RepeatButton">
+                                                <Border x:Name="icd"
+                                                        CornerRadius="4"
+                                                        Height="8"
+                                                        Background="#F0E0C0" />
+                                            </ControlTemplate>
+                                        </RepeatButton.Template>
+                                    </RepeatButton>
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Grid>
+                                                    <Ellipse x:Name="knob" Width="15" Height="15"
+                                                             Fill="#C68A3B"
+                                                             Stroke="#F7E3BC"
+                                                             StrokeThickness="2" />
+                                                </Grid>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="knob" Property="Fill" Value="#D99A4C" />
+                                                    </Trigger>
+                                                    <Trigger Property="IsDragging" Value="True">
+                                                        <Setter TargetName="knob" Property="Fill" Value="#B9782E" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="CloseBtn" TargetType="Button">
+            <Setter Property="Foreground" Value="#6B5847" />
+            <Setter Property="Background" Value="#F2D6A8" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="22,7" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="9">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#EBC487" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 数值输入框：可手动输入，失焦/回车时钳制到上下限 -->
+        <Style x:Key="NumBox" TargetType="TextBox">
+            <Setter Property="Background" Value="#F0E0C0" />
+            <Setter Property="Foreground" Value="#6B5847" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="BorderBrush" Value="#E3CFAE" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="Margin" Value="12,0,0,0" />
+            <Setter Property="MinWidth" Value="58" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+
+        <!-- 时间选项复选框 -->
+        <Style x:Key="OptionCheck" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="#6B5847" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Margin" Value="2,6,0,0" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+    </Window.Resources>
+
+    <StackPanel Margin="24,22,24,24">
+        <!-- 标题 -->
+        <TextBlock Text="桌面宠物设置"
+                   Foreground="#6B5847"
+                   FontSize="17"
+                   FontWeight="Bold"
+                   HorizontalAlignment="Center"
+                   Margin="0,0,0,18" />
+
+        <!-- 大小调整 -->
+        <TextBlock Text="宠物大小"
+                   Foreground="#9A8266"
+                   FontSize="12"
+                   FontWeight="Bold"
+                   Margin="0,0,0,4" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Slider x:Name="SizeSlider"
+                    Grid.Column="0"
+                    Style="{StaticResource PetSlider}"
+                    Minimum="100"
+                    Maximum="360"
+                    VerticalAlignment="Center"
+                    ValueChanged="SizeSlider_ValueChanged" />
+            <TextBox x:Name="SizeInput"
+                     Grid.Column="1"
+                     Style="{StaticResource NumBox}"
+                     Text="200 px"
+                     VerticalAlignment="Center"
+                     LostFocus="SizeInput_LostFocus"
+                     KeyDown="NumInput_KeyDown" />
+        </Grid>
+
+        <!-- 奔跑速度调整 -->
+        <TextBlock Text="奔跑速度"
+                   Foreground="#9A8266"
+                   FontSize="12"
+                   FontWeight="Bold"
+                   Margin="0,18,0,4" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Slider x:Name="SpeedSlider"
+                    Grid.Column="0"
+                    Style="{StaticResource PetSlider}"
+                    Minimum="2.5"
+                    Maximum="8"
+                    TickFrequency="0.5"
+                    IsSnapToTickEnabled="True"
+                    VerticalAlignment="Center"
+                    ValueChanged="SpeedSlider_ValueChanged" />
+            <TextBox x:Name="SpeedInput"
+                     Grid.Column="1"
+                     Style="{StaticResource NumBox}"
+                     Text="5.0"
+                     VerticalAlignment="Center"
+                     LostFocus="SpeedInput_LostFocus"
+                     KeyDown="NumInput_KeyDown" />
+        </Grid>
+
+        <!-- 小羊数量调整（1~50） -->
+        <TextBlock Text="小羊数量"
+                   Foreground="#9A8266"
+                   FontSize="12"
+                   FontWeight="Bold"
+                   Margin="0,18,0,4" />
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Slider x:Name="HerdSlider"
+                    Grid.Column="0"
+                    Style="{StaticResource PetSlider}"
+                    Minimum="1"
+                    Maximum="50"
+                    TickFrequency="1"
+                    IsSnapToTickEnabled="True"
+                    VerticalAlignment="Center"
+                    ValueChanged="HerdSlider_ValueChanged" />
+            <TextBox x:Name="HerdInput"
+                     Grid.Column="1"
+                     Style="{StaticResource NumBox}"
+                     Text="3"
+                     VerticalAlignment="Center"
+                     LostFocus="HerdInput_LostFocus"
+                     KeyDown="NumInput_KeyDown" />
+        </Grid>
+
+        <!-- 时间显示选项 -->
+        <TextBlock Text="时间显示"
+                   Foreground="#9A8266"
+                   FontSize="12"
+                   FontWeight="Bold"
+                   Margin="0,18,0,4" />
+        <CheckBox x:Name="ShowSecondsCheck"
+                  Content="显示秒"
+                  Style="{StaticResource OptionCheck}"
+                  Checked="TimeOption_Changed"
+                  Unchecked="TimeOption_Changed" />
+        <StackPanel Orientation="Horizontal" Margin="2,8,0,0">
+            <RadioButton x:Name="Use24hRadio"
+                         Content="24 小时制"
+                         GroupName="ClockMode"
+                         IsChecked="True"
+                         Foreground="#6B5847"
+                         FontSize="13"
+                         Cursor="Hand"
+                         Checked="TimeOption_Changed" />
+            <RadioButton x:Name="Use12hRadio"
+                         Content="12 小时制"
+                         GroupName="ClockMode"
+                         Foreground="#6B5847"
+                         FontSize="13"
+                         Cursor="Hand"
+                         Margin="18,0,0,0"
+                         Checked="TimeOption_Changed" />
+        </StackPanel>
+
+        <!-- 开机自启动 -->
+        <TextBlock Text="启动"
+                   Foreground="#9A8266"
+                   FontSize="12"
+                   FontWeight="Bold"
+                   Margin="0,18,0,4" />
+        <CheckBox x:Name="AutoStartCheck"
+                  Content="开机自启动"
+                  Style="{StaticResource OptionCheck}"
+                  Checked="AutoStart_Changed"
+                  Unchecked="AutoStart_Changed" />
+
+        <Button Content="关闭"
+                Style="{StaticResource CloseBtn}"
+                HorizontalAlignment="Center"
+                Margin="0,24,0,0"
+                Click="Close_Click" />
+
+        <!-- 版本号 -->
+        <TextBlock Text="Gauss Yannin · v1.0.0"
+                   Foreground="#C2A87E"
+                   FontSize="12"
+                   HorizontalAlignment="Center"
+                   Margin="0,14,0,0" />
+    </StackPanel>
+</Window>

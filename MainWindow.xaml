@@ -213,6 +213,14 @@
                             <TextBlock Text="&#xE81C;" FontFamily="Segoe MDL2 Assets" FontSize="14"/>
                         </Button>
 
+                        <!-- 桌面宠物：显示/隐藏 -->
+                        <Button x:Name="PetToggleBtn"
+                                Style="{StaticResource WindowControlButtonStyle}"
+                                Click="PetToggle_Click" ToolTip="显示/隐藏桌面宠物"
+                                WindowChrome.IsHitTestVisibleInChrome="True">
+                            <TextBlock Text="&#x1F411;" FontFamily="Segoe UI Emoji" FontSize="14"/>
+                        </Button>
+
                         <!-- 主题切换 -->
                         <Button Style="{StaticResource WindowControlButtonStyle}"
                                 Click="ThemeToggle_Click" ToolTip="切换主题（亮色 → 暗色 → 天空之蓝 → 自定义）"

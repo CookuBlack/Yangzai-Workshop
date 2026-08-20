@@ -16,7 +16,7 @@ public partial class App : Application
     public static string AvatarDir => FileService.AssetsAvatarPath;
 
     private const string GitHubRepo = "CookuBlack/Yangzai-Workshop";
-    private const string CurrentVersion = "3.4.0";
+    private const string CurrentVersion = "4.0.0";
     public static string AppVersion => CurrentVersion;
 
     /// <summary>版本信息 JSON 地址（GitHub Raw 优先确保实时性，CDN 作为加速备用）</summary>
@@ -56,7 +56,7 @@ public partial class App : Application
         {
             Interval = TimeSpan.FromMinutes(10)
         };
-        _backupTimer.Tick += (_, _) =>
+        _backupTimer.Tick += async (_, _) =>
         {
             try
             {
@@ -64,7 +64,8 @@ public partial class App : Application
                 if (!cfg.AutoBackup) return;
                 var elapsed = DateTime.Now - _lastBackupTime;
                 if (elapsed.TotalHours >= cfg.BackupIntervalHours - 0.1)
-                    DoAutoBackup();
+                    // 自动备份同样全量压缩，放到后台线程执行，避免阻塞 UI 线程
+                    await Task.Run(DoAutoBackup);
             }
             catch (Exception ex) { Debug.WriteLine($"[备份定时器] {ex.Message}"); }
         };
@@ -133,6 +134,9 @@ public partial class App : Application
         FileService.EnsureDirectory(FileService.AssetsAvatarPath);
         ThemeService.InitTheme(WorkRoot);
 
+        // 初始化桌面宠物桥接（把宠物的音乐/AI/队列/资源回调节点接到主程序）
+        PetService.Initialize();
+
         // 清理上次更新残留的安装包
         CleanupUpdateFiles();
 
@@ -147,10 +151,11 @@ public partial class App : Application
             {
                 Interval = TimeSpan.FromSeconds(8)
             };
-            snapshotTimer.Tick += (_, _) =>
+            snapshotTimer.Tick += async (_, _) =>
             {
                 snapshotTimer.Stop();
-                CreateStartupSnapshot();
+                // 快照是全量压缩 WorkData，耗时且占 CPU，放到后台线程执行，避免阻塞 UI 线程造成卡死
+                await Task.Run(CreateStartupSnapshot);
             };
             snapshotTimer.Start();
         }

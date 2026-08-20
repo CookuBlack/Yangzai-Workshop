@@ -22,7 +22,7 @@
   <!-- ==================== 基本信息 ==================== -->
   <Package Name="Yangzai Workshop 小说漫剧创作工作台"
            Manufacturer="CookuBlack"
-           Version="3.4.0"
+           Version="4.0.0"
            UpgradeCode="3D2C5F8E-9A4B-4C6D-8E7F-1A2B3C4D5E6F"
            Language="2052"
            Codepage="936"

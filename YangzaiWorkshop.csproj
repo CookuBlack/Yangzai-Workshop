@@ -19,6 +19,21 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="GaussYannin\DesktopPet.csproj" />
+  </ItemGroup>
+
+  <!-- 宠物模块已作为独立类库（DesktopPet）引用，从主项目默认编译项中排除，避免重复编译与命名冲突 -->
+  <ItemGroup>
+    <Compile Remove="GaussYannin\**\*.cs" />
+    <Page Remove="GaussYannin\**\*.xaml" />
+    <ApplicationDefinition Remove="GaussYannin\**\*.xaml" />
+    <EmbeddedResource Remove="GaussYannin\**" />
+    <None Remove="GaussYannin\**" />
+    <Content Remove="GaussYannin\**" />
+    <Resource Remove="GaussYannin\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="Assets\**\*" Link="Assets\%(RecursiveDir)%(Filename)%(Extension)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Visible>false</Visible>

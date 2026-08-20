@@ -222,6 +222,8 @@ public static class FileService
         Path.Combine(AudioRoot(workRoot), "人物素材", mediaFolder, charId);
     /// <summary>音乐播放器音乐目录：WorkData\Music</summary>
     public static string MusicPath(string workRoot) => Path.Combine(workRoot, "Music");
+    /// <summary>宠物资源目录：WorkData\PetResources（宠物生成的图像/视频/文本）</summary>
+    public static string PetResourcesPath(string workRoot) => Path.Combine(workRoot, "PetResources");
     public static string BannerPath(string workRoot) => Path.Combine(ConfigPath(workRoot), "banners");
     public static string NoticeFile(string workRoot) => Path.Combine(ConfigPath(workRoot), "notice.txt");
     public static string SettingsFile(string workRoot) => Path.Combine(ConfigPath(workRoot), "appsettings.json");
@@ -908,6 +910,7 @@ public static class FileService
         EnsureDirectory(Path.Combine(ImageRoot(workRoot), "小说"));
         EnsureDirectory(VideoRoot(workRoot));
         EnsureDirectory(AudioRoot(workRoot));
+        EnsureDirectory(PetResourcesPath(workRoot));
 
         // 默认配置
         if (!File.Exists(SettingsFile(workRoot)))

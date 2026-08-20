@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetPlatformMinVersion>7.0</TargetPlatformMinVersion>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>DesktopPet</AssemblyName>
+    <RootNamespace>DesktopPet</RootNamespace>
+    <!-- 用户可见的软件名称 -->
+    <Product>Gauss Yannin</Product>
+    <AssemblyTitle>Gauss Yannin</AssemblyTitle>
+    <Description>Gauss Yannin —— 桌面小羊宠物：透明置顶、羊群、番茄钟、整点报时、文字面板（作为 Yangzai Workshop 的宠物模块类库）</Description>
+    <!-- 程序集版本号 -->
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 素材作为嵌入资源编译进 exe，实现“单文件”发布，无需在 exe 旁放文件 -->
+    <EmbeddedResource Include="Assets\**\*.png" />
+    <EmbeddedResource Include="Assets\remind.mp3" />
+  </ItemGroup>
+
+</Project>

@@ -131,6 +131,37 @@
                 </Grid>
             </Border>
 
+            <!-- 宠物资源（点击打开管理器） -->
+            <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12"
+                    Cursor="Hand"
+                    MouseLeftButtonDown="PetCard_Click"
+                    MouseEnter="Card_MouseEnter" MouseLeave="Card_MouseLeave">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0" Width="42" Height="42" CornerRadius="10"
+                            Background="#FF8FBF8F" Margin="0,0,14,0">
+                        <TextBlock Text="P" FontSize="22" FontWeight="Bold"
+                                   FontFamily="Microsoft YaHei UI" Foreground="White"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="宠物资源" FontSize="15" FontWeight="Bold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}"
+                                   TextTrimming="CharacterEllipsis"/>
+                        <TextBlock Text="管理宠物生成的图像、视频与文本"
+                                   FontSize="11" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                    <TextBlock Grid.Column="2" Text=">" FontFamily="Microsoft YaHei UI" FontSize="16"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               VerticalAlignment="Center" Margin="8,0,0,0"/>
+                </Grid>
+            </Border>
+
             <TextBlock Text="更多工具即将上线..." FontSize="12"
                        Foreground="{DynamicResource BorderBrush}"
                        Margin="0,20,0,0" TextAlignment="Center"/>

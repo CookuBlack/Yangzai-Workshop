@@ -1,0 +1,206 @@
+<Window x:Class="DesktopPet.NotePanelWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="360"
+        Height="300"
+        MinWidth="160"
+        MinHeight="120"
+        Topmost="True"
+        ShowInTaskbar="False"
+        WindowStyle="None"
+        ResizeMode="CanResizeWithGrip"
+        Background="#FBF3E4"
+        FontFamily="YouYuan, Comic Sans MS"
+        TextOptions.TextFormattingMode="Display"
+        KeyDown="Window_KeyDown"
+        PreviewMouseDown="Window_PreviewMouseDown"
+        PreviewMouseMove="Window_PreviewMouseMove"
+        Padding="0"
+        BorderThickness="0">
+
+    <WindowChrome.WindowChrome>
+        <WindowChrome GlassFrameThickness="0"
+                      UseAeroCaptionButtons="False"
+                      CaptionHeight="0"
+                      ResizeBorderThickness="6" />
+    </WindowChrome.WindowChrome>
+
+    <Window.Resources>
+        <!-- 右键菜单整体：圆角 + 柔和阴影，衬托面板底色 -->
+        <Style x:Key="PanelContextMenu" TargetType="ContextMenu">
+            <Setter Property="Background" Value="#FFFCF5" />
+            <Setter Property="BorderBrush" Value="#EAD9BB" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="#6B5847" />
+            <Setter Property="FontFamily" Value="YouYuan, Comic Sans MS" />
+            <Setter Property="HasDropShadow" Value="True" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border x:Name="outer"
+                                Background="Transparent"
+                                Padding="6,8"
+                                CornerRadius="12">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.25" Color="#8A6B3A" />
+                            </Border.Effect>
+                            <Border Background="#FFFCF5"
+                                    BorderBrush="#EAD9BB"
+                                    BorderThickness="1"
+                                    CornerRadius="10">
+                                <ItemsPresenter Margin="0" />
+                            </Border>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 菜单项：悬停时圆角淡金背景，选中项带小圆点标记 -->
+        <Style x:Key="PanelMenuItem" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="#6B5847" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontFamily" Value="YouYuan, Comic Sans MS" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}"
+                                Margin="1,1"
+                                CornerRadius="6"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="18" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <!-- 选中/勾选指示圆点 -->
+                                <Ellipse x:Name="dot" Grid.Column="0"
+                                         Width="6" Height="6"
+                                         Fill="#D3A35F"
+                                         HorizontalAlignment="Center"
+                                         VerticalAlignment="Center"
+                                         Visibility="Collapsed" />
+                                <ContentPresenter Grid.Column="1"
+                                                  Content="{TemplateBinding Header}"
+                                                  VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#F3E4C8" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.6" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="dot" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 分组标题：带小圆点前缀的浅金小字 -->
+        <Style x:Key="PanelHeader" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="#B08A4E" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="FontFamily" Value="YouYuan, Comic Sans MS" />
+            <Setter Property="IsEnabled" Value="False" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Grid Margin="1,3,3,2">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="18" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Ellipse Grid.Column="0" Width="5" Height="5"
+                                     Fill="#D3A35F"
+                                     HorizontalAlignment="Center"
+                                     VerticalAlignment="Center" />
+                            <ContentPresenter Grid.Column="1" Content="{TemplateBinding Header}"
+                                              VerticalAlignment="Center" />
+                            <Border Grid.Column="2" Height="1" Width="20"
+                                    Background="#EAD9BB"
+                                    VerticalAlignment="Center"
+                                    Margin="8,0,0,0" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PanelSep" TargetType="Separator">
+            <Setter Property="Background" Value="#EDE0C6" />
+            <Setter Property="Margin" Value="8,3,8,3" />
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Separator">
+                        <Border Background="{TemplateBinding Background}"
+                                Height="{TemplateBinding Height}"
+                                Margin="{TemplateBinding Margin}"
+                                CornerRadius="1" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="0,8,0,0">
+        <RichTextBox x:Name="NoteBox"
+                     Background="#FFFCF5"
+                     Foreground="#6B5847"
+                     BorderThickness="0"
+                     FontSize="16"
+                     Padding="10,14,10,12"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Disabled"
+                     FontFamily="YouYuan, Comic Sans MS"
+                     AcceptsTab="False"
+                     IsDocumentEnabled="True">
+            <RichTextBox.ContextMenu>
+                <ContextMenu Style="{StaticResource PanelContextMenu}">
+                    <MenuItem Header="字号" Style="{StaticResource PanelHeader}" />
+                    <MenuItem Header="10" x:Name="Size10" Style="{StaticResource PanelMenuItem}" Click="FontSize_Click" Tag="10" />
+                    <MenuItem Header="12" x:Name="Size12" Style="{StaticResource PanelMenuItem}" Click="FontSize_Click" Tag="12" />
+                    <MenuItem Header="14" x:Name="Size14" Style="{StaticResource PanelMenuItem}" Click="FontSize_Click" Tag="14" />
+                    <MenuItem Header="16" x:Name="Size16" Style="{StaticResource PanelMenuItem}" Click="FontSize_Click" Tag="16" />
+                    <MenuItem Header="18" x:Name="Size18" Style="{StaticResource PanelMenuItem}" Click="FontSize_Click" Tag="18" />
+                    <MenuItem Header="20" x:Name="Size20" Style="{StaticResource PanelMenuItem}" Click="FontSize_Click" Tag="20" />
+                    <MenuItem Header="24" x:Name="Size24" Style="{StaticResource PanelMenuItem}" Click="FontSize_Click" Tag="24" />
+                    <MenuItem Header="28" x:Name="Size28" Style="{StaticResource PanelMenuItem}" Click="FontSize_Click" Tag="28" />
+                    <MenuItem Header="32" x:Name="Size32" Style="{StaticResource PanelMenuItem}" Click="FontSize_Click" Tag="32" />
+                    <MenuItem Header="36" x:Name="Size36" Style="{StaticResource PanelMenuItem}" Click="FontSize_Click" Tag="36" />
+                    <Separator Style="{StaticResource PanelSep}" />
+                    <MenuItem Header="样式" Style="{StaticResource PanelHeader}" />
+                    <MenuItem x:Name="BoldItem" Header="加粗" Style="{StaticResource PanelMenuItem}" Click="Bold_Click" />
+                    <MenuItem x:Name="ItalicItem" Header="斜体" Style="{StaticResource PanelMenuItem}" Click="Italic_Click" />
+                    <Separator Style="{StaticResource PanelSep}" />
+                    <MenuItem Header="对齐" Style="{StaticResource PanelHeader}" />
+                    <MenuItem Header="左对齐" Style="{StaticResource PanelMenuItem}" Click="Align_Click" Tag="Left" />
+                    <MenuItem Header="居中" Style="{StaticResource PanelMenuItem}" Click="Align_Click" Tag="Center" />
+                    <MenuItem Header="右对齐" Style="{StaticResource PanelMenuItem}" Click="Align_Click" Tag="Right" />
+                    <Separator Style="{StaticResource PanelSep}" />
+                    <MenuItem Header="颜色" Style="{StaticResource PanelHeader}" />
+                    <MenuItem Header="默认" Style="{StaticResource PanelMenuItem}" Click="Color_Click" Tag="#6B5847" />
+                    <MenuItem Header="红色" Style="{StaticResource PanelMenuItem}" Click="Color_Click" Tag="#D4453A" />
+                    <MenuItem Header="蓝色" Style="{StaticResource PanelMenuItem}" Click="Color_Click" Tag="#3A7BD5" />
+                    <MenuItem Header="绿色" Style="{StaticResource PanelMenuItem}" Click="Color_Click" Tag="#4A9C5A" />
+                    <MenuItem Header="橙色" Style="{StaticResource PanelMenuItem}" Click="Color_Click" Tag="#D99A4C" />
+                    <MenuItem Header="紫色" Style="{StaticResource PanelMenuItem}" Click="Color_Click" Tag="#8A6BB5" />
+                    <MenuItem Header="粉色" Style="{StaticResource PanelMenuItem}" Click="Color_Click" Tag="#D57A9A" />
+                </ContextMenu>
+            </RichTextBox.ContextMenu>
+        </RichTextBox>
+    </Grid>
+</Window>

@@ -1,0 +1,383 @@
+<Window x:Class="DesktopPet.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Gauss Yannin"
+        Width="200" Height="200"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="Manual"
+        MouseLeftButtonDown="Window_MouseLeftButtonDown"
+        MouseLeftButtonUp="Window_MouseLeftButtonUp"
+        MouseMove="Window_MouseMove"
+        KeyDown="Window_KeyDown"
+        PreviewMouseWheel="Window_PreviewMouseWheel">
+
+    <Window.Resources>
+        <!-- 菜单背景：小羊的暖奶油色 -->
+        <LinearGradientBrush x:Key="MenuBg" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#FFFDF8" Offset="0" />
+            <GradientStop Color="#F6ECDD" Offset="1" />
+        </LinearGradientBrush>
+
+        <!-- 菜单容器：圆角奶油玻璃风（隐式样式，子菜单同样生效）-->
+        <Style TargetType="ContextMenu">
+            <Setter Property="HasDropShadow" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{StaticResource MenuBg}"
+                                CornerRadius="16"
+                                Padding="6"
+                                BorderBrush="#EBD9BE"
+                                BorderThickness="1"
+                                SnapsToDevicePixels="True">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="22"
+                                                  ShadowDepth="6"
+                                                  Opacity="0.45"
+                                                  Color="#7A5C3A" />
+                            </Border.Effect>
+                            <StackPanel IsItemsHost="True"
+                                        KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 普通菜单项 -->
+        <Style x:Key="PetMenuItem" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="#6B5847" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Grid Background="Transparent">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="26" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="16" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 子菜单弹出容器（让“羊群模式”能展开二级菜单） -->
+                            <Popup x:Name="PART_Popup"
+                                   IsOpen="{TemplateBinding IsSubmenuOpen}"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   Placement="Right"
+                                   Grid.ColumnSpan="3"
+                                   Panel.ZIndex="1000">
+                                <Border Background="#FDF6E8"
+                                        BorderBrush="#E3CFAE"
+                                        BorderThickness="1"
+                                        CornerRadius="8"
+                                        Padding="4"
+                                        Margin="3,0,0,0">
+                                    <ItemsPresenter />
+                                </Border>
+                            </Popup>
+
+                            <Border x:Name="bd"
+                                    Grid.ColumnSpan="3"
+                                    Background="Transparent"
+                                    CornerRadius="10"
+                                    Margin="1,1" />
+
+                            <ContentPresenter ContentSource="Icon"
+                                              Width="18" Height="18"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+
+                            <!-- 选中标记（对勾）：IsChecked 为 True 时显示，用于单选时长等反馈 -->
+                            <Path x:Name="ckMark"
+                                  Grid.Column="0"
+                                  Data="M1.5,4.5 L4,7 L8.5,1.5"
+                                  Stroke="#8A5A2B"
+                                  StrokeThickness="2"
+                                  StrokeStartLineCap="Round"
+                                  StrokeEndLineCap="Round"
+                                  Visibility="Collapsed"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center" />
+
+                            <ContentPresenter Grid.Column="1"
+                                              ContentSource="Header"
+                                              VerticalAlignment="Center"
+                                              Margin="8,0,6,0" />
+
+                            <!-- 有子菜单时才显示右侧小箭头 -->
+                            <Path Grid.Column="2"
+                                  Data="M0,0 L5,4 L0,8"
+                                  Stroke="#C9A77E"
+                                  StrokeThickness="1.5"
+                                  HorizontalAlignment="Center"
+                                  VerticalAlignment="Center">
+                                <Path.Style>
+                                    <Style TargetType="Path">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasItems, RelativeSource={RelativeSource TemplatedParent}}"
+                                                         Value="False">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Path.Style>
+                            </Path>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#F2D6A8" />
+                            </Trigger>
+                            <Trigger Property="IsSubmenuOpen" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#F2D6A8" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="bd" Property="Background" Value="Transparent" />
+                            </Trigger>
+                            <!-- 选中（勾选）反馈 -->
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="ckMark" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="bd" Property="Background" Value="#F3E3C8" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 分组标题 -->
+        <Style x:Key="PetHeader" TargetType="MenuItem">
+            <Setter Property="IsEnabled" Value="False" />
+            <Setter Property="Foreground" Value="#B59A78" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <ContentPresenter ContentSource="Header"
+                                          Margin="12,8,0,3" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 分隔线 -->
+        <Style x:Key="PetSep" TargetType="Separator">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Margin" Value="10,5" />
+            <Setter Property="Background" Value="#ECDCC2" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Background="Transparent">
+        <!-- 番茄钟提醒音：隐藏的 MediaElement（与主程序音乐播放器同机制，比独立 MediaPlayer 可靠）
+             仅用于播放 remind.mp3，不参与界面显示 -->
+        <MediaElement x:Name="RemindMedia"
+                      Visibility="Hidden"
+                      LoadedBehavior="Manual"
+                      UnloadedBehavior="Manual"
+                      Volume="1"
+                      MediaEnded="RemindMedia_Ended"
+                      MediaFailed="RemindMedia_Failed"
+                      Panel.ZIndex="-1" />
+
+        <Image x:Name="PetImage"
+               Stretch="Uniform"
+               RenderOptions.BitmapScalingMode="HighQuality"
+               IsHitTestVisible="False" />
+
+        <!-- 整点报时气泡（与番茄钟提示共用位置） -->
+        <Border x:Name="ChimeBubble"
+                Visibility="Collapsed"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Margin="0,30,0,0"
+                Padding="14,7"
+                CornerRadius="14"
+                Background="#FFF6E8"
+                BorderBrush="#EBD9BE"
+                BorderThickness="1"
+                Panel.ZIndex="10">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="12"
+                                  ShadowDepth="2"
+                                  Opacity="0.35"
+                                  Color="#7A5C3A" />
+            </Border.Effect>
+            <TextBlock x:Name="ChimeText"
+                       Foreground="#6B5847"
+                       FontSize="19"
+                       FontWeight="Bold" />
+        </Border>
+
+        <!-- 常驻时钟（菜单可开关）：紧贴主羊窗口最上方，覆盖整个小羊之上，不压在羊身上 -->
+        <Border x:Name="ClockBubble"
+                Visibility="Collapsed"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Margin="0,10,0,0"
+                Padding="16,8"
+                CornerRadius="14"
+                Background="#EEFFF6E8"
+                BorderBrush="#EBD9BE"
+                BorderThickness="1.5"
+                Panel.ZIndex="9">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="10"
+                                  ShadowDepth="2"
+                                  Opacity="0.3"
+                                  Color="#7A5C3A" />
+            </Border.Effect>
+            <TextBlock x:Name="ClockText"
+                       Foreground="#6B5847"
+                       FontSize="17"
+                       FontFamily="Microsoft YaHei UI, Segoe UI"
+                       FontWeight="Bold" />
+        </Border>
+
+        <!-- 番茄钟倒计时气泡（菜单可开关）：显示当前阶段与剩余时间，与提示气泡共用位置 -->
+        <Border x:Name="PomodoroBubble"
+                Visibility="Collapsed"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Top"
+                Margin="0,30,0,0"
+                Padding="16,8"
+                CornerRadius="14"
+                Background="#FFF0E8"
+                BorderBrush="#E8B89A"
+                BorderThickness="1.5"
+                Panel.ZIndex="9">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="10"
+                                  ShadowDepth="2"
+                                  Opacity="0.3"
+                                  Color="#7A5C3A" />
+            </Border.Effect>
+            <TextBlock x:Name="PomodoroText"
+                       Foreground="#8A4B2D"
+                       FontSize="17"
+                       FontFamily="Microsoft YaHei UI, Segoe UI"
+                       FontWeight="Bold" />
+        </Border>
+
+        <Grid.ContextMenu>
+            <ContextMenu>
+                <!-- 行为模式 -->
+                <MenuItem Header="行为模式" Style="{StaticResource PetHeader}" />
+
+                <!-- 休息 / 散步 共用一个按键（切换勾选显示当前状态） -->
+                <MenuItem x:Name="Menu_WanderItem"
+                          Header="散步 / 休息"
+                          Style="{StaticResource PetMenuItem}"
+                          Click="Menu_Wander_Toggle">
+                    <MenuItem.Icon><Ellipse Width="10" Height="10" Fill="#8FBF8F" /></MenuItem.Icon>
+                </MenuItem>
+
+                <MenuItem Header="跟随鼠标" Style="{StaticResource PetMenuItem}" Click="Menu_Follow">
+                    <MenuItem.Icon><Ellipse Width="10" Height="10" Fill="#8FBFE0" /></MenuItem.Icon>
+                </MenuItem>
+
+                <!-- 羊群模式：二级菜单（跟随 / 散养），数量在设置中调整 -->
+                <MenuItem x:Name="Menu_HerdItem"
+                          Header="羊群模式"
+                          Style="{StaticResource PetMenuItem}">
+                    <MenuItem.Icon><Ellipse x:Name="HerdIcon" Width="10" Height="10" Fill="#B9A98F" /></MenuItem.Icon>
+                    <MenuItem Header="跟随"
+                              Style="{StaticResource PetMenuItem}"
+                              Click="Menu_Herd_Follow">
+                        <MenuItem.Icon><Ellipse x:Name="HerdFollowIcon" Width="10" Height="10" Fill="#B9A98F" /></MenuItem.Icon>
+                    </MenuItem>
+                    <MenuItem Header="散养"
+                              Style="{StaticResource PetMenuItem}"
+                              Click="Menu_Herd_FreeRoam">
+                        <MenuItem.Icon><Ellipse x:Name="HerdFreeRoamIcon" Width="10" Height="10" Fill="#B9A98F" /></MenuItem.Icon>
+                    </MenuItem>
+                </MenuItem>
+
+                <!-- 显示时间：常驻时钟 -->
+                <MenuItem x:Name="Menu_TimeItem"
+                          Header="显示时间"
+                          Style="{StaticResource PetMenuItem}"
+                          Click="Menu_Time_Toggle">
+                    <MenuItem.Icon><Ellipse x:Name="TimeIcon" Width="10" Height="10" Fill="#B9A98F" /></MenuItem.Icon>
+                </MenuItem>
+
+                <!-- 面板：打开可编辑文字的面板窗口，可调节字号、调整窗口大小，可打开多个 -->
+                <MenuItem Header="面板" Style="{StaticResource PetMenuItem}" Click="Menu_NotePanel">
+                    <MenuItem.Icon><Ellipse Width="10" Height="10" Fill="#C9B07A" /></MenuItem.Icon>
+                </MenuItem>
+
+                <!-- 番茄钟：二级菜单，分「工作 / 休息」两段标题，点击任一项即开始/切换 -->
+                <MenuItem x:Name="Menu_PomodoroItem"
+                          Header="番茄钟"
+                          Style="{StaticResource PetMenuItem}">
+                    <MenuItem.Icon><Ellipse x:Name="PomodoroIcon" Width="10" Height="10" Fill="#B9A98F" /></MenuItem.Icon>
+                    <MenuItem Header="工作" Style="{StaticResource PetHeader}" />
+                    <MenuItem x:Name="PomoWork15" Header="15 分钟" IsCheckable="True"
+                              Style="{StaticResource PetMenuItem}" Click="PomoWork_Click" Tag="15" />
+                    <MenuItem x:Name="PomoWork30" Header="30 分钟" IsCheckable="True"
+                              Style="{StaticResource PetMenuItem}" Click="PomoWork_Click" Tag="30" />
+                    <MenuItem x:Name="PomoWork45" Header="45 分钟" IsCheckable="True"
+                              Style="{StaticResource PetMenuItem}" Click="PomoWork_Click" Tag="45" />
+                    <MenuItem x:Name="PomoWorkCustom" Header="自定义…" IsCheckable="True"
+                              Style="{StaticResource PetMenuItem}" Click="PomoWorkCustom_Click" />
+                    <Separator Style="{StaticResource PetSep}" />
+                    <MenuItem Header="休息" Style="{StaticResource PetHeader}" />
+                    <MenuItem x:Name="PomoBreak5" Header="5 分钟" IsCheckable="True"
+                              Style="{StaticResource PetMenuItem}" Click="PomoBreak_Click" Tag="5" />
+                    <MenuItem x:Name="PomoBreak10" Header="10 分钟" IsCheckable="True"
+                              Style="{StaticResource PetMenuItem}" Click="PomoBreak_Click" Tag="10" />
+                    <Separator Style="{StaticResource PetSep}" />
+                    <MenuItem x:Name="PomoStopItem" Header="结束" IsEnabled="False"
+                              Style="{StaticResource PetMenuItem}" Click="Menu_Pomodoro_Toggle" />
+                </MenuItem>
+
+                <Separator Style="{StaticResource PetSep}" />
+
+                <!-- AI 助手 -->
+                <MenuItem Header="AI 助手" Style="{StaticResource PetHeader}" />
+
+                <!-- 音乐播放 / 暂停（控制主程序音乐） -->
+                <MenuItem Header="音乐播放 / 暂停" Style="{StaticResource PetMenuItem}" Click="Menu_MusicToggle">
+                    <MenuItem.Icon><Ellipse Width="10" Height="10" Fill="#8FBFC9" /></MenuItem.Icon>
+                </MenuItem>
+
+                <!-- AI 功能：二级菜单（生成图片 / 生成视频 / 对话） -->
+                <MenuItem Header="AI 功能" Style="{StaticResource PetMenuItem}">
+                    <MenuItem.Icon><Ellipse Width="10" Height="10" Fill="#B09AD8" /></MenuItem.Icon>
+                    <MenuItem Header="🎨 生成图片" Style="{StaticResource PetMenuItem}" Click="Menu_AiImage" />
+                    <MenuItem Header="🎬 生成视频" Style="{StaticResource PetMenuItem}" Click="Menu_AiVideo" />
+                    <MenuItem Header="💬 AI 对话" Style="{StaticResource PetMenuItem}" Click="Menu_AiChat" />
+                </MenuItem>
+
+                <!-- 查看队列 -->
+                <MenuItem Header="查看队列" Style="{StaticResource PetMenuItem}" Click="Menu_Queue">
+                    <MenuItem.Icon><Ellipse Width="10" Height="10" Fill="#C9B07A" /></MenuItem.Icon>
+                </MenuItem>
+
+                <!-- 宠物资源 -->
+                <MenuItem Header="宠物资源" Style="{StaticResource PetMenuItem}" Click="Menu_Resources">
+                    <MenuItem.Icon><Ellipse Width="10" Height="10" Fill="#8FBF8F" /></MenuItem.Icon>
+                </MenuItem>
+
+                <Separator Style="{StaticResource PetSep}" />
+
+                <!-- 设置：打开设置窗口（大小 / 奔跑速度滑动条） -->
+                <MenuItem Header="设置" Style="{StaticResource PetMenuItem}" Click="Menu_Settings">
+                    <MenuItem.Icon><Ellipse Width="10" Height="10" Fill="#C9A77E" /></MenuItem.Icon>
+                </MenuItem>
+
+                <Separator Style="{StaticResource PetSep}" />
+
+                <MenuItem Header="退出" Style="{StaticResource PetMenuItem}" Click="Menu_Exit">
+                    <MenuItem.Icon><Ellipse Width="10" Height="10" Fill="#E08A7A" /></MenuItem.Icon>
+                </MenuItem>
+            </ContextMenu>
+        </Grid.ContextMenu>
+    </Grid>
+</Window>

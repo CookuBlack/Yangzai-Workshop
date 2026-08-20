@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -715,6 +715,13 @@ public partial class ToolboxPage : UserControl
     {
         try { Process.Start(new ProcessStartInfo("https://www.isyd.net/") { UseShellExecute = true }); }
         catch { }
+    }
+
+    // ===== 宠物资源 =====
+    private void PetCard_Click(object sender, MouseButtonEventArgs e)
+    {
+        try { PetService.OpenResources(); }
+        catch (Exception ex) { MessageBox.Show($"打开宠物资源失败：{ex.Message}", "错误", MessageBoxButton.OK, MessageBoxImage.Error); }
     }
 
     private void OpenRootDir_Click(object sender, MouseButtonEventArgs e)

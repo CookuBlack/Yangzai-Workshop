@@ -505,6 +505,21 @@ public partial class MainWindow : Window
         ToolboxPage.OpenMemoWindow(this);
     }
 
+    // ===== 桌面宠物 =====
+
+    /// <summary>点击标题栏宠物按钮：显示/隐藏桌面宠物</summary>
+    private void PetToggle_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            PetService.TogglePet();
+        }
+        catch (Exception ex)
+        {
+            Notify($"⚠ 无法打开宠物：{ex.Message}", success: false);
+        }
+    }
+
     // ===== 全局 AI 生成队列 =====
     private AiTaskQueueWindow? _aiQueueWindow;
 

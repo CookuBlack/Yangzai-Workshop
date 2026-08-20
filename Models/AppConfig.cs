@@ -49,7 +49,7 @@ public class AppConfig
         new() { Name = "Hugging Face", Url = "https://huggingface.co" },
     };
     public string LastUpdateDate { get; set; } = DateTime.Now.ToString("yyyy-MM-dd");
-    public string Version { get; set; } = "3.4.0";
+    public string Version { get; set; } = "4.0.0";
     public int GitHubStars { get; set; } = 128;
 
     // ====== 自定义主题：单一背景色或背景图 ======

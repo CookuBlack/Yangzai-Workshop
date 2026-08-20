@@ -1,0 +1,21 @@
+<Window x:Class="DesktopPet.SheepFollowerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="小羊伙伴"
+        Width="50" Height="50"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="Manual"
+        Opacity="0">
+
+    <Grid Background="Transparent">
+        <Image x:Name="PetImage"
+               Stretch="Uniform"
+               RenderOptions.BitmapScalingMode="HighQuality"
+               IsHitTestVisible="False" />
+    </Grid>
+</Window>
