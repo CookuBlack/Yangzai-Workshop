@@ -6,7 +6,7 @@
 [![WPF](https://img.shields.io/badge/UI-WPF-blue)](https://github.com/dotnet/wpf)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-lightgrey)]()
-[![Release](https://img.shields.io/badge/release-v4.0.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
+[![Release](https://img.shields.io/badge/release-v4.1.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
 
 ![front](./README.assets/front.png)
 
@@ -28,6 +28,8 @@
 - **双引擎 AI 生图** — 支持云端 API 与本地 ComfyUI 引擎，可读取自定义工作流 JSON
 - **文本历史** — 撤销/重做 + 历史版本回退（类 Word 停顿合并，可配置步数）
 - **AI 任务队列** — 视频与图像生成任务统一管理，标题栏实时角标
+- **AI 秒传参考素材** — 生成窗口直接拖入图片即自动归入项目资产并作为参考图，资产多选按选择顺序生成
+- **AI 生成历史** — 一键回填上次的提示词、参数与参考素材，告别重复输入
 - **桌面宠物模式** — 帧动画桌面宠物「小羊」，支持跟随/散步/休息行为，托盘常驻图标，右键菜单一键控制音乐、AI 生图/生视频、任务队列与宠物资源管理
 
 ---
@@ -62,6 +64,7 @@
   - 图像素材 — 3 列网格，支持拖拽导入、大图预览（滚轮缩放+拖拽平移）
 - AI 辅助：剧本生成 + 提示词生成（兼容 OpenAI 格式 API）
 - AI 生图：支持云端 API 与本地 ComfyUI 双引擎，可配置默认引擎、比例与像素档位
+- AI 生成增强：直接拖拽图片进生成窗口自动归入项目资产并作为参考素材；项目资产支持多选参考图并按选择顺序生成；一键回填 AI 生成历史（提示词、参数、参考素材）
 - 文本历史：撤销/重做（Ctrl+Z / Ctrl+Y）+ 历史版本回退，支持停顿合并
 - 图像素材瀑布流布局，图片异步加载不卡顿
 - 删除小说时同步清除提示词，有剩余小说自动切换到下一部
@@ -136,6 +139,7 @@ Yangzai Workshop/
 │   ├── NavigationService.cs           # 页面导航 + 缓存管理（单例）
 │   ├── ThemeService.cs                # 主题切换（DynamicResource 即时更新）
 │   ├── PetService.cs                  # 桌面宠物桥接（音乐/AI/队列/资源回调接入）
+│   ├── AiGenHistory.cs                # AI 生成历史记录（提示词/参数/参考素材回填）
 │   └── ViewHelpers.cs                 # 通用视图工具（圆角裁切、图片查看器等）
 ├── Views/                             # 页面视图（UserControl）+ 工具窗口
 │   ├── HomePage.xaml/.cs              # 首页
@@ -149,6 +153,8 @@ Yangzai Workshop/
 │   ├── CropWindow.xaml/.cs            # 图片裁剪工具窗口
 │   ├── AiTaskQueueWindow.xaml/.cs     # AI 任务队列窗口
 │   ├── TextHistoryWindow.xaml/.cs     # 文本历史窗口（撤销/重做/回退）
+│   ├── AiGenHistoryWindow.xaml/.cs    # AI 生成历史选择窗口（一键回填）
+│   ├── AssetPickerWindow.xaml/.cs     # 项目资产多选选择器
 │   ├── InputDialog.xaml/.cs           # 通用输入对话框
 │   └── PetResourceWindow.xaml/.cs     # 宠物资源管理（瀑布流预览）
 ├── GaussYannin/                       # 桌面宠物模块（独立类库 DesktopPet.csproj）

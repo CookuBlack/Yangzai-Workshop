@@ -129,6 +129,7 @@ public static class PetService
 
         // ===== 参考图区域（0 张=文生图，1 张=图生图，多张=多图编辑） =====
         var refImages = new List<string>(); // Data URI Base64
+        var refPaths = new List<string>();  // 与 refImages 对应的源文件路径（用于历史回填）
         var refPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
         var addRefBtn = new Button
         {
@@ -179,7 +180,8 @@ public static class PetService
             foreach (var file in dlg.FileNames)
             {
                 ViewHelpers.AddReferenceThumb(refPanel, file, refImages,
-                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn));
+                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                    refPaths: refPaths);
             }
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
         };
@@ -187,10 +189,24 @@ public static class PetService
         {
             try
             {
-                var path = PickPetAssetImage(win);
-                if (path == null) return;
-                ViewHelpers.AddReferenceThumb(refPanel, path, refImages,
-                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn));
+                var dir = FileService.PetResourcesPath(App.WorkRoot);
+                var paths = new List<string>();
+                if (Directory.Exists(dir))
+                {
+                    foreach (var f in Directory.GetFiles(dir))
+                    {
+                        var ext = Path.GetExtension(f).ToLowerInvariant();
+                        if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif")
+                            paths.Add(f);
+                    }
+                }
+                if (paths.Count == 0) { MainWindow.Notify("⚠ 宠物资源目录还没有图片，请先通过 AI 生图生成", success: false); return; }
+                var picker = new AssetPickerWindow(paths, "选择宠物资源图片作为参考图（可多选）", multiSelect: true) { Owner = win };
+                if (picker.ShowDialog() != true) return;
+                foreach (var p in picker.OrderedPaths)
+                    ViewHelpers.AddReferenceThumb(refPanel, p, refImages,
+                        () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                        refPaths: refPaths);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
             }
             catch (Exception ex)
@@ -201,6 +217,7 @@ public static class PetService
         clearRefBtn.Click += (_, _) =>
         {
             refImages.Clear();
+            refPaths.Clear();
             for (int i = refPanel.Children.Count - 1; i >= 0; i--)
             {
                 if (refPanel.Children[i] is Border b && b.Tag is string t && t == "refthumb")
@@ -228,6 +245,45 @@ public static class PetService
         var levelBox = Combo(ViewHelpers.ImageLevels, "1K", 62);
         footer.Children.Add(ratioBox);
         footer.Children.Add(levelBox);
+        var historyBtn = new Button
+        {
+            Content = "🕘 历史", FontSize = 12, Padding = new Thickness(10, 6, 10, 6),
+            Margin = new Thickness(10, 0, 0, 0),
+            Style = Style("SecondaryButtonStyle"),
+            ToolTip = "查看历史记录，点击一条自动回填提示词、参数与参考图"
+        };
+        historyBtn.Click += (_, _) =>
+        {
+            try
+            {
+                var history = AiGenHistory.Load(App.WorkRoot)
+                    .Where(h => h.Type == AiGenType.Image).ToList();
+                var picker = new AiGenHistoryWindow(history) { Owner = win };
+                if (picker.ShowDialog() != true) return;
+                var e = picker.SelectedEntry;
+                if (e == null) return;
+                promptBox.Text = e.Prompt;
+                ratioBox.SelectedItem = e.Ratio;
+                if (e.Level is { Length: > 0 })
+                {
+                    var lv = levelBox.Items.OfType<string>().FirstOrDefault(x => x == e.Level);
+                    if (lv != null) levelBox.SelectedItem = lv;
+                }
+                refImages.Clear(); refPaths.Clear();
+                for (int i = refPanel.Children.Count - 1; i >= 0; i--)
+                    if (refPanel.Children[i] is Border b && b.Tag is string t && t == "refthumb")
+                        refPanel.Children.RemoveAt(i);
+                foreach (var p in e.RefImagePaths)
+                    if (System.IO.File.Exists(p))
+                        ViewHelpers.AddReferenceThumb(refPanel, p, refImages,
+                            () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                            refPaths: refPaths);
+                ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+                MainWindow.Notify("✓ 已从历史回填");
+            }
+            catch (Exception ex) { MainWindow.Notify($"⚠ 历史回填失败：{ex.Message}", success: false); }
+        };
+        footer.Children.Add(historyBtn);
         var genBtn = new Button
         {
             Content = "🎨 开始生成",
@@ -280,11 +336,32 @@ public static class PetService
                 ScopeName = "宠物生成"
             };
             AiTaskManager.Enqueue(task);
+            AiGenHistory.Add(App.WorkRoot, new AiGenHistoryEntry
+            {
+                Type = AiGenType.Image,
+                Prompt = prompt,
+                Ratio = ratio,
+                Level = level,
+                RefImagePaths = new List<string>(refPaths),
+                EngineBadge = useComfy ? "ComfyUI" : "API"
+            });
             MainWindow.Notify($"✓ 已加入 AI 任务队列（{(useComfy ? "ComfyUI" : "API")}）");
             try { win.Close(); } catch { }
         };
 
         win.Content = grid;
+        // 拖拽图片到窗口 → 自动归入宠物资源目录并作为参考图加入
+        ViewHelpers.EnableImageDrop(grid,
+            assetImportDir: FileService.PetResourcesPath(App.WorkRoot),
+            onImported: path =>
+            {
+                ViewHelpers.AddReferenceThumb(refPanel, path, refImages,
+                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                    refPaths: refPaths);
+                ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+                MainWindow.Notify("✓ 已加入参考图并归入宠物资源");
+            },
+            onInvalid: () => MainWindow.Notify("⚠ 请拖入支持格式的图片", success: false));
         win.Show();
     }
 
@@ -298,6 +375,8 @@ public static class PetService
             MainWindow.Notify("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥", success: false);
             return;
         }
+        // Flash 模型固定 720P 且不支持参考视频；非 Flash（agnes-video-2.5）支持 720P/960P/2K 与参考视频
+        var isFlashModel = ViewHelpers.IsFlashVideoModel(config.VideoModel);
 
         var win = CreateDialog("AI 生成视频", 540, 460);
 
@@ -340,14 +419,14 @@ public static class PetService
         Grid.SetRow(promptBox, 2);
         grid.Children.Add(promptBox);
 
-        // ===== 参考图区域（图生视频，可选） =====
+        // ===== 参考图区域（图生视频，可选，支持多张） =====
         var refPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        string? refImageData = null;
+        var refImages = new List<string>();
         var refBtn = new Button
         {
             Content = "🖼️ 参考图（可选）", FontSize = 11, Padding = new Thickness(10, 4, 10, 4),
             Style = Style("SecondaryButtonStyle"),
-            ToolTip = "选择一张参考图片，作为生成视频的画面参考（图生视频）"
+            ToolTip = "选择一张或多张参考图片，作为生成视频的画面参考（图生视频 / 多图参考）"
         };
         refPanel.Children.Add(refBtn);
         var assetRefBtn = new Button
@@ -358,67 +437,64 @@ public static class PetService
             ToolTip = "从宠物资源目录中选择参考图"
         };
         refPanel.Children.Add(assetRefBtn);
-        var refThumb = new Image
-        {
-            Width = 36, Height = 36, Stretch = Stretch.UniformToFill,
-            Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed,
-            SnapsToDevicePixels = true
-        };
-        var refClip = new System.Windows.Media.RectangleGeometry(new Rect(0, 0, 36, 36), 4, 4);
-        refThumb.Clip = refClip;
-        refPanel.Children.Add(refThumb);
+        var refWrap = new WrapPanel { MaxWidth = 260, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        var refPaths = new List<string>(); // 与 refImages 对应的源文件路径（用于历史回填）
+        refPanel.Children.Add(refWrap);
         var clearRefBtn = new Button
         {
             Content = "✕", FontSize = 11, Padding = new Thickness(6, 2, 6, 2),
             Margin = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed,
             Style = Style("SecondaryButtonStyle"),
-            ToolTip = "清除参考图"
+            ToolTip = "清除全部参考图"
         };
         refPanel.Children.Add(clearRefBtn);
 
-        // 应用参考图（文件路径 → base64 + 缩略图）
+        // 应用参考图（缩略图流，支持多张；Flash 最多 5 张）
         void ApplyRefImage(string path)
         {
-            var data = ViewHelpers.ImageToBase64DataUrl(path);
-            if (data == null) { MainWindow.Notify("⚠ 参考图读取失败", success: false); return; }
-            try
-            {
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.UriSource = new Uri(path);
-                bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.DecodePixelWidth = 72;
-                bmp.EndInit();
-                refThumb.Source = bmp;
-                refThumb.Visibility = Visibility.Visible;
-                clearRefBtn.Visibility = Visibility.Visible;
-                refImageData = data;
-                MainWindow.Notify("✓ 已添加参考图");
-            }
-            catch { MainWindow.Notify("⚠ 参考图加载失败", success: false); }
+            ViewHelpers.AddReferenceThumb(refWrap, path, refImages, UpdateRefState, maxCount: 5, refPaths: refPaths);
+            UpdateRefState();
         }
 
-        // 从本地文件选择参考图
+        void UpdateRefState()
+        {
+            clearRefBtn.Visibility = refImages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        // 从本地文件选择参考图（支持多选）
         refBtn.Click += (_, _) =>
         {
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
                 Filter = "图片文件|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif",
-                Title = "选择参考图片"
+                Title = "选择参考图片",
+                Multiselect = true
             };
             // owner 传 AI 小窗口，避免对话框关闭后激活主窗口触发其误最小化
             if (dlg.ShowDialog(win) != true) return;
-            ApplyRefImage(dlg.FileName);
+            foreach (var f in dlg.FileNames) ApplyRefImage(f);
         };
 
-        // 从宠物资源中选择参考图
+        // 从宠物资源中选择参考图（支持多选，按选择顺序排序）
         assetRefBtn.Click += (_, _) =>
         {
             try
             {
-                var path = PickPetAssetImage(win);
-                if (path == null) return;
-                ApplyRefImage(path);
+                var dir = FileService.PetResourcesPath(App.WorkRoot);
+                var paths = new List<string>();
+                if (Directory.Exists(dir))
+                {
+                    foreach (var f in Directory.GetFiles(dir))
+                    {
+                        var ext = Path.GetExtension(f).ToLowerInvariant();
+                        if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif")
+                            paths.Add(f);
+                    }
+                }
+                if (paths.Count == 0) { MainWindow.Notify("⚠ 宠物资源目录还没有图片，请先通过 AI 生图生成", success: false); return; }
+                var picker = new AssetPickerWindow(paths, "选择宠物资源图片作为参考图（可多选）", multiSelect: true) { Owner = win };
+                if (picker.ShowDialog() != true) return;
+                foreach (var p in picker.OrderedPaths) ApplyRefImage(p);
             }
             catch (Exception ex)
             {
@@ -428,10 +504,74 @@ public static class PetService
 
         clearRefBtn.Click += (_, _) =>
         {
-            refImageData = null;
-            refThumb.Source = null;
-            refThumb.Visibility = Visibility.Collapsed;
-            clearRefBtn.Visibility = Visibility.Collapsed;
+            refImages.Clear();
+            refPaths.Clear();
+            refWrap.Children.Clear();
+            UpdateRefState();
+        };
+
+        // ===== 视频参考（仅 agnes-video-2.5 非 Flash 支持）=====
+        string? refVideoData = null;
+        string? refVideoPath = null;
+        var videoRefBtn = new Button
+        {
+            Content = "🎞️ 参考视频（可选）", FontSize = 11, Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(6, 0, 0, 0),
+            Style = Style("SecondaryButtonStyle"),
+            IsEnabled = !isFlashModel,
+            ToolTip = isFlashModel
+                ? "agnes-video-2.5-flash 不支持参考视频（videos 参数返回 400），请改用 agnes-video-2.5"
+                : "选择一段参考视频，延续其动作、镜头节奏与视觉表现（仅 agnes-video-2.5 支持）"
+        };
+        refPanel.Children.Add(videoRefBtn);
+        var videoRefName = new TextBlock
+        {
+            FontSize = 11,
+            Foreground = Brush("TextPrimaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0, 0, 0),
+            Visibility = Visibility.Collapsed,
+            MaxWidth = 140,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        refPanel.Children.Add(videoRefName);
+        var clearVideoRefBtn = new Button
+        {
+            Content = "✕", FontSize = 11, Padding = new Thickness(6, 2, 6, 2),
+            Margin = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed,
+            Style = Style("SecondaryButtonStyle"),
+            ToolTip = "清除参考视频"
+        };
+        refPanel.Children.Add(clearVideoRefBtn);
+
+        void ApplyRefVideo(string path)
+        {
+            var data = ViewHelpers.VideoToBase64DataUrl(path);
+            if (data == null) { MainWindow.Notify("⚠ 参考视频读取失败", success: false); return; }
+            refVideoData = data;
+            refVideoPath = path;
+            videoRefName.Text = Path.GetFileName(path);
+            videoRefName.Visibility = Visibility.Visible;
+            clearVideoRefBtn.Visibility = Visibility.Visible;
+            MainWindow.Notify("✓ 已添加参考视频");
+        }
+        videoRefBtn.Click += (_, _) =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "视频文件|*.mp4;*.mkv;*.avi;*.mov;*.webm;*.wmv",
+                Title = "选择参考视频"
+            };
+            if (dlg.ShowDialog(win) != true) return;
+            ApplyRefVideo(dlg.FileName);
+        };
+        clearVideoRefBtn.Click += (_, _) =>
+        {
+            refVideoData = null;
+            refVideoPath = null;
+            videoRefName.Text = "";
+            videoRefName.Visibility = Visibility.Collapsed;
+            clearVideoRefBtn.Visibility = Visibility.Collapsed;
         };
 
         var refRow = new DockPanel();
@@ -442,19 +582,67 @@ public static class PetService
 
         // 「优化提示词」按钮（标题行右侧），有参考图时结合参考图内容优化
         var optimizeBtn = CreateOptimizeButton(promptBox,
-            () => refImageData != null ? new[] { refImageData! } : null,
+            () => refImages.Count > 0 ? refImages : null,
             "video");
         Grid.SetColumn(optimizeBtn, 1);
         headerGrid.Children.Add(optimizeBtn);
 
         // ===== 底部 =====
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        var levelBox = Combo(ViewHelpers.VideoLevels, "720P", 80);
+        var levelBox = Combo(ViewHelpers.VideoLevelsForModel(config.VideoModel), "720P", 80);
         var ratioBox = Combo(ViewHelpers.VideoRatios, "16:9", 76);
-        var secondsBox = Combo(new[] { "3", "5", "8", "10" }, "5", 62);
+        var secondsBox = Combo(new[] { "4", "5", "8", "10", "12" }, "5", 62);
         footer.Children.Add(levelBox);
         footer.Children.Add(ratioBox);
         footer.Children.Add(secondsBox);
+
+        var historyBtn = new Button
+        {
+            Content = "🕘 历史", FontSize = 12, Padding = new Thickness(10, 6, 10, 6),
+            Margin = new Thickness(10, 0, 0, 0),
+            Style = Style("SecondaryButtonStyle"),
+            ToolTip = "查看历史记录，点击一条自动回填提示词、参数与参考素材"
+        };
+        historyBtn.Click += (_, _) =>
+        {
+            try
+            {
+                var history = AiGenHistory.Load(App.WorkRoot)
+                    .Where(h => h.Type == AiGenType.Video).ToList();
+                var picker = new AiGenHistoryWindow(history) { Owner = win };
+                if (picker.ShowDialog() != true) return;
+                var e = picker.SelectedEntry;
+                if (e == null) return;
+                promptBox.Text = e.Prompt;
+                if (e.Level is { Length: > 0 })
+                {
+                    var lv = levelBox.Items.OfType<string>().FirstOrDefault(x => x == e.Level);
+                    if (lv != null) levelBox.SelectedItem = lv;
+                }
+                if (e.Ratio is { Length: > 0 })
+                {
+                    var rt = ratioBox.Items.OfType<string>().FirstOrDefault(x => x == e.Ratio);
+                    if (rt != null) ratioBox.SelectedItem = rt;
+                }
+                if (e.Seconds > 0)
+                {
+                    var sc = secondsBox.Items.OfType<string>().FirstOrDefault(x => x == e.Seconds.ToString());
+                    if (sc != null) secondsBox.SelectedItem = sc;
+                }
+                // 回填参考图
+                refImages.Clear(); refPaths.Clear(); refWrap.Children.Clear();
+                UpdateRefState();
+                foreach (var p in e.RefImagePaths)
+                    if (System.IO.File.Exists(p)) ApplyRefImage(p);
+                // 回填参考视频
+                if (!string.IsNullOrWhiteSpace(e.RefVideoPath) && System.IO.File.Exists(e.RefVideoPath))
+                    ApplyRefVideo(e.RefVideoPath);
+                MainWindow.Notify("✓ 已从历史回填");
+            }
+            catch (Exception ex) { MainWindow.Notify($"⚠ 历史回填失败：{ex.Message}", success: false); }
+        };
+        footer.Children.Add(historyBtn);
+
         var genBtn = new Button
         {
             Content = "🎬 生成视频",
@@ -474,34 +662,58 @@ public static class PetService
             var level = levelBox.SelectedItem?.ToString() ?? "720P";
             var ratio = ratioBox.SelectedItem?.ToString() ?? "16:9";
             var seconds = int.TryParse(secondsBox.SelectedItem?.ToString(), out var s) ? s : 5;
-            seconds = Math.Clamp(seconds, 1, ViewHelpers.CalcVideoMaxSeconds(level, ratio));
-            var (w, h) = ViewHelpers.CalcVideoSize(level, ratio);
-            var fps = 24;
-            var frames = seconds * fps;
-            var displayLevel = level == "2K" ? "2K(1080P)" : level;
+            seconds = Math.Clamp(seconds, 4, ViewHelpers.CalcVideoMaxSeconds(level, ratio));
+            var hasImageRef = refImages.Count > 0;
+            var hasVideoRef = !string.IsNullOrWhiteSpace(refVideoData);
+            // 参考模式按文档补齐 <Picture N>/<Video 1> 提示词引用
+            var finalPrompt = ViewHelpers.BuildVideoPrompt(prompt, refImages.Count, hasVideoRef ? 1 : 0);
+
+            var detail = $"{level}·{ratio}·{seconds}s";
+            if (hasImageRef) detail += $"·参考图{refImages.Count}";
+            if (hasVideoRef) detail += "·参考视频";
 
             var task = new AiTask
             {
                 Type = AiTaskType.Video,
-                Prompt = prompt,
-                Detail = $"{displayLevel}·{ratio}·{seconds}s·{fps}fps" + (refImageData != null ? "·参考图" : ""),
+                Prompt = finalPrompt,
+                Detail = detail,
                 ApiEndpoint = config.ApiEndpoint,
                 ApiKey = config.ApiKey,
                 Model = config.VideoModel,
                 TargetDir = FileService.PetResourcesPath(App.WorkRoot),
                 FileNameBase = $"Pet_Video_{DateTime.Now:yyyyMMdd_HHmmss}",
-                VideoWidth = w, VideoHeight = h, VideoFrames = frames, VideoFps = fps,
-                VideoSeconds = seconds,
-                ReferenceImageData = refImageData,
+                VideoSize = level, VideoRatio = ratio, VideoSeconds = seconds,
+                ReferenceImages = hasImageRef ? new List<string>(refImages) : null,
+                ReferenceVideos = hasVideoRef ? new List<string> { refVideoData! } : null,
                 NovelName = "宠物",
                 ScopeName = "宠物生成"
             };
             AiTaskManager.Enqueue(task);
+            AiGenHistory.Add(App.WorkRoot, new AiGenHistoryEntry
+            {
+                Type = AiGenType.Video,
+                Prompt = prompt,
+                Level = level,
+                Ratio = ratio,
+                Seconds = seconds,
+                RefImagePaths = new List<string>(refPaths),
+                RefVideoPath = refVideoPath ?? "",
+                EngineBadge = "API"
+            });
             MainWindow.Notify("✓ 已加入 AI 任务队列");
             try { win.Close(); } catch { }
         };
 
         win.Content = grid;
+        // 拖拽图片到窗口 → 自动归入宠物资源目录并作为参考图加入
+        ViewHelpers.EnableImageDrop(grid,
+            assetImportDir: FileService.PetResourcesPath(App.WorkRoot),
+            onImported: path =>
+            {
+                ApplyRefImage(path);
+                MainWindow.Notify("✓ 已加入参考图并归入宠物资源");
+            },
+            onInvalid: () => MainWindow.Notify("⚠ 请拖入支持格式的图片", success: false));
         win.Show();
     }
 
@@ -912,32 +1124,6 @@ public static class PetService
         return btn;
     }
 
-    /// <summary>从宠物资源目录选择一张图片作为参考图（返回完整路径，未选择返回 null）。</summary>
-    private static string? PickPetAssetImage(Window owner)
-    {
-        var dir = FileService.PetResourcesPath(App.WorkRoot);
-        var paths = new List<string>();
-        if (Directory.Exists(dir))
-        {
-            foreach (var f in Directory.GetFiles(dir))
-            {
-                var ext = Path.GetExtension(f).ToLowerInvariant();
-                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif")
-                    paths.Add(f);
-            }
-        }
-
-        if (paths.Count == 0)
-        {
-            MainWindow.Notify("⚠ 宠物资源目录还没有图片，请先通过 AI 生图生成", success: false);
-            return null;
-        }
-
-        var picker = new AssetPickerWindow(paths, "选择宠物资源图片作为参考图") { Owner = owner };
-        if (picker.ShowDialog() == true) return picker.SelectedPath;
-        return null;
-    }
-
     private static Window CreateDialog(string title, double width, double height)
     {
         return new Window
@@ -948,7 +1134,6 @@ public static class PetService
             MinWidth = 440,
             MinHeight = 340,
             WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            Topmost = true,
             ShowInTaskbar = false,
             ResizeMode = ResizeMode.CanResize,
             Background = Brush("WindowBackgroundBrush")

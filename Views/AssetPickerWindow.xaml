@@ -39,7 +39,7 @@
             <Button Content="取消" FontSize="12" Padding="16,5" Margin="0,0,8,0"
                     Style="{DynamicResource SecondaryButtonStyle}"
                     Click="Cancel_Click"/>
-            <Button Content="使用此图" FontSize="12" Padding="16,5"
+            <Button x:Name="ConfirmButton" Content="使用此图" FontSize="12" Padding="16,5"
                     Style="{DynamicResource PrimaryButtonStyle}"
                     Click="Confirm_Click"/>
         </StackPanel>

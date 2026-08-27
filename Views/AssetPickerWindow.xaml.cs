@@ -19,7 +19,8 @@ namespace YangzaiWorkshop.Views;
 public partial class AssetPickerWindow : Window
 {
     private readonly Dictionary<string, Border> _cards = new();
-    private string? _selected;
+    private readonly Dictionary<string, TextBlock> _orderBadges = new();
+    private readonly List<string> _selectedOrder = new();
     private static readonly Brush _normalBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x3A));
     private static readonly Brush _selectedBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x90, 0xE2));
 
@@ -31,13 +32,25 @@ public partial class AssetPickerWindow : Window
     private readonly List<string> _allPaths = new();
     private int _loadIndex;
 
+    /// <summary>是否为多选模式（多选时按点击顺序排序，返回 OrderedPaths）</summary>
+    private readonly bool _multiSelect;
+
     /// <param name="imagePaths">可选的项目内图片文件完整路径集合</param>
     /// <param name="title">窗口标题</param>
-    public AssetPickerWindow(IReadOnlyList<string> imagePaths, string title = "选择项目图片")
+    /// <param name="multiSelect">是否支持多选并按点击顺序排序（false=单选，兼容旧调用）</param>
+    public AssetPickerWindow(IReadOnlyList<string> imagePaths, string title = "选择项目图片", bool multiSelect = false)
     {
         InitializeComponent();
         Title = title;
         TitleText.Text = title;
+        _multiSelect = multiSelect;
+        if (multiSelect)
+        {
+            HintText.Text = imagePaths.Count == 0
+                ? "当前项目没有可用的图片资产，请先通过 AI 生图或添加图片生成素材。"
+                : $"共 {imagePaths.Count} 张图片，正在加载…";
+            ConfirmButton.Content = "确定使用选中";
+        }
 
         // 去重（大小写不敏感）
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -49,7 +62,9 @@ public partial class AssetPickerWindow : Window
 
         HintText.Text = _allPaths.Count == 0
             ? "当前项目没有可用的图片资产，请先通过 AI 生图或添加图片生成素材。"
-            : $"共 {_allPaths.Count} 张图片，正在加载…";
+            : multiSelect
+                ? $"共 {_allPaths.Count} 张图片，正在加载…（点击多次选择，按点击顺序排序）"
+                : $"共 {_allPaths.Count} 张图片，正在加载…";
 
         Loaded += (_, _) => BeginLoadThumbs();
     }
@@ -126,6 +141,20 @@ public partial class AssetPickerWindow : Window
         inner.Children.Add(img);
         inner.Children.Add(name);
 
+        // 多选时右上角序号徽标
+        var orderBadge = new TextBlock
+        {
+            FontSize = 11, FontWeight = FontWeights.Bold,
+            Foreground = Brushes.White,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 4, 6, 0),
+            Background = new SolidColorBrush(Color.FromRgb(0x4A, 0x90, 0xE2)),
+            Padding = new Thickness(5, 1, 5, 1),
+            Visibility = Visibility.Collapsed
+        };
+        inner.Children.Add(orderBadge);
+
         var card = new Border
         {
             Width = 130, Height = 150,
@@ -140,15 +169,42 @@ public partial class AssetPickerWindow : Window
         };
         card.MouseLeftButtonUp += (_, e) =>
         {
-            SelectCard(path);
-            if (e.ClickCount >= 2) ConfirmAndClose();
+            ToggleSelect(path);
+            if (!_multiSelect && e.ClickCount >= 2) ConfirmAndClose();
         };
+        _orderBadges[path] = orderBadge;
         return card;
     }
 
-    private void SelectCard(string path)
+    /// <summary>切换卡片选中状态；多选时维护点击顺序，单选时互斥</summary>
+    private void ToggleSelect(string path)
     {
-        _selected = path;
+        if (!_multiSelect)
+        {
+            SelectSingle(path);
+            return;
+        }
+
+        // 已选中 → 取消并移除其序号
+        if (_selectedOrder.Contains(path))
+        {
+            var idx = _selectedOrder.IndexOf(path);
+            _selectedOrder.RemoveAt(idx);
+            UpdateOrderBadges();
+            UpdateCountText();
+            return;
+        }
+
+        _selectedOrder.Add(path);
+        UpdateOrderBadges();
+        UpdateCountText();
+    }
+
+    /// <summary>单选语义：唯一选中</summary>
+    private void SelectSingle(string path)
+    {
+        _selectedOrder.Clear();
+        _selectedOrder.Add(path);
         SelectedText.Text = $"已选：{System.IO.Path.GetFileName(path)}";
         foreach (var kv in _cards)
         {
@@ -160,13 +216,47 @@ public partial class AssetPickerWindow : Window
             sel.BorderBrush = _selectedBrush;
             sel.BorderThickness = new Thickness(2.5);
         }
+        if (_orderBadges.TryGetValue(path, out var b)) b.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>刷新所有卡片高亮与序号徽标（多选）</summary>
+    private void UpdateOrderBadges()
+    {
+        foreach (var kv in _cards)
+        {
+            var inSel = _selectedOrder.Contains(kv.Key);
+            kv.Value.BorderBrush = inSel ? _selectedBrush : _normalBrush;
+            kv.Value.BorderThickness = new Thickness(inSel ? 2.5 : 1.5);
+        }
+        for (int i = 0; i < _selectedOrder.Count; i++)
+        {
+            if (_orderBadges.TryGetValue(_selectedOrder[i], out var b))
+            {
+                b.Text = (i + 1).ToString();
+                b.Visibility = Visibility.Visible;
+            }
+        }
+        foreach (var kv in _orderBadges)
+        {
+            if (!_selectedOrder.Contains(kv.Key)) kv.Value.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    private void UpdateCountText()
+    {
+        if (_selectedOrder.Count == 0)
+        {
+            SelectedText.Text = "未选择";
+            return;
+        }
+        SelectedText.Text = $"已选 {_selectedOrder.Count} 张（按选择顺序排列，序号见卡片右上角）";
     }
 
     private void Confirm_Click(object sender, RoutedEventArgs e) => ConfirmAndClose();
 
     private void ConfirmAndClose()
     {
-        DialogResult = _selected != null;
+        DialogResult = _selectedOrder.Count > 0;
     }
 
     private void Cancel_Click(object sender, RoutedEventArgs e)
@@ -174,6 +264,9 @@ public partial class AssetPickerWindow : Window
         DialogResult = false;
     }
 
-    /// <summary>返回选中的图片完整路径；未选择返回 null</summary>
-    public string? SelectedPath => DialogResult == true ? _selected : null;
+    /// <summary>单选时返回选中图片路径；未选择返回 null</summary>
+    public string? SelectedPath => DialogResult == true ? (_selectedOrder.Count > 0 ? _selectedOrder[0] : null) : null;
+
+    /// <summary>多选时返回按点击顺序排列的图片路径列表</summary>
+    public IReadOnlyList<string> OrderedPaths => DialogResult == true ? _selectedOrder : (IReadOnlyList<string>)new List<string>();
 }

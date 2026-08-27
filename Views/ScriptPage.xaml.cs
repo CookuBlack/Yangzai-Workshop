@@ -1299,7 +1299,6 @@ public partial class ScriptPage : UserControl
             Width = 560, Height = 470,
             MinWidth = 480, MinHeight = 400,
             WindowStartupLocation = WindowStartupLocation.Manual,
-            Topmost = true,
             ShowInTaskbar = false,
             ResizeMode = ResizeMode.CanResize,
             Background = (Brush)FindResource("WindowBackgroundBrush")
@@ -1387,6 +1386,7 @@ public partial class ScriptPage : UserControl
 
         // ===== 参考图区域（0 张=文生图，1 张=图生图，多张=多图编辑） =====
         var refImages = new List<string>(); // Data URI Base64
+        var refPaths = new List<string>();  // 与 refImages 对应的源文件路径（用于历史记录回填）
         var refPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
         var addRefBtn = new Button
         {
@@ -1437,22 +1437,24 @@ public partial class ScriptPage : UserControl
             foreach (var file in dlg.FileNames)
             {
                 ViewHelpers.AddReferenceThumb(refPanel, file, refImages,
-                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn));
+                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                    refPaths: refPaths);
             }
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
         };
-        // 从项目资产中选择参考图（owner 传 AI 小窗口，避免模态选择器关闭时激活主窗口触发其误最小化）
+        // 从项目资产中选择参考图（多选，按点击顺序排序；owner 传 AI 小窗口）
         assetRefBtn.Click += (_, _) =>
         {
             try
             {
                 if (_currentNovel == null) { ShowCopyToast("⚠ 请先选择小说"); return; }
-                var path = ViewHelpers.PickProjectImage(
-                    win, "选择项目图片作为参考图",
+                var paths = ViewHelpers.PickProjectImages(
+                    win, "选择项目图片作为参考图（可多选）",
                     App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder);
-                if (path == null) return;
-                ViewHelpers.AddReferenceThumb(refPanel, path, refImages,
-                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn));
+                foreach (var path in paths)
+                    ViewHelpers.AddReferenceThumb(refPanel, path, refImages,
+                        () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                        refPaths: refPaths);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
             }
             catch (Exception ex)
@@ -1463,6 +1465,7 @@ public partial class ScriptPage : UserControl
         clearRefBtn.Click += (_, _) =>
         {
             refImages.Clear();
+            refPaths.Clear();
             // 移除所有缩略图（保留按钮/提示）
             for (int i = refPanel.Children.Count - 1; i >= 0; i--)
             {
@@ -1576,6 +1579,51 @@ public partial class ScriptPage : UserControl
         };
         queueBtn.Click += (_, _) => OpenQueueWindow();
         btnPanel.Children.Add(queueBtn);
+
+        // 历史记录：点击一条即把提示词/比例/档位/参考图回填到当前窗口
+        var historyBtn = new Button
+        {
+            Content = "🕘 历史", FontSize = 12, Padding = new Thickness(12, 6, 12, 6),
+            Margin = new Thickness(0, 0, 8, 0),
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            ToolTip = "查看历史记录，点击一条自动回填提示词、参数与参考图"
+        };
+        historyBtn.Click += (_, _) =>
+        {
+            try
+            {
+                var history = AiGenHistory.Load(App.WorkRoot)
+                    .Where(h => h.Type == AiGenType.Image).ToList();
+                var picker = new AiGenHistoryWindow(history) { Owner = win };
+                if (picker.ShowDialog() != true) return;
+                var e = picker.SelectedEntry;
+                if (e == null) return;
+                promptBox.Text = e.Prompt;
+                ratioBox.SelectedItem = e.Ratio;
+                if (e.Level is { Length: > 0 })
+                {
+                    var lv = levelBox.Items.OfType<string>().FirstOrDefault(x => x == e.Level);
+                    if (lv != null) levelBox.SelectedItem = lv;
+                }
+                // 回填参考图（路径优先，其次历史内嵌）
+                refImages.Clear(); refPaths.Clear();
+                for (int i = refPanel.Children.Count - 1; i >= 0; i--)
+                    if (refPanel.Children[i] is Border b && b.Tag is string t && t == "refthumb")
+                        refPanel.Children.RemoveAt(i);
+                foreach (var p in e.RefImagePaths)
+                {
+                    if (System.IO.File.Exists(p))
+                        ViewHelpers.AddReferenceThumb(refPanel, p, refImages,
+                            () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                            refPaths: refPaths);
+                }
+                ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+                ShowCopyToast("✓ 已从历史回填");
+            }
+            catch (Exception ex) { ShowCopyToast($"⚠ 历史回填失败：{ex.Message}"); }
+        };
+        btnPanel.Children.Add(historyBtn);
+
         var genBtn = new Button
         {
             Content = "🎨 开始生成",
@@ -1588,6 +1636,21 @@ public partial class ScriptPage : UserControl
         grid.Children.Add(footer);
 
         win.Content = grid;
+
+        // 拖拽图片到窗口 → 自动归入当前章节资产目录并作为参考图加入
+        ViewHelpers.EnableImageDrop(grid,
+            assetImportDir: _currentNovel != null && _currentChapter != null
+                ? FileService.ChapterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName)
+                : System.IO.Path.Combine(App.WorkRoot, "Image"),
+            onImported: path =>
+            {
+                ViewHelpers.AddReferenceThumb(refPanel, path, refImages,
+                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                    refPaths: refPaths);
+                ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+                ShowCopyToast("✓ 已加入参考图并归入项目资产");
+            },
+            onInvalid: () => ShowCopyToast("⚠ 请拖入支持格式的图片"));
 
         // 优化提示词按钮事件
         optimizeBtn.Click += async (_, _) =>
@@ -1698,6 +1761,16 @@ public partial class ScriptPage : UserControl
                 ScopeName = $"第{chapter.Index}章 {chapter.Title}"
             };
             AiTaskManager.Enqueue(task);
+            // 记录到历史，便于下次一键回填
+            AiGenHistory.Add(App.WorkRoot, new AiGenHistoryEntry
+            {
+                Type = AiGenType.Image,
+                Prompt = prompt,
+                Ratio = ratio,
+                Level = level,
+                RefImagePaths = new List<string>(refPaths),
+                EngineBadge = providerLabel
+            });
             ShowCopyToast($"✓ 已加入 AI 任务队列（{providerLabel}）");
             try { win.Close(); } catch { }
         };

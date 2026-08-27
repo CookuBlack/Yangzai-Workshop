@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -20,24 +21,24 @@ public static class ViewHelpers
     /// <summary>图片可选像素档位（短边像素，1K=1024）</summary>
     public static readonly string[] ImageLevels = { "0.5K", "1K", "1.5K", "2K", "3K", "4K" };
 
-    /// <summary>视频可选分辨率档位</summary>
-    public static readonly string[] VideoLevels = { "480P", "720P", "1080P", "2K" };
+    /// <summary>视频可选分辨率档位（agnes-video-2.5 非 Flash：720P/960P/2K）</summary>
+    public static readonly string[] VideoLevels = { "720P", "960P", "2K" };
 
-    /// <summary>视频可选比例（agnes-video 支持 16:9 / 9:16 / 1:1 / 4:3 / 3:4）</summary>
-    public static readonly string[] VideoRatios = { "16:9", "9:16", "1:1", "4:3", "3:4" };
+    /// <summary>视频可选比例（agnes-video 2.5 支持 21:9 / 16:9 / 4:3 / 1:1 / 3:4 / 9:16）</summary>
+    public static readonly string[] VideoRatios = { "16:9", "9:16", "1:1", "4:3", "3:4", "21:9" };
+
+    /// <summary>是否为 Flash 视频模型（Flash 固定 size=720P，且不支持参考视频）</summary>
+    public static bool IsFlashVideoModel(string? model) =>
+        model?.Contains("flash", StringComparison.OrdinalIgnoreCase) == true;
+
+    /// <summary>按视频模型返回可用分辨率档位：Flash 仅 720P，非 Flash 支持 720P/960P/2K</summary>
+    public static string[] VideoLevelsForModel(string? model) =>
+        IsFlashVideoModel(model) ? new[] { "720P" } : VideoLevels;
 
     /// <summary>
-    /// 视频时长上限（秒）：受 分辨率 + 比例 约束（与帧数档位一致）：
-    ///  - 1:1 任意分辨率可达 18s
-    ///  - 1080P 非 1:1 仅 ≤5s
-    ///  - 720P/480P 非 1:1 仅 ≤10s
+    /// 视频时长上限（秒）：agnes-video 2.5 / 2.5-flash 的 seconds 支持字符串 "4"–"12"。
     /// </summary>
-    public static int CalcVideoMaxSeconds(string level, string ratio)
-    {
-        if (ratio == "1:1") return 18;
-        var isHigh = level is "1080P" or "2K";
-        return isHigh ? 5 : 10;
-    }
+    public static int CalcVideoMaxSeconds(string level, string ratio) => 12;
 
     private static (double w, double h) GetRatio(string ratio) => ratio switch
     {
@@ -72,28 +73,51 @@ public static class ViewHelpers
     }
 
     /// <summary>
-    /// 根据视频分辨率档位 + 比例计算宽高（短边=档位像素，长边按比例取偶数）。
-    /// agnes-video-v2.0 支持 16:9 / 9:16 / 1:1 / 4:3 / 3:4 与 480p/720p/1080p 档位，
-    /// 2K 显式降级为 1080p 尺寸（避免发送 2560x1440 超出支持范围）。
+    /// 参考模式下按 agnes-video 2.5 文档补齐 <Picture N>/<Video N> 提示词引用
+    /// imageCount/videoCount 为参考图/参考视频张数（仅当用户未自行书写时才自动追加，避免覆盖已有引用）。
     /// </summary>
-    public static (int w, int h) CalcVideoSize(string level, string ratio)
+    public static string BuildVideoPrompt(string prompt, int imageCount, int videoCount)
     {
-        // 短边档位像素（2K 降级为 1080P）
-        var shortSide = level switch
+        var p = prompt.Trim();
+        var suffix = new List<string>();
+        if (imageCount > 0 && !p.Contains("<Picture", StringComparison.OrdinalIgnoreCase))
         {
-            "480P" => 480,
-            "1080P" or "2K" => 1080,
-            _ => 720
-        };
+            var tags = Enumerable.Range(1, imageCount).Select(i => $"<Picture {i}>").ToList();
+            suffix.Add(imageCount == 1
+                ? "以 <Picture 1> 为参考，保持主体外观与风格一致"
+                : $"以 {string.Join("、", tags)} 为参考，保持各主体外观与风格一致");
+        }
+        if (videoCount > 0 && !p.Contains("<Video", StringComparison.OrdinalIgnoreCase))
+        {
+            var tags = Enumerable.Range(1, videoCount).Select(i => $"<Video {i}>").ToList();
+            suffix.Add(videoCount == 1
+                ? "参考 <Video 1> 的动作与镜头节奏，保持时序连贯"
+                : $"参考 {string.Join("、", tags)} 的动作与镜头节奏，保持时序连贯");
+        }
+        if (suffix.Count > 0)
+            p = (p.Length > 0 ? p + "，" : "") + string.Join("，", suffix);
+        return p;
+    }
 
-        return ratio switch
+    /// <summary>本地视频文件转 base64 data URL（供视频参考 videos[].url 使用）</summary>
+    public static string? VideoToBase64DataUrl(string filePath)
+    {
+        try
         {
-            "9:16" => (shortSide, shortSide * 16 / 9),
-            "1:1" => (shortSide, shortSide),
-            "4:3" => (shortSide * 4 / 3, shortSide),
-            "3:4" => (shortSide, shortSide * 4 / 3),
-            _ => (shortSide * 16 / 9, shortSide) // 16:9 默认
-        };
+            var ext = Path.GetExtension(filePath).ToLowerInvariant();
+            var mime = ext switch
+            {
+                ".mov" => "video/quicktime",
+                ".mkv" => "video/x-matroska",
+                ".avi" => "video/x-msvideo",
+                ".webm" => "video/webm",
+                ".wmv" => "video/x-ms-wmv",
+                _ => "video/mp4"
+            };
+            var bytes = File.ReadAllBytes(filePath);
+            return $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+        }
+        catch { return null; }
     }
 
     /// <summary>
@@ -153,19 +177,95 @@ public static class ViewHelpers
     }
 
     /// <summary>
+    /// 多选项目图片并按点击顺序返回（顺序即参考图顺序）。取消返回 null。
+    /// 用于参考图（图像/视频）支持一次选择多张素材。
+    /// </summary>
+    public static IReadOnlyList<string> PickProjectImages(
+        System.Windows.Window owner, string title,
+        string workRoot, string novelId, string mediaFolder)
+    {
+        var paths = CollectProjectImagePaths(workRoot, novelId, mediaFolder);
+        var picker = new YangzaiWorkshop.Views.AssetPickerWindow(paths, title, multiSelect: true) { Owner = owner };
+        if (picker.ShowDialog() != true) return Array.Empty<string>();
+        return picker.OrderedPaths;
+    }
+
+    /// <summary>是否为受支持的图片文件扩展名</summary>
+    private static bool IsSupportedImageFile(string filePath)
+    {
+        var ext = Path.GetExtension(filePath).ToLowerInvariant();
+        return ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif";
+    }
+
+    /// <summary>
+    /// 复制图片文件到目标目录（重名自动追加序号），返回导入后的完整路径；
+    /// 目标目录或复制失败时返回 null。用于把拖入的图片归入项目资产以便下次复用。
+    /// </summary>
+    public static string? ImportImageIntoAsset(string srcFile, string destDir)
+    {
+        try
+        {
+            if (!File.Exists(srcFile) || !IsSupportedImageFile(srcFile)) return null;
+            Directory.CreateDirectory(destDir);
+            var fileName = Path.GetFileName(srcFile);
+            var dest = Path.Combine(destDir, fileName);
+            int i = 1;
+            var baseName = Path.GetFileNameWithoutExtension(fileName);
+            var ext = Path.GetExtension(fileName);
+            while (File.Exists(dest))
+                dest = Path.Combine(destDir, $"{baseName}_{i++}{ext}");
+            File.Copy(srcFile, dest, overwrite: false);
+            return dest;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// 为宿主元素（生成窗口根网格/窗口）启用图片拖放。
+    /// 拖入的图片先复制到 assetImportDir（归入项目资产，供下次「项目资产」选择），
+    /// 再回调 onImported(导入后路径)。非图片文件回调 onInvalid（可空）。
+    /// </summary>
+    public static void EnableImageDrop(
+        System.Windows.FrameworkElement host, string assetImportDir,
+        Action<string> onImported, Action? onInvalid = null)
+    {
+        host.AllowDrop = true;
+        host.PreviewDragOver += (_, e) =>
+        {
+            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
+                ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        };
+        host.PreviewDrop += (_, e) =>
+        {
+            e.Handled = true;
+            if (!(e.Data.GetData(DataFormats.FileDrop) is string[] files)) return;
+            foreach (var f in files)
+            {
+                if (!IsSupportedImageFile(f)) { onInvalid?.Invoke(); continue; }
+                var imported = ImportImageIntoAsset(f, assetImportDir);
+                if (imported != null) onImported(imported);
+                else { onInvalid?.Invoke(); }
+            }
+        };
+    }
+
+    /// <summary>
     /// 添加参考图缩略图到 WrapPanel。每个缩略图为带 ✕ 的 44px 圆角图块，
     /// 点击 ✕ 从 refImages 移除并删除自身。返回移除回调供批量清除使用。
     /// </summary>
     public static void AddReferenceThumb(
         System.Windows.Controls.WrapPanel panel, string filePath,
         System.Collections.Generic.List<string> refImages,
-        Action onChanged, int maxCount = 6)
+        Action onChanged, int maxCount = 6,
+        System.Collections.Generic.List<string>? refPaths = null)
     {
         if (refImages.Count >= maxCount) return;
         var data = ImageToBase64DataUrl(filePath);
         if (data == null) return;
 
         refImages.Add(data);
+        refPaths?.Add(filePath);
         var bmp = new BitmapImage();
         bmp.BeginInit();
         bmp.UriSource = new Uri(filePath);
@@ -209,7 +309,9 @@ public static class ViewHelpers
 
         delBtn.Click += (_, _) =>
         {
-            refImages.Remove(data);
+            var idx = refImages.FindIndex(x => x == data);
+            if (idx >= 0) refImages.RemoveAt(idx);
+            if (refPaths != null && idx >= 0 && idx < refPaths.Count) refPaths.RemoveAt(idx);
             panel.Children.Remove(border);
             onChanged?.Invoke();
         };

@@ -237,7 +237,7 @@ public static class ApiService
             503 => $"503 服务不可用\n可能原因：地址错误、模型名「{model}」不存在或服务商临时故障\n请求地址：{url}",
             401 or 403 => $"{(int)res.StatusCode} 认证失败，请检查 API 密钥是否正确",
             404 => $"404 接口不存在，请检查 API 地址是否正确（应以 /v1 结尾）",
-            429 => "429 请求频率过高，请稍后重试",
+            429 => "429 触发接口限流（瞬态，应用会自动退避重试；若持续出现，请确认没有同时运行多个应用实例或过快地连续生成）",
             _ => $"{(int)res.StatusCode} {res.ReasonPhrase}"
         };
         try
@@ -328,13 +328,17 @@ public static class ApiService
         return await res.Content.ReadAsByteArrayAsync();
     }
 
-    /// <summary>创建视频生成任务，返回 video_id。
-    /// imageBase64 可选：提供参考图（base64 data URL，形如 data:image/png;base64,...），实现图生视频。</summary>
+    /// <summary>创建视频生成任务（agnes-video-2.5 / agnes-video-2.5-flash），返回 video_id。
+    /// mode：text=文生视频，keyframe=首尾帧控制，reference=参考生成。
+    /// 参考媒体传入 base64 Data URL（与图生图一致）；videos 仅 agnes-video-2.5（非 Flash）支持。</summary>
     public static async Task<string> CreateVideoTaskAsync(
         string endpoint, string apiKey, string model,
-        string prompt, int width = 1152, int height = 768,
-        int numFrames = 121, int frameRate = 24,
-        string? imageBase64 = null,
+        string prompt, string mode = "text",
+        int seconds = 5, string size = "720P", string aspectRatio = "16:9",
+        string? firstFrame = null, string? lastFrame = null,
+        IReadOnlyList<string>? referenceImages = null,
+        IReadOnlyList<string>? referenceAudios = null,
+        IReadOnlyList<VideoReference>? referenceVideos = null,
         CancellationToken cancel = default)
     {
         var url = endpoint.TrimEnd('/') + "/videos";
@@ -342,41 +346,77 @@ public static class ApiService
         {
             ["model"] = model,
             ["prompt"] = prompt,
-            ["width"] = width,
-            ["height"] = height,
-            ["num_frames"] = numFrames,
-            ["frame_rate"] = frameRate
+            ["mode"] = mode,
+            ["seconds"] = seconds.ToString(),
+            ["size"] = size,
+            ["aspect_ratio"] = aspectRatio
         };
-        if (!string.IsNullOrWhiteSpace(imageBase64))
-            body["image"] = imageBase64;
+
+        if (mode == "keyframe")
+        {
+            if (!string.IsNullOrWhiteSpace(firstFrame)) body["first_frame"] = firstFrame;
+            if (!string.IsNullOrWhiteSpace(lastFrame)) body["last_frame"] = lastFrame;
+        }
+        else if (mode == "reference")
+        {
+            if (referenceImages is { Count: > 0 }) body["images"] = referenceImages;
+            if (referenceAudios is { Count: > 0 }) body["audios"] = referenceAudios;
+            if (referenceVideos is { Count: > 0 })
+                body["videos"] = referenceVideos
+                    .Select(v => new Dictionary<string, object>
+                    {
+                        ["url"] = v.Url,
+                        ["start_seconds"] = v.StartSeconds ?? 0,
+                        ["require_audio"] = v.RequireAudio ?? false
+                    })
+                    .ToList();
+        }
 
         var json = JsonSerializer.Serialize(body);
-        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+
+        // 创建任务偶发 429（限流为瞬态，免费档位阈值较低）：退避重试而不是直接失败
+        const int maxCreateRetries = 4;
+        for (int attempt = 0; ; attempt++)
         {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
-        };
-        req.Headers.Add("Authorization", $"Bearer {apiKey}");
+            cancel.ThrowIfCancellationRequested();
 
-        using var res = await _client.SendAsync(req, cancel);
-        var respText = await res.Content.ReadAsStringAsync();
+            using var req = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            req.Headers.Add("Authorization", $"Bearer {apiKey}");
 
-        if (!res.IsSuccessStatusCode)
-            HandleNonSuccess(res, respText, url, model);
+            using var res = await _client.SendAsync(req, cancel);
+            var respText = await res.Content.ReadAsStringAsync();
 
-        using var doc = JsonDocument.Parse(respText);
-        var root = doc.RootElement;
-        if (root.TryGetProperty("video_id", out var vid))
-            return vid.GetString()!;
-        if (root.TryGetProperty("task_id", out var tid))
-            return tid.GetString()!;
+            if (res.StatusCode == System.Net.HttpStatusCode.TooManyRequests && attempt < maxCreateRetries)
+            {
+                // 按 3s×n 递增退避（上限 15s），避免被持续限流判定失败
+                var wait = TimeSpan.FromSeconds(3 * (attempt + 1));
+                if (wait > TimeSpan.FromSeconds(15)) wait = TimeSpan.FromSeconds(15);
+                await Task.Delay(wait, cancel);
+                continue;
+            }
 
-        throw new ApiException("视频 API 未返回 video_id");
+            if (!res.IsSuccessStatusCode)
+                HandleNonSuccess(res, respText, url, model);
+
+            using var doc = JsonDocument.Parse(respText);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("video_id", out var vid))
+                return vid.GetString()!;
+            if (root.TryGetProperty("task_id", out var tid))
+                return tid.GetString()!;
+
+            throw new ApiException("视频 API 未返回 video_id");
+        }
     }
 
-    /// <summary>轮询视频结果直到完成或失败，返回视频 URL</summary>
+    /// <summary>轮询视频结果直到完成或失败，返回视频 URL。
+    /// 按 agnes-video-2.5 / 2.5-flash 文档使用 video_id + model_name 查询（keyframe/reference 模式必须带 model_name）。</summary>
     public static async Task<string> PollVideoResultAsync(
         string endpoint, string apiKey,
-        string videoId,
+        string videoId, string model,
         IProgress<string>? progress = null,
         CancellationToken cancel = default)
     {
@@ -386,7 +426,10 @@ public static class ApiService
             baseUrl = baseUrl.Substring(0, baseUrl.Length - 3);
         baseUrl = baseUrl.TrimEnd('/');
 
-        var queryUrl = $"{baseUrl}/agnesapi?video_id={videoId}";
+        var queryUrl = $"{baseUrl}/agnesapi?video_id={Uri.EscapeDataString(videoId)}&model_name={Uri.EscapeDataString(model)}";
+
+        // 连续限流计数：429 为瞬态，退避重试而不中断任务；连续多次仍失败再放弃
+        int rateLimitStreak = 0;
 
         while (true)
         {
@@ -398,8 +441,23 @@ public static class ApiService
             using var res = await _client.SendAsync(req, cancel);
             var respText = await res.Content.ReadAsStringAsync();
 
+            if (res.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                // 按 3s×n 递增退避（上限 30s），让队列窗口感知到重试中
+                rateLimitStreak++;
+                if (rateLimitStreak >= 10)
+                    HandleNonSuccess(res, respText, queryUrl, "video");
+                var wait = TimeSpan.FromSeconds(3 * rateLimitStreak);
+                if (wait > TimeSpan.FromSeconds(30)) wait = TimeSpan.FromSeconds(30);
+                progress?.Report($"触发限流，{wait.TotalSeconds:0} 秒后重试…");
+                await Task.Delay(wait, cancel);
+                continue;
+            }
+
             if (!res.IsSuccessStatusCode)
                 HandleNonSuccess(res, respText, queryUrl, "video");
+
+            rateLimitStreak = 0;
 
             using var doc = JsonDocument.Parse(respText);
             var root = doc.RootElement;
@@ -407,7 +465,7 @@ public static class ApiService
 
             if (status == "completed")
             {
-                // agnes-video-v2.0 文档：视频 URL 位于 metadata.url（兼容顶层 url 兜底）
+                // 视频 URL 位于 metadata.url（兼容顶层 url 兜底）
                 string? videoUrl = null;
                 if (root.TryGetProperty("metadata", out var md) &&
                     md.TryGetProperty("url", out var mu) && mu.ValueKind == JsonValueKind.String)
@@ -423,7 +481,13 @@ public static class ApiService
             {
                 var errMsg = "未知错误";
                 if (root.TryGetProperty("error", out var err) && err.ValueKind != JsonValueKind.Null)
-                    errMsg = err.ToString();
+                {
+                    // 兼容 error 为对象 { message: ... } 或字符串
+                    if (err.ValueKind == JsonValueKind.Object && err.TryGetProperty("message", out var em))
+                        errMsg = em.GetString() ?? err.ToString();
+                    else
+                        errMsg = err.ToString();
+                }
                 throw new ApiException($"视频生成失败：{errMsg}");
             }
 
@@ -433,8 +497,8 @@ public static class ApiService
                 prog = p.GetInt32();
             progress?.Report($"{status} ({prog}%)");
 
-            // 每 5 秒轮询一次
-            await Task.Delay(5000, cancel);
+            // 文档建议 1–2 秒轮询一次
+            await Task.Delay(2000, cancel);
         }
     }
 
@@ -721,4 +785,16 @@ public static class ApiService
 public class ApiException : Exception
 {
     public ApiException(string message) : base(message) { }
+}
+
+/// <summary>参考视频对象（agnes-video-2.5 reference 模式 videos[].url）。
+/// 仅 agnes-video-2.5（非 Flash）支持；Flash 传入有效 videos 会返回 HTTP 400。</summary>
+public sealed class VideoReference
+{
+    /// <summary>可访问的视频地址（本应用使用 base64 Data URL）。</summary>
+    public string Url { get; init; } = "";
+    /// <summary>从参考视频的指定秒数开始读取，默认 0。</summary>
+    public double? StartSeconds { get; init; }
+    /// <summary>是否要求参考视频必须包含音轨，默认 false。</summary>
+    public bool? RequireAudio { get; init; }
 }

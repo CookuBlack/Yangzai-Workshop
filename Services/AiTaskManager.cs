@@ -46,16 +46,16 @@ public class AiTask
     // ---- ComfyUI 参数（Provider=ComfyUI 时使用） ----
     /// <summary>ComfyUI 工作流 JSON 文件路径（API 格式）</summary>
     public string ComfyWorkflowFile { get; init; } = "";
-    /// <summary>图片生成参考图（Data URI Base64 数组）：1 张=图生图，多张=多图编辑/合成</summary>
+    /// <summary>参考图（Data URI Base64 数组）：图片任务 1 张=图生图、多张=多图编辑；视频任务=reference 模式 images</summary>
     public List<string>? ReferenceImages { get; init; }
-    public int VideoWidth { get; init; } = 1152;
-    public int VideoHeight { get; init; } = 768;
-    public int VideoFrames { get; init; } = 121;
-    public int VideoFps { get; init; } = 24;
-    /// <summary>视频时长（秒），用于展示</summary>
+    /// <summary>输出分辨率档位（agnes-video 2.5：720P/960P/2K；Flash 固定 720P）</summary>
+    public string VideoSize { get; init; } = "720P";
+    /// <summary>输出画幅比例（16:9 / 9:16 / 1:1 / 4:3 / 3:4 / 21:9）</summary>
+    public string VideoRatio { get; init; } = "16:9";
+    /// <summary>视频时长（秒），agnes-video 2.5 系列支持 4–12</summary>
     public int VideoSeconds { get; init; } = 5;
-    /// <summary>参考图 base64 data URL（图生视频，可选）</summary>
-    public string? ReferenceImageData { get; init; }
+    /// <summary>参考视频（Data URI Base64 列表）：reference 模式 videos，仅 agnes-video-2.5（非 Flash）支持</summary>
+    public List<string>? ReferenceVideos { get; init; }
     public string NovelName { get; init; } = "";
     /// <summary>章节/角色名（展示用）</summary>
     public string ScopeName { get; init; } = "";
@@ -214,12 +214,19 @@ public static class AiTaskManager
         }
         else
         {
-            // 帧数受 (分辨率 + 比例) 严格约束，按 agnes-video 文档映射到合法档位
-            var frames = NormalizeFrames(t.VideoWidth, t.VideoHeight, t.VideoFrames);
+            // 有参考图或参考视频 → reference 模式，否则 text 模式（agnes-video 2.5 系列）
+            var mode = (t.ReferenceImages is { Count: > 0 } || t.ReferenceVideos is { Count: > 0 })
+                ? "reference" : "text";
             var videoId = await ApiService.CreateVideoTaskAsync(
                 t.ApiEndpoint, t.ApiKey, t.Model, t.Prompt,
-                t.VideoWidth, t.VideoHeight, frames, t.VideoFps,
-                t.ReferenceImageData, t.Cts.Token);
+                mode: mode,
+                seconds: t.VideoSeconds,
+                size: t.VideoSize,
+                aspectRatio: t.VideoRatio,
+                referenceImages: t.ReferenceImages,
+                referenceVideos: t.ReferenceVideos?
+                    .Select(v => new VideoReference { Url = v }).ToList(),
+                cancel: t.Cts.Token);
 
             var progress = new Progress<string>(msg =>
             {
@@ -227,7 +234,7 @@ public static class AiTaskManager
                 NotifyChanged(t);
             });
             var videoUrl = await ApiService.PollVideoResultAsync(
-                t.ApiEndpoint, t.ApiKey, videoId, progress, t.Cts.Token);
+                t.ApiEndpoint, t.ApiKey, videoId, t.Model, progress, t.Cts.Token);
             var videoBytes = await ApiService.DownloadVideoAsync(videoUrl, t.Cts.Token);
             await SaveAsync(t, videoBytes, ".mp4");
         }
@@ -277,40 +284,6 @@ public static class AiTaskManager
             t.ApiEndpoint, filename, cancel: t.Cts.Token);
 
         await SaveAsync(t, bytes, ".png");
-    }
-
-    /// <summary>
-    /// 按 agnes-video-v2.0 文档将帧数映射到合法档位（受分辨率 + 比例严格约束）：
-    ///  - 1080P 仅 16:9 / 9:16：≤5s（81/121）
-    ///  - 720P / 480P 16:9 / 9:16：≤10s（81/121/241）
-    ///  - 1:1 比例（任意分辨率）：≤18s（81/121/241/441）
-    /// 帧数与时长近似（24fps≈81≈3.4s…441≈18.4s）。
-    /// </summary>
-    private static int NormalizeFrames(int width, int height, int frames)
-    {
-        bool isSquare = (width == height);
-        bool isHigh = (width >= 1920 || height >= 1080);
-        int maxFrames = (isSquare, isHigh) switch
-        {
-            (true, _) => 441,
-            (false, true) => 121,
-            (false, false) => 241
-        };
-
-        int[] legal = maxFrames switch
-        {
-            441 => new[] { 81, 121, 241, 441 },
-            241 => new[] { 81, 121, 241 },
-            _ => new[] { 81, 121 }
-        };
-
-        int best = legal[0], minDist = Math.Abs(legal[0] - frames);
-        for (int i = 1; i < legal.Length; i++)
-        {
-            var d = Math.Abs(legal[i] - frames);
-            if (d < minDist) { minDist = d; best = legal[i]; }
-        }
-        return best;
     }
 
     private static async Task SaveAsync(AiTask t, byte[] bytes, string ext)

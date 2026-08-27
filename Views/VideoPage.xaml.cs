@@ -966,6 +966,8 @@ public partial class VideoPage : UserControl
             Toast("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥");
             return;
         }
+        // Flash 模型固定 720P 且不支持参考视频；非 Flash（agnes-video-2.5）支持 720P/960P/2K 与参考视频
+        var isFlashModel = ViewHelpers.IsFlashVideoModel(config.VideoModel);
 
         // 关键：不设置 Owner！WPF 关闭 owned 子窗口时会激活/最小化 AllowsTransparency 主窗口。
         // 去掉 Owner 彻底切断 owned 关系，用 Topmost + 手动居中保持使用体验。
@@ -975,7 +977,6 @@ public partial class VideoPage : UserControl
             Width = 800, Height = 540,
             MinWidth = 700, MinHeight = 460,
             WindowStartupLocation = WindowStartupLocation.Manual,
-            Topmost = true,
             ShowInTaskbar = false,
             ResizeMode = ResizeMode.CanResize,
             Background = (Brush)FindResource("WindowBackgroundBrush")
@@ -1049,12 +1050,13 @@ public partial class VideoPage : UserControl
         var topRow = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
 
         var refPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        string? refImageData = null;
+        var refImages = new List<string>();
+        var refPaths = new List<string>();  // 与 refImages 对应的源文件路径（用于历史回填）
         var refBtn = new Button
         {
             Content = "🖼️ 参考图（可选）", FontSize = 11, Padding = new Thickness(10, 4, 10, 4),
             Style = (Style)FindResource("SecondaryButtonStyle"),
-            ToolTip = "选择一张参考图片，作为生成视频的画面参考（图生视频）"
+            ToolTip = "选择一张或多张参考图片，作为生成视频的画面参考（图生视频 / 多图参考）"
         };
         refPanel.Children.Add(refBtn);
         var assetRefBtn = new Button
@@ -1065,15 +1067,17 @@ public partial class VideoPage : UserControl
             ToolTip = "从当前项目的图片资产中选择参考图（章节图片 / 人物素材 / 封面 / 头像）"
         };
         refPanel.Children.Add(assetRefBtn);
-        var refThumb = new Image
+        var refWrap = new WrapPanel { MaxWidth = 300, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        refPanel.Children.Add(refWrap);
+        // 右侧状态文字（供参考图缩略图更新引用，最早声明）
+        var statusLabel = new TextBlock
         {
-            Width = 36, Height = 36, Stretch = Stretch.UniformToFill,
-            Margin = new Thickness(8, 0, 0, 0), Visibility = Visibility.Collapsed,
-            SnapsToDevicePixels = true
+            Text = "", FontSize = 11,
+            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
         };
-        var refClip = new System.Windows.Media.RectangleGeometry(new Rect(0, 0, 36, 36), 4, 4);
-        refThumb.Clip = refClip;
-        refPanel.Children.Add(refThumb);
         var clearRefBtn = new Button
         {
             Content = "✕", FontSize = 11, Padding = new Thickness(6, 2, 6, 2),
@@ -1083,26 +1087,22 @@ public partial class VideoPage : UserControl
         };
         refPanel.Children.Add(clearRefBtn);
 
-        // 应用参考图（文件路径 → base64 + 缩略图）
+        // 应用参考图（缩略图流，支持多张；Flash 最多 5 张）
         void ApplyRefImage(string path)
         {
-            var data = ViewHelpers.ImageToBase64DataUrl(path);
-            if (data == null) { Toast("⚠ 参考图读取失败"); return; }
-            try
+            ViewHelpers.AddReferenceThumb(refWrap, path, refImages, UpdateRefState, maxCount: 5, refPaths: refPaths);
+            UpdateRefState();
+        }
+
+        void UpdateRefState()
+        {
+            clearRefBtn.Visibility = refImages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            statusLabel.Text = refImages.Count switch
             {
-                var bmp = new BitmapImage();
-                bmp.BeginInit();
-                bmp.UriSource = new Uri(path);
-                bmp.CacheOption = BitmapCacheOption.OnLoad;
-                bmp.DecodePixelWidth = 72;
-                bmp.EndInit();
-                refThumb.Source = bmp;
-                refThumb.Visibility = Visibility.Visible;
-                clearRefBtn.Visibility = Visibility.Visible;
-                refImageData = data;
-                Toast("✓ 已添加参考图");
-            }
-            catch { Toast("⚠ 参考图加载失败"); }
+                0 => "可添加多张参考图（图生视频 / 多图参考）",
+                1 => "1 张参考图：图生视频",
+                _ => $"{refImages.Count} 张参考图：多图参考"
+            };
         }
 
         // 从本地文件选择参考图
@@ -1111,11 +1111,12 @@ public partial class VideoPage : UserControl
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
                 Filter = "图片文件|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif",
-                Title = "选择参考图片"
+                Title = "选择参考图片",
+                Multiselect = true
             };
             // 显式绑定 owner 为 AI 小窗口，避免对话框关闭后激活主窗口触发其误最小化
             if (dlg.ShowDialog(win) != true) return;
-            ApplyRefImage(dlg.FileName);
+            foreach (var f in dlg.FileNames) ApplyRefImage(f);
         };
 
         // 从项目资产中选择参考图（owner 传 AI 小窗口，避免模态选择器关闭时激活主窗口触发其误最小化）
@@ -1124,11 +1125,10 @@ public partial class VideoPage : UserControl
             try
             {
                 if (_currentNovel == null) { Toast("⚠ 请先选择小说"); return; }
-                var path = ViewHelpers.PickProjectImage(
-                    win, "选择项目图片作为参考图",
+                var paths = ViewHelpers.PickProjectImages(
+                    win, "选择项目图片作为参考图（可多选）",
                     App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder);
-                if (path == null) return;
-                ApplyRefImage(path);
+                foreach (var p in paths) ApplyRefImage(p);
             }
             catch (Exception ex)
             {
@@ -1138,23 +1138,78 @@ public partial class VideoPage : UserControl
 
         clearRefBtn.Click += (_, _) =>
         {
-            refImageData = null;
-            refThumb.Source = null;
-            refThumb.Visibility = Visibility.Collapsed;
-            clearRefBtn.Visibility = Visibility.Collapsed;
+            refImages.Clear();
+            refPaths.Clear();
+            refWrap.Children.Clear();
+            UpdateRefState();
         };
-        DockPanel.SetDock(refPanel, Dock.Left);
-        topRow.Children.Add(refPanel);
 
-        // 右侧状态文字
-        var statusLabel = new TextBlock
+        // ===== 视频参考（仅 agnes-video-2.5 非 Flash 支持）=====
+        string? refVideoData = null;
+        string? refVideoPath = null;  // 参考视频源文件路径（用于历史回填）
+        var videoRefBtn = new Button
         {
-            Text = "", FontSize = 11,
-            Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            Content = "🎞️ 参考视频（可选）", FontSize = 11, Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(6, 0, 0, 0),
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            IsEnabled = !isFlashModel,
+            ToolTip = isFlashModel
+                ? "agnes-video-2.5-flash 不支持参考视频（videos 参数返回 400），请改用 agnes-video-2.5"
+                : "选择一段参考视频，延续其动作、镜头节奏与视觉表现（仅 agnes-video-2.5 支持）"
+        };
+        refPanel.Children.Add(videoRefBtn);
+        var videoRefName = new TextBlock
+        {
+            FontSize = 11,
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(12, 0, 0, 0),
+            Margin = new Thickness(8, 0, 0, 0),
+            Visibility = Visibility.Collapsed,
+            MaxWidth = 160,
             TextTrimming = TextTrimming.CharacterEllipsis
         };
+        refPanel.Children.Add(videoRefName);
+        var clearVideoRefBtn = new Button
+        {
+            Content = "✕", FontSize = 11, Padding = new Thickness(6, 2, 6, 2),
+            Margin = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed,
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            ToolTip = "清除参考视频"
+        };
+        refPanel.Children.Add(clearVideoRefBtn);
+
+        void ApplyRefVideo(string path)
+        {
+            var data = ViewHelpers.VideoToBase64DataUrl(path);
+            if (data == null) { Toast("⚠ 参考视频读取失败"); return; }
+            refVideoData = data;
+            refVideoPath = path;
+            videoRefName.Text = Path.GetFileName(path);
+            videoRefName.Visibility = Visibility.Visible;
+            clearVideoRefBtn.Visibility = Visibility.Visible;
+            Toast("✓ 已添加参考视频");
+        }
+        videoRefBtn.Click += (_, _) =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "视频文件|*.mp4;*.mkv;*.avi;*.mov;*.webm;*.wmv",
+                Title = "选择参考视频"
+            };
+            if (dlg.ShowDialog(win) != true) return;
+            ApplyRefVideo(dlg.FileName);
+        };
+        clearVideoRefBtn.Click += (_, _) =>
+        {
+            refVideoData = null;
+            refVideoPath = null;
+            videoRefName.Text = "";
+            videoRefName.Visibility = Visibility.Collapsed;
+            clearVideoRefBtn.Visibility = Visibility.Collapsed;
+        };
+
+        DockPanel.SetDock(refPanel, Dock.Left);
+        topRow.Children.Add(refPanel);
         topRow.Children.Add(statusLabel);
         footerStack.Children.Add(topRow);
 
@@ -1187,9 +1242,11 @@ public partial class VideoPage : UserControl
         var levelBox = new ComboBox
         {
             Width = 74, Height = 26, FontSize = 12,
-            ItemsSource = ViewHelpers.VideoLevels,
+            ItemsSource = ViewHelpers.VideoLevelsForModel(config.VideoModel),
             SelectedItem = "720P",
-            ToolTip = "分辨率档位：480P / 720P / 1080P（2K 超出接口支持范围，将按 1080P 输出）",
+            ToolTip = isFlashModel
+                ? "agnes-video-2.5-flash 固定输出 720P"
+                : "分辨率档位：720P / 960P / 2K（agnes-video-2.5）",
             Style = (Style)Application.Current.FindResource("ModernComboBoxStyle"),
             Background = (Brush)FindResource("WindowBackgroundBrush"),
             BorderBrush = (Brush)FindResource("BorderBrush"),
@@ -1219,7 +1276,7 @@ public partial class VideoPage : UserControl
         };
         paramRow.Children.Add(ratioBox);
 
-        // 时长滑动条（上限随 比例+分辨率 联动：1:1 可达 18s，1080P 横竖屏仅 5s 等）
+        // 时长滑动条（agnes-video 2.5 系列 seconds 支持 4–12）
         paramRow.Children.Add(new TextBlock
         {
             Text = "时长", FontSize = 11,
@@ -1227,7 +1284,7 @@ public partial class VideoPage : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(8, 0, 4, 0)
         });
-        var secSlider = new Slider { Minimum = 1, Maximum = 18, Value = 5, Width = 90, VerticalAlignment = VerticalAlignment.Center };
+        var secSlider = new Slider { Minimum = 4, Maximum = 12, Value = 5, Width = 90, VerticalAlignment = VerticalAlignment.Center };
         paramRow.Children.Add(secSlider);
         var secBox = new TextBox
         {
@@ -1250,16 +1307,16 @@ public partial class VideoPage : UserControl
             Margin = new Thickness(2, 0, 0, 0)
         });
 
-        // 当前允许的最大秒数（随 比例+分辨率 联动）
-        int maxSec = 18;
+        // 当前允许的最大秒数（agnes-video 2.5 系列固定 12）
+        int maxSec = 12;
         bool syncingSec = false;
 
         // 比例/分辨率变化时，更新时长滑块上限并钳制当前值
         void UpdateMaxSeconds()
         {
-            var lv = levelBox.SelectedItem?.ToString() ?? "720P";
-            var rt = ratioBox.SelectedItem?.ToString() ?? "16:9";
-            maxSec = ViewHelpers.CalcVideoMaxSeconds(lv, rt);
+            maxSec = ViewHelpers.CalcVideoMaxSeconds(
+                levelBox.SelectedItem?.ToString() ?? "720P",
+                ratioBox.SelectedItem?.ToString() ?? "16:9");
             secSlider.Maximum = maxSec;
             if (secSlider.Value > maxSec) secSlider.Value = maxSec;
             if (secBox.IsKeyboardFocusWithin == false && int.TryParse(secBox.Text.Trim(), out var cur) && cur > maxSec)
@@ -1268,12 +1325,12 @@ public partial class VideoPage : UserControl
                 secBox.Text = maxSec.ToString();
                 syncingSec = false;
             }
-            secSlider.ToolTip = $"时长上限：{maxSec} 秒（1:1 比例可达 18s，非 1:1 受分辨率限制）";
+            secSlider.ToolTip = $"时长范围：4–12 秒（agnes-video 2.5 系列）";
         }
         levelBox.SelectionChanged += (_, _) => UpdateMaxSeconds();
         ratioBox.SelectionChanged += (_, _) => UpdateMaxSeconds();
 
-        // 秒数滑动条与输入框双向同步（输入超出 1~maxSec 自动钳制）
+        // 秒数滑动条与输入框双向同步（输入超出 4~maxSec 自动钳制）
         secSlider.ValueChanged += (_, _) =>
         {
             if (syncingSec) return;
@@ -1284,37 +1341,16 @@ public partial class VideoPage : UserControl
         secBox.TextChanged += (_, _) =>
         {
             if (syncingSec) return;
-            if (!double.TryParse(secBox.Text.Trim(), out var v) || v < 1) return;
+            if (!double.TryParse(secBox.Text.Trim(), out var v) || v < 4) return;
             syncingSec = true;
-            secSlider.Value = Math.Clamp(v, 1, maxSec);
+            secSlider.Value = Math.Clamp(v, 4, maxSec);
             syncingSec = false;
         };
         secBox.LostFocus += (_, _) =>
         {
             if (!double.TryParse(secBox.Text.Trim(), out var v)) { secBox.Text = "5"; return; }
-            secBox.Text = ((int)Math.Clamp(Math.Round(v), 1, maxSec)).ToString();
+            secBox.Text = ((int)Math.Clamp(Math.Round(v), 4, maxSec)).ToString();
         };
-
-        // FPS（帧数 = 秒数 × FPS 自动计算）
-        paramRow.Children.Add(new TextBlock
-        {
-            Text = "FPS", FontSize = 11,
-            Foreground = (Brush)FindResource("TextSecondaryBrush"),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 4, 0)
-        });
-        var fpsBox = new TextBox
-        {
-            Width = 34, Height = 24, FontSize = 12, Text = "24",
-            TextAlignment = TextAlignment.Center,
-            Background = (Brush)FindResource("WindowBackgroundBrush"),
-            BorderBrush = (Brush)FindResource("BorderBrush"),
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(2, 0, 2, 0),
-            VerticalContentAlignment = VerticalAlignment.Center
-        };
-        paramRow.Children.Add(fpsBox);
 
         paramCard.Child = paramRow;
         rightPanel.Children.Add(paramCard);
@@ -1329,6 +1365,53 @@ public partial class VideoPage : UserControl
         };
         queueBtn.Click += (_, _) => OpenQueueWindow();
         rightPanel.Children.Add(queueBtn);
+
+        // 历史记录：点击一条即回填提示词/档位/比例/时长/参考图/参考视频
+        var historyBtn = new Button
+        {
+            Content = "🕘 历史", FontSize = 12, Padding = new Thickness(12, 6, 12, 6),
+            Margin = new Thickness(0, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            Style = (Style)FindResource("SecondaryButtonStyle"),
+            ToolTip = "查看历史记录，点击一条自动回填提示词、参数与参考素材"
+        };
+        historyBtn.Click += (_, _) =>
+        {
+            try
+            {
+                var history = AiGenHistory.Load(App.WorkRoot)
+                    .Where(h => h.Type == AiGenType.Video).ToList();
+                var picker = new AiGenHistoryWindow(history) { Owner = win };
+                if (picker.ShowDialog() != true) return;
+                var e = picker.SelectedEntry;
+                if (e == null) return;
+                promptBox.Text = e.Prompt;
+                if (e.Level is { Length: > 0 })
+                {
+                    var lv = levelBox.Items.OfType<string>().FirstOrDefault(x => x == e.Level);
+                    if (lv != null) levelBox.SelectedItem = lv;
+                }
+                if (e.Ratio is { Length: > 0 })
+                {
+                    var rt = ratioBox.Items.OfType<string>().FirstOrDefault(x => x == e.Ratio);
+                    if (rt != null) ratioBox.SelectedItem = rt;
+                }
+                if (e.Seconds > 0) secSlider.Value = Math.Clamp(e.Seconds, 4, ViewHelpers.CalcVideoMaxSeconds(
+                    levelBox.SelectedItem?.ToString() ?? "720P", ratioBox.SelectedItem?.ToString() ?? "16:9"));
+
+                // 回填参考图
+                refImages.Clear(); refPaths.Clear(); refWrap.Children.Clear();
+                foreach (var p in e.RefImagePaths)
+                    if (System.IO.File.Exists(p)) ApplyRefImage(p);
+                // 回填参考视频
+                if (!string.IsNullOrWhiteSpace(e.RefVideoPath) && System.IO.File.Exists(e.RefVideoPath) && !isFlashModel)
+                    ApplyRefVideo(e.RefVideoPath);
+                UpdateRefState();
+                Toast("✓ 已从历史回填");
+            }
+            catch (Exception ex) { Toast($"⚠ 历史回填失败：{ex.Message}"); }
+        };
+        rightPanel.Children.Add(historyBtn);
 
         var genBtn = new Button
         {
@@ -1360,13 +1443,14 @@ public partial class VideoPage : UserControl
 
             try
             {
-                // 是否有参考图：无=文生视频（仅依据文本优化），有=图生视频（依据文本 + 图像内容优化）
-                bool hasRef = !string.IsNullOrWhiteSpace(refImageData);
+                // 是否有参考图：无=文生视频（仅依据文本优化），有=图生视频/多图参考（依据文本 + 图像内容优化）
+                bool hasRef = refImages.Count > 0;
 
                 var sys = "你是一位专业的 AI 视频生成提示词优化师。"
                     + (hasRef
                         ? "用户提供了参考图，请仔细观察参考图的画面内容（主体、动作、场景、构图、色调与光影），"
                           + "并结合用户文本，扩展为一段详细、专业的视频生成提示词，使生成的视频画面与参考图风格统一、运动自然。"
+                          + "若提供多张参考图，请分别归纳各图主体特征并说明如何组合。"
                           + "要求：1. 准确提炼参考图中的主体特征、构图与色调并融入提示词 2. 若文本与参考图冲突，以文本意图为主、参考图风格为辅 "
                           + "3. 添加镜头描述（如特写、全景、跟踪镜头） 4. 描述光影和色彩氛围 "
                           + "5. 丰富动作和场景细节 6. 使用流畅的英文或中英混合（英文术语更准确）"
@@ -1381,7 +1465,7 @@ public partial class VideoPage : UserControl
                     ? await ApiService.ChatWithImagesAsync(
                         config.ApiEndpoint, config.ApiKey, config.ApiModel,
                         sys, $"请结合参考图优化以下视频生成提示词：\n{rawPrompt}",
-                        new[] { refImageData! })
+                        refImages)
                     : await ApiService.ChatAsync(
                         config.ApiEndpoint, config.ApiKey, config.ApiModel,
                         sys, $"请优化以下视频生成提示词：\n{rawPrompt}");
@@ -1409,6 +1493,16 @@ public partial class VideoPage : UserControl
 
         win.Content = grid;
 
+        // 拖拽图片到窗口 → 自动归入当前章节图片资产目录并作为参考图加入
+        ViewHelpers.EnableImageDrop(grid,
+            assetImportDir: FileService.ChapterImagesPath(App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName),
+            onImported: path =>
+            {
+                ApplyRefImage(path);
+                Toast("✓ 已加入参考图并归入项目资产");
+            },
+            onInvalid: () => Toast("⚠ 请拖入支持格式的图片"));
+
         // 生成按钮：创建任务并入队后立即关闭窗口，生成交给后台队列串行执行
         genBtn.Click += (_, _) =>
         {
@@ -1418,12 +1512,15 @@ public partial class VideoPage : UserControl
 
             var level = levelBox.SelectedItem?.ToString() ?? "720P";
             var ratio = ratioBox.SelectedItem?.ToString() ?? "16:9";
-            var (w, h) = ViewHelpers.CalcVideoSize(level, ratio);
-            var seconds = (int)Math.Clamp(Math.Round(secSlider.Value), 1, ViewHelpers.CalcVideoMaxSeconds(level, ratio));
-            var fps = int.TryParse(fpsBox.Text.Trim(), out var r) ? Math.Clamp(r, 8, 60) : 24;
-            var frames = seconds * fps;
-            // 2K 超出接口支持范围，实际按 1080P 输出，队列详情如实标注
-            var displayLevel = level == "2K" ? "2K(1080P)" : level;
+            var seconds = (int)Math.Clamp(Math.Round(secSlider.Value), 4, ViewHelpers.CalcVideoMaxSeconds(level, ratio));
+            var hasImageRef = refImages.Count > 0;
+            var hasVideoRef = !string.IsNullOrWhiteSpace(refVideoData);
+            // 参考模式按文档补齐 <Picture N>/<Video 1> 提示词引用
+            var finalPrompt = ViewHelpers.BuildVideoPrompt(prompt, refImages.Count, hasVideoRef ? 1 : 0);
+
+            var detail = $"{level}·{ratio}·{seconds}s";
+            if (hasImageRef) detail += $"·参考图{refImages.Count}";
+            if (hasVideoRef) detail += "·参考视频";
 
             // 快照当前小说/章节，防止用户切换后任务保存到错误目录
             var novel = _currentNovel;
@@ -1431,20 +1528,31 @@ public partial class VideoPage : UserControl
             var task = new AiTask
             {
                 Type = AiTaskType.Video,
-                Prompt = prompt,
-                Detail = $"{displayLevel}·{ratio}·{seconds}s·{fps}fps",
+                Prompt = finalPrompt,
+                Detail = detail,
                 ApiEndpoint = config.ApiEndpoint,
                 ApiKey = config.ApiKey,
                 Model = config.VideoModel,
                 TargetDir = FileService.ChapterVideosPath(App.WorkRoot, novel.MediaFolder, chapter.FolderName),
                 FileNameBase = $"AI_{DateTime.Now:yyyyMMdd_HHmmss}",
-                VideoWidth = w, VideoHeight = h, VideoFrames = frames, VideoFps = fps,
-                VideoSeconds = seconds,
-                ReferenceImageData = refImageData,
+                VideoSize = level, VideoRatio = ratio, VideoSeconds = seconds,
+                ReferenceImages = hasImageRef ? new List<string>(refImages) : null,
+                ReferenceVideos = hasVideoRef ? new List<string> { refVideoData! } : null,
                 NovelName = novel.Name,
                 ScopeName = $"第{chapter.Index}章 {chapter.Title}"
             };
             AiTaskManager.Enqueue(task);
+            AiGenHistory.Add(App.WorkRoot, new AiGenHistoryEntry
+            {
+                Type = AiGenType.Video,
+                Prompt = prompt,
+                Level = level,
+                Ratio = ratio,
+                Seconds = seconds,
+                RefImagePaths = new List<string>(refPaths),
+                RefVideoPath = refVideoPath ?? "",
+                EngineBadge = config.VideoModel
+            });
             Toast("✓ 已加入 AI 任务队列");
             try { win.Close(); } catch { }
         };
