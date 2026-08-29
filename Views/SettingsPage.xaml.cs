@@ -865,8 +865,8 @@ public partial class SettingsPage : UserControl
         var win = new Window
         {
             Title = "编辑 AI Skill",
-            Width = 620, Height = 520,
-            MinWidth = 500, MinHeight = 400,
+            Width = 680, Height = 580,
+            MinWidth = 540, MinHeight = 420,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             Owner = Window.GetWindow(this),
             ResizeMode = ResizeMode.CanResize,
@@ -874,58 +874,85 @@ public partial class SettingsPage : UserControl
         };
 
         var grid = new Grid { Margin = new Thickness(20) };
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 0 顶部 Tab
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 1 优化子 Tab（默认隐藏）
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });  // 2 编辑区
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 3 提示
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });                    // 4 间距
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 5 底部按钮
 
-        // 两个编辑框放入同一行，通过 Visibility 切换
-        var scriptBox = new TextBox
+        // 四个编辑框：生成剧本 / 生成提示词 / 图片优化 / 视频优化
+        var scriptBox = MakeSkillBox(_config.ScriptSkill);
+        var promptBox = MakeSkillBox(_config.PromptSkill);
+        var imgOptBox = MakeSkillBox(_config.ImageOptimizeSkill);
+        var vidOptBox = MakeSkillBox(_config.VideoOptimizeSkill);
+        foreach (var box in new[] { scriptBox, promptBox, imgOptBox, vidOptBox })
         {
-            Text = _config.ScriptSkill,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontSize = 13,
-            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            Background = (Brush)FindResource("CardBackgroundBrush"),
-            BorderBrush = (Brush)FindResource("BorderBrush"),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(10)
-        };
-        Grid.SetRow(scriptBox, 2);
-        grid.Children.Add(scriptBox);
+            Grid.SetRow(box, 2);
+            grid.Children.Add(box);
+        }
+        promptBox.Visibility = Visibility.Collapsed;
+        imgOptBox.Visibility = Visibility.Collapsed;
+        vidOptBox.Visibility = Visibility.Collapsed;
 
-        var promptBox = new TextBox
-        {
-            Text = _config.PromptSkill,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontSize = 13,
-            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            Background = (Brush)FindResource("CardBackgroundBrush"),
-            BorderBrush = (Brush)FindResource("BorderBrush"),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(10),
-            Visibility = Visibility.Collapsed
-        };
-        Grid.SetRow(promptBox, 2);
-        grid.Children.Add(promptBox);
-
-        // 标签页切换按钮
+        // 顶部 Tab：生成剧本 / 生成提示词 / 优化提示词
         var scriptBtn = CreateTabBtn("生成剧本 Skill", true);
         var promptBtn = CreateTabBtn("生成提示词 Skill", false);
-        scriptBtn.Click += (_, _) => { SwitchTab(scriptBox, promptBox, scriptBtn, promptBtn); };
-        promptBtn.Click += (_, _) => { SwitchTab(promptBox, scriptBox, promptBtn, scriptBtn); };
-        var tabBar = new StackPanel { Orientation = Orientation.Horizontal };
-        tabBar.Children.Add(scriptBtn);
-        tabBar.Children.Add(promptBtn);
-        Grid.SetRow(tabBar, 0);
-        grid.Children.Add(tabBar);
+        var optBtn = CreateTabBtn("优化提示词 Skill", false);
+        var topBar = new StackPanel { Orientation = Orientation.Horizontal };
+        topBar.Children.Add(scriptBtn);
+        topBar.Children.Add(promptBtn);
+        topBar.Children.Add(optBtn);
+        Grid.SetRow(topBar, 0);
+        grid.Children.Add(topBar);
+
+        // 优化提示词的子 Tab：图片 / 视频
+        var imgTab = CreateTabBtn("图片优化", true);
+        var vidTab = CreateTabBtn("视频优化", false);
+        var subBar = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 8, 0, 0),
+            Visibility = Visibility.Collapsed
+        };
+        subBar.Children.Add(imgTab);
+        subBar.Children.Add(vidTab);
+        Grid.SetRow(subBar, 1);
+        grid.Children.Add(subBar);
+
+        // 占位符说明提示
+        var tipText = new TextBlock
+        {
+            FontSize = 10.5,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = (Brush)FindResource("TextTertiaryBrush"),
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        Grid.SetRow(tipText, 3);
+        grid.Children.Add(tipText);
+
+        // 统一切换逻辑
+        void Activate(TextBox show, string tip)
+        {
+            scriptBox.Visibility = show == scriptBox ? Visibility.Visible : Visibility.Collapsed;
+            promptBox.Visibility = show == promptBox ? Visibility.Visible : Visibility.Collapsed;
+            imgOptBox.Visibility = show == imgOptBox ? Visibility.Visible : Visibility.Collapsed;
+            vidOptBox.Visibility = show == vidOptBox ? Visibility.Visible : Visibility.Collapsed;
+            subBar.Visibility = (show == imgOptBox || show == vidOptBox) ? Visibility.Visible : Visibility.Collapsed;
+            SetTab(scriptBtn, show == scriptBox);
+            SetTab(promptBtn, show == promptBox);
+            SetTab(optBtn, show == imgOptBox || show == vidOptBox);
+            SetTab(imgTab, show == imgOptBox);
+            SetTab(vidTab, show == vidOptBox);
+            tipText.Text = tip;
+        }
+
+        scriptBtn.Click += (_, _) => Activate(scriptBox, "生成剧本时使用的 System Prompt 指令。");
+        promptBtn.Click += (_, _) => Activate(promptBox, "生成提示词时使用的 System Prompt 指令。");
+        optBtn.Click += (_, _) => Activate(imgOptBox,
+            "优化提示词时使用的 System Prompt 指令。可用占位符：{hasRef} 参考图情况、{refCount} 参考图数量、{roleName} 角色名、{personality} 角色性格、{prompt} 原提示词。");
+        imgTab.Click += (_, _) => Activate(imgOptBox, "优化图片生成提示词时使用的指令。占位符同上。");
+        vidTab.Click += (_, _) => Activate(vidOptBox, "优化视频生成提示词时使用的指令。占位符同上。");
 
         // 底部按钮
         var footer = new StackPanel
@@ -953,21 +980,63 @@ public partial class SettingsPage : UserControl
             var def = new AppConfig();
             scriptBox.Text = def.ScriptSkill;
             promptBox.Text = def.PromptSkill;
+            imgOptBox.Text = def.ImageOptimizeSkill;
+            vidOptBox.Text = def.VideoOptimizeSkill;
         };
         saveBtn.Click += (_, _) =>
         {
             _config.ScriptSkill = scriptBox.Text;
             _config.PromptSkill = promptBox.Text;
+            _config.ImageOptimizeSkill = imgOptBox.Text;
+            _config.VideoOptimizeSkill = vidOptBox.Text;
             SaveConfig();
             win.Close();
         };
         footer.Children.Add(resetBtn);
         footer.Children.Add(saveBtn);
-        Grid.SetRow(footer, 4);
+        Grid.SetRow(footer, 5);
         grid.Children.Add(footer);
 
         win.Content = grid;
         win.ShowDialog();
+    }
+
+    /// <summary>创建 Skill 编辑用的多行文本框</summary>
+    private TextBox MakeSkillBox(string text)
+    {
+        return new TextBox
+        {
+            Text = text,
+            AcceptsReturn = true,
+            TextWrapping = TextWrapping.Wrap,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            FontSize = 13,
+            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
+            Foreground = (Brush)FindResource("TextPrimaryBrush"),
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(10)
+        };
+    }
+
+    /// <summary>设置页签的激活/非激活样式</summary>
+    private void SetTab(Button btn, bool active)
+    {
+        if (active)
+        {
+            btn.Background = (Brush)FindResource("PrimaryBrush");
+            btn.Foreground = Brushes.White;
+            btn.BorderBrush = (Brush)FindResource("PrimaryBrush");
+            btn.FontWeight = FontWeights.SemiBold;
+        }
+        else
+        {
+            btn.Background = (Brush)FindResource("CardBackgroundBrush");
+            btn.Foreground = (Brush)FindResource("TextPrimaryBrush");
+            btn.BorderBrush = (Brush)FindResource("BorderBrush");
+            btn.FontWeight = FontWeights.Normal;
+        }
     }
 
     private Button CreateTabBtn(string text, bool active)
@@ -1033,24 +1102,6 @@ public partial class SettingsPage : UserControl
 
         btn.Template = template;
         return btn;
-    }
-
-    private void SwitchTab(TextBox show, TextBox hide, Button activeBtn, Button inactiveBtn)
-    {
-        show.Visibility = Visibility.Visible;
-        hide.Visibility = Visibility.Collapsed;
-
-        // 激活按钮样式
-        activeBtn.Background = (Brush)FindResource("PrimaryBrush");
-        activeBtn.Foreground = Brushes.White;
-        activeBtn.BorderBrush = (Brush)FindResource("PrimaryBrush");
-        activeBtn.FontWeight = FontWeights.SemiBold;
-
-        // 非激活按钮样式
-        inactiveBtn.Background = (Brush)FindResource("CardBackgroundBrush");
-        inactiveBtn.Foreground = (Brush)FindResource("TextPrimaryBrush");
-        inactiveBtn.BorderBrush = (Brush)FindResource("BorderBrush");
-        inactiveBtn.FontWeight = FontWeights.Normal;
     }
 
     private async void FetchModels_Click(object sender, RoutedEventArgs e)

@@ -86,16 +86,19 @@ public static class PetService
     private static void OpenGenerateImage()
     {
         var config = FileService.LoadConfig(App.WorkRoot);
-        var win = CreateDialog("AI 生成图片", 540, 460);
+        var win = CreateDialog("AI 生成图片", 1010, 620);
+        win.MinWidth = 980;
+        win.MinHeight = 520;
 
         var grid = new Grid { Margin = new Thickness(16) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 0 标题
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });                    // 1 间距
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });  // 2 提示词
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });  // 2 主体（左栏|中央|右栏）
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });                    // 3 间距
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 4 参考图区
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });                    // 5 间距
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 6 底部
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 4 底部
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                  // 0 左栏
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // 1 中央
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                  // 2 右栏
 
         var headerGrid = new Grid();
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -110,6 +113,8 @@ public static class PetService
         Grid.SetColumn(header, 0);
         headerGrid.Children.Add(header);
         Grid.SetRow(headerGrid, 0);
+        Grid.SetColumnSpan(headerGrid, 3);
+        Grid.SetColumnSpan(headerGrid, 3);
         grid.Children.Add(headerGrid);
 
         var promptBox = new TextBox
@@ -124,8 +129,7 @@ public static class PetService
             BorderThickness = new Thickness(1),
             Padding = new Thickness(10)
         };
-        Grid.SetRow(promptBox, 2);
-        grid.Children.Add(promptBox);
+        // 提示词放入中央子网格（三栏布局构建 center 时再挂载）
 
         // ===== 参考图区域（0 张=文生图，1 张=图生图，多张=多图编辑） =====
         var refImages = new List<string>(); // Data URI Base64
@@ -203,10 +207,9 @@ public static class PetService
                 if (paths.Count == 0) { MainWindow.Notify("⚠ 宠物资源目录还没有图片，请先通过 AI 生图生成", success: false); return; }
                 var picker = new AssetPickerWindow(paths, "选择宠物资源图片作为参考图（可多选）", multiSelect: true) { Owner = win };
                 if (picker.ShowDialog() != true) return;
-                foreach (var p in picker.OrderedPaths)
-                    ViewHelpers.AddReferenceThumb(refPanel, p, refImages,
-                        () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                        refPaths: refPaths);
+                ViewHelpers.AddReferenceThumbsAsync(refPanel, picker.OrderedPaths, refImages,
+                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                    refPaths: refPaths);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
             }
             catch (Exception ex)
@@ -226,11 +229,70 @@ public static class PetService
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
         };
 
-        var refRow = new DockPanel();
-        DockPanel.SetDock(refPanel, Dock.Left);
+        var refRow = new Grid();
         refRow.Children.Add(refPanel);
-        Grid.SetRow(refRow, 4);
-        grid.Children.Add(refRow);
+
+        // ===== 右侧边栏：宠物资产（点击按顺序编号，作为参考图顺序） =====
+        var petDir = FileService.PetResourcesPath(App.WorkRoot);
+        var petPaths = new List<string>();
+        if (Directory.Exists(petDir))
+            foreach (var f in Directory.GetFiles(petDir))
+            {
+                var ext = Path.GetExtension(f).ToLowerInvariant();
+                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif") petPaths.Add(f);
+            }
+        var assetPanel = new AssetPanel("宠物资产", petPaths, maxCount: 6);
+
+        void RemoveRefThumbs()
+        {
+            for (int i = refPanel.Children.Count - 1; i >= 0; i--)
+                if (refPanel.Children[i] is Border b && b.Tag is string t && t == "refthumb")
+                    refPanel.Children.RemoveAt(i);
+        }
+        // 右侧栏选择顺序 → 重建参考图列表（含手动添加的本地参考图共存于 refImages）
+        void RebuildRefsFromAssets()
+        {
+            refImages.Clear();
+            refPaths.Clear();
+            RemoveRefThumbs();
+            ViewHelpers.AddReferenceThumbsAsync(refPanel, assetPanel.SelectedOrder, refImages,
+                () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                refPaths: refPaths);
+            ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+        }
+        assetPanel.SelectionChanged = RebuildRefsFromAssets;
+        // 清除参考图（同时清空右侧栏资产选择）
+        clearRefBtn.Click += (_, _) =>
+        {
+            assetPanel.ClearSelection();
+            refImages.Clear();
+            refPaths.Clear();
+            RemoveRefThumbs();
+            ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+        };
+
+        // ===== 左侧边栏：文本导入/编辑/选区加入/导出 + 默认提示词 =====
+        void AppendPromptText(string t)
+        {
+            var cur = promptBox.Text;
+            promptBox.Text = string.IsNullOrWhiteSpace(cur) ? t : cur.TrimEnd() + "\n" + t;
+            promptBox.CaretIndex = promptBox.Text.Length;
+            promptBox.Focus();
+        }
+        var promptPanel = new PromptPanel(win, "Image")
+        {
+            AppendToPrompt = AppendPromptText
+        };
+
+        // ===== 中央：提示词输入 + 参考图区 =====
+        var center = new Grid();
+        center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 0 提示词
+        center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });                  // 1 间距
+        center.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // 2 参考图
+        Grid.SetRow(promptBox, 0);
+        center.Children.Add(promptBox);
+        Grid.SetRow(refRow, 2);
+        center.Children.Add(refRow);
 
         // 「优化提示词」按钮（标题行右侧），有参考图时结合参考图内容优化
         var optimizeBtn = CreateOptimizeButton(promptBox,
@@ -269,15 +331,16 @@ public static class PetService
                     var lv = levelBox.Items.OfType<string>().FirstOrDefault(x => x == e.Level);
                     if (lv != null) levelBox.SelectedItem = lv;
                 }
+                // 回填参考图：先同步右侧栏选择顺序（存在的资产），再补充非资产路径
+                assetPanel.SetSelection(e.RefImagePaths);
                 refImages.Clear(); refPaths.Clear();
-                for (int i = refPanel.Children.Count - 1; i >= 0; i--)
-                    if (refPanel.Children[i] is Border b && b.Tag is string t && t == "refthumb")
-                        refPanel.Children.RemoveAt(i);
+                RemoveRefThumbs();
+                var ordered = assetPanel.SelectedOrder.ToList();
                 foreach (var p in e.RefImagePaths)
-                    if (System.IO.File.Exists(p))
-                        ViewHelpers.AddReferenceThumb(refPanel, p, refImages,
-                            () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                            refPaths: refPaths);
+                    if (!ordered.Contains(p) && System.IO.File.Exists(p)) ordered.Add(p);
+                ViewHelpers.AddReferenceThumbsAsync(refPanel, ordered, refImages,
+                    () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
+                    refPaths: refPaths);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
                 MainWindow.Notify("✓ 已从历史回填");
             }
@@ -292,12 +355,19 @@ public static class PetService
             Style = Style("PrimaryButtonStyle")
         };
         footer.Children.Add(genBtn);
-        Grid.SetRow(footer, 6);
+        Grid.SetRow(footer, 4);
+        Grid.SetColumnSpan(footer, 3);
         grid.Children.Add(footer);
+
+        // 三栏布局（左右栏可拖拽调整宽度并持久化）：左栏（提示词素材） | 中央（提示词+参考图） | 右栏（宠物资产）
+        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel.Root, center, assetPanel.Root);
+        Grid.SetRow(bodyRow, 2);
+        Grid.SetColumnSpan(bodyRow, 3);
+        grid.Children.Add(bodyRow);
 
         genBtn.Click += (_, _) =>
         {
-            var prompt = promptBox.Text.Trim();
+            var prompt = ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Image");
             if (string.IsNullOrWhiteSpace(prompt)) { MainWindow.Notify("⚠ 请输入提示词", success: false); return; }
 
             bool useComfy = config.DefaultImageProvider == "ComfyUI";
@@ -329,7 +399,7 @@ public static class PetService
                 Model = config.ImageModel,
                 ComfyWorkflowFile = config.ComfyUiWorkflowFile,
                 TargetDir = FileService.PetResourcesPath(App.WorkRoot),
-                FileNameBase = $"Pet_Image_{DateTime.Now:yyyyMMdd_HHmmss}",
+                FileNameBase = $"Pet_Image_{DateTime.Now:yyyyMMdd_HHmmss_fff}",
                 ImageSize = size,
                 ImageLevel = level,
                 ImageRatio = ratio,
@@ -347,8 +417,7 @@ public static class PetService
                 RefImagePaths = new List<string>(refPaths),
                 EngineBadge = useComfy ? "ComfyUI" : "API"
             });
-            MainWindow.Notify($"✓ 已加入 AI 任务队列（{(useComfy ? "ComfyUI" : "API")}）");
-            try { win.Close(); } catch { }
+            MainWindow.Notify($"✓ 已加入 AI 任务队列（{(useComfy ? "ComfyUI" : "API")}），窗口保持打开");
         };
 
         win.Content = grid;
@@ -361,6 +430,7 @@ public static class PetService
                     () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
                     refPaths: refPaths);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+                assetPanel.SelectImported(path);
                 MainWindow.Notify("✓ 已加入参考图并归入宠物资源");
             },
             onInvalid: () => MainWindow.Notify("⚠ 请拖入支持格式的图片", success: false));
@@ -380,16 +450,19 @@ public static class PetService
         // Flash 模型固定 720P 且不支持参考视频；非 Flash（agnes-video-2.5）支持 720P/960P/2K 与参考视频
         var isFlashModel = ViewHelpers.IsFlashVideoModel(config.VideoModel);
 
-        var win = CreateDialog("AI 生成视频", 540, 460);
+        var win = CreateDialog("AI 生成视频", 1010, 620);
+        win.MinWidth = 980;
+        win.MinHeight = 520;
 
         var grid = new Grid { Margin = new Thickness(16) };
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 0 标题
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });                    // 1 间距
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });  // 2 提示词
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });  // 2 主体（左栏|中央|右栏）
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });                    // 3 间距
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 4 参考图区
-        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(12) });                    // 5 间距
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 6 底部
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 4 底部
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                  // 0 左栏
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // 1 中央
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                  // 2 右栏
 
         var headerGrid = new Grid();
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -404,6 +477,7 @@ public static class PetService
         Grid.SetColumn(videoHeader, 0);
         headerGrid.Children.Add(videoHeader);
         Grid.SetRow(headerGrid, 0);
+        Grid.SetColumnSpan(headerGrid, 3);
         grid.Children.Add(headerGrid);
 
         var promptBox = new TextBox
@@ -418,11 +492,10 @@ public static class PetService
             BorderThickness = new Thickness(1),
             Padding = new Thickness(10)
         };
-        Grid.SetRow(promptBox, 2);
-        grid.Children.Add(promptBox);
+        // 提示词放入中央子网格（三栏布局构建 center 时再挂载）
 
         // ===== 参考图区域（图生视频，可选，支持多张） =====
-        var refPanel = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var refPanel = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
         var refImages = new List<string>();
         var refBtn = new Button
         {
@@ -439,7 +512,7 @@ public static class PetService
             ToolTip = "从宠物资源目录中选择参考图"
         };
         refPanel.Children.Add(assetRefBtn);
-        var refWrap = new WrapPanel { MaxWidth = 260, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+        var refWrap = new WrapPanel { MaxWidth = 400, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
         var refPaths = new List<string>(); // 与 refImages 对应的源文件路径（用于历史回填）
         refPanel.Children.Add(refWrap);
         var clearRefBtn = new Button
@@ -576,11 +649,63 @@ public static class PetService
             clearVideoRefBtn.Visibility = Visibility.Collapsed;
         };
 
-        var refRow = new DockPanel();
-        DockPanel.SetDock(refPanel, Dock.Left);
+        var refRow = new Grid();
         refRow.Children.Add(refPanel);
-        Grid.SetRow(refRow, 4);
-        grid.Children.Add(refRow);
+
+        // ===== 右侧边栏：宠物资产（点击按顺序编号，作为参考图顺序） =====
+        var petDir = FileService.PetResourcesPath(App.WorkRoot);
+        var petPaths = new List<string>();
+        if (Directory.Exists(petDir))
+            foreach (var f in Directory.GetFiles(petDir))
+            {
+                var ext = Path.GetExtension(f).ToLowerInvariant();
+                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif") petPaths.Add(f);
+            }
+        var assetPanel = new AssetPanel("宠物资产", petPaths, maxCount: 5);
+
+        // 右侧栏选择顺序 → 重建参考图列表（含手动添加的本地参考图共存于 refImages）
+        void RebuildRefsFromAssets()
+        {
+            refImages.Clear();
+            refPaths.Clear();
+            refWrap.Children.Clear();
+            ViewHelpers.AddReferenceThumbsAsync(refWrap, assetPanel.SelectedOrder, refImages,
+                UpdateRefState, maxCount: 5, refPaths: refPaths);
+            UpdateRefState();
+        }
+        assetPanel.SelectionChanged = RebuildRefsFromAssets;
+        // 清除参考图（同时清空右侧栏资产选择）
+        clearRefBtn.Click += (_, _) =>
+        {
+            assetPanel.ClearSelection();
+            refImages.Clear();
+            refPaths.Clear();
+            refWrap.Children.Clear();
+            UpdateRefState();
+        };
+
+        // ===== 左侧边栏：文本导入/编辑/选区加入/导出 + 默认提示词 =====
+        void AppendPromptText(string t)
+        {
+            var cur = promptBox.Text;
+            promptBox.Text = string.IsNullOrWhiteSpace(cur) ? t : cur.TrimEnd() + "\n" + t;
+            promptBox.CaretIndex = promptBox.Text.Length;
+            promptBox.Focus();
+        }
+        var promptPanel = new PromptPanel(win, "Video")
+        {
+            AppendToPrompt = AppendPromptText
+        };
+
+        // ===== 中央：提示词输入 + 参考图区 =====
+        var center = new Grid();
+        center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 0 提示词
+        center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });                  // 1 间距
+        center.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // 2 参考图
+        Grid.SetRow(promptBox, 0);
+        center.Children.Add(promptBox);
+        Grid.SetRow(refRow, 2);
+        center.Children.Add(refRow);
 
         // 「优化提示词」按钮（标题行右侧），有参考图时结合参考图内容优化
         var optimizeBtn = CreateOptimizeButton(promptBox,
@@ -631,10 +756,14 @@ public static class PetService
                     var sc = secondsBox.Items.OfType<string>().FirstOrDefault(x => x == e.Seconds.ToString());
                     if (sc != null) secondsBox.SelectedItem = sc;
                 }
-                // 回填参考图
+                // 回填参考图：先同步右侧栏选择顺序（存在的资产），再补充非资产路径
+                assetPanel.SetSelection(e.RefImagePaths);
                 refImages.Clear(); refPaths.Clear(); refWrap.Children.Clear();
                 UpdateRefState();
+                var ordered = assetPanel.SelectedOrder.ToList();
                 foreach (var p in e.RefImagePaths)
+                    if (!ordered.Contains(p) && System.IO.File.Exists(p)) ordered.Add(p);
+                foreach (var p in ordered)
                     if (System.IO.File.Exists(p)) ApplyRefImage(p);
                 // 回填参考视频
                 if (!string.IsNullOrWhiteSpace(e.RefVideoPath) && System.IO.File.Exists(e.RefVideoPath))
@@ -653,12 +782,19 @@ public static class PetService
             Style = Style("PrimaryButtonStyle")
         };
         footer.Children.Add(genBtn);
-        Grid.SetRow(footer, 6);
+        Grid.SetRow(footer, 4);
+        Grid.SetColumnSpan(footer, 3);
         grid.Children.Add(footer);
+
+        // 三栏布局（左右栏可拖拽调整宽度并持久化）：左栏（提示词素材） | 中央（提示词+参考图） | 右栏（宠物资产）
+        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel.Root, center, assetPanel.Root);
+        Grid.SetRow(bodyRow, 2);
+        Grid.SetColumnSpan(bodyRow, 3);
+        grid.Children.Add(bodyRow);
 
         genBtn.Click += (_, _) =>
         {
-            var prompt = promptBox.Text.Trim();
+            var prompt = ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Video");
             if (string.IsNullOrWhiteSpace(prompt)) { MainWindow.Notify("⚠ 请输入提示词", success: false); return; }
 
             var level = levelBox.SelectedItem?.ToString() ?? "720P";
@@ -683,7 +819,7 @@ public static class PetService
                 ApiKey = config.ApiKey,
                 Model = config.VideoModel,
                 TargetDir = FileService.PetResourcesPath(App.WorkRoot),
-                FileNameBase = $"Pet_Video_{DateTime.Now:yyyyMMdd_HHmmss}",
+                FileNameBase = $"Pet_Video_{DateTime.Now:yyyyMMdd_HHmmss_fff}",
                 VideoSize = level, VideoRatio = ratio, VideoSeconds = seconds,
                 ReferenceImages = hasImageRef ? new List<string>(refImages) : null,
                 ReferenceVideos = hasVideoRef ? new List<string> { refVideoData! } : null,
@@ -702,8 +838,7 @@ public static class PetService
                 RefVideoPath = refVideoPath ?? "",
                 EngineBadge = "API"
             });
-            MainWindow.Notify("✓ 已加入 AI 任务队列");
-            try { win.Close(); } catch { }
+            MainWindow.Notify("✓ 已加入 AI 任务队列，窗口保持打开");
         };
 
         win.Content = grid;
@@ -713,6 +848,7 @@ public static class PetService
             onImported: path =>
             {
                 ApplyRefImage(path);
+                assetPanel.SelectImported(path);
                 MainWindow.Notify("✓ 已加入参考图并归入宠物资源");
             },
             onInvalid: () => MainWindow.Notify("⚠ 请拖入支持格式的图片", success: false));
@@ -1068,39 +1204,11 @@ public static class PetService
                 var refImages = getRefImages();
                 bool hasRef = refImages is { Count: > 0 };
 
-                string sys;
-                if (isVideo)
-                {
-                    sys = "你是一位专业的 AI 视频生成提示词优化师。"
-                        + (hasRef
-                            ? "用户提供了参考图，请仔细观察参考图的画面内容（主体、动作、场景、构图、色调与光影），"
-                              + "并结合用户文本，扩展为一段详细、专业的视频生成提示词，使生成的视频画面与参考图风格统一、运动自然。"
-                              + "要求：1. 准确提炼参考图中的主体特征、构图与色调并融入提示词 2. 若文本与参考图冲突，以文本意图为主、参考图风格为辅 "
-                              + "3. 添加镜头描述（如特写、全景、跟踪镜头） 4. 描述光影和色彩氛围 5. 丰富动作和场景细节 "
-                              + "6. 使用流畅的英文或中英混合（英文术语更准确）7. 保持原意的同时让画面更具电影质感 8. 只输出优化后的提示词，不要任何解释。"
-                            : "请根据用户提供的简短提示词，扩展为一段详细、专业的视频生成提示词。"
-                              + "要求：1. 添加镜头描述（如特写、全景、跟踪镜头） 2. 描述光影和色彩氛围 3. 丰富动作和场景细节 "
-                              + "4. 使用流畅的英文或中英混合（英文术语更准确）5. 保持原意的同时让画面更具电影质感 6. 只输出优化后的提示词，不要任何解释。");
-                }
-                else
-                {
-                    sys = "你是一位专业的 AI 图像生成提示词优化师。"
-                        + (hasRef
-                            ? "用户提供了参考图，请仔细观察参考图的内容（主体外观、姿态、场景、构图、色彩风格），"
-                              + "并结合用户文本，扩展为一段详细、专业的图像生成提示词，使生成结果与参考图风格统一。"
-                              + "要求：1. 准确提炼参考图中的主体特征、构图与色调并融入提示词 2. 若文本与参考图冲突，以文本意图为主、参考图风格为辅 "
-                              + "3. 详细描述主体外观、表情、姿态、服饰 4. 描述场景背景、构图、景深 5. 丰富光影、色彩、氛围 "
-                              + "6. 指定摄影/绘画风格（如电影剧照、肖像摄影、动漫风）7. 使用流畅的英文或中英混合（英文术语更准确）"
-                              + " 8. 保持原意同时让画面更具视觉冲击力 9. 只输出优化后的提示词，不要任何解释。"
-                            : "请根据用户提供的简短提示词，扩展为一段详细、专业的图像生成提示词。"
-                              + "要求：1. 详细描述主体外观、表情、姿态、服饰 2. 描述场景背景、构图、景深 3. 丰富光影、色彩、氛围 "
-                              + "4. 指定摄影/绘画风格（如电影剧照、肖像摄影、动漫风）5. 使用流畅的英文或中英混合（英文术语更准确）"
-                              + " 6. 保持原意的同时让画面更具视觉冲击力 7. 只输出优化后的提示词，不要任何解释。");
-                }
-
-                var userPrompt = isVideo
-                    ? $"请优化以下视频生成提示词：\n{rawPrompt}"
-                    : $"请优化以下图像生成提示词：\n{rawPrompt}";
+                // 使用用户自定义的优化 Skill（设置 → AI 生成 Skill 中编辑）
+                var skill = isVideo ? config.VideoOptimizeSkill : config.ImageOptimizeSkill;
+                var (sys, userPrompt) = ViewHelpers.BuildOptimizePrompt(
+                    skill, rawPrompt, hasRef, refImages?.Count ?? 0,
+                    subject: isVideo ? "视频" : "图像");
 
                 var result = hasRef
                     ? await ApiService.ChatWithImagesAsync(
@@ -1126,20 +1234,27 @@ public static class PetService
         return btn;
     }
 
-    private static Window CreateDialog(string title, double width, double height)
+    private static Window CreateDialog(string title, double width, double height, Window? owner = null)
     {
-        return new Window
+        // 用 Win32 层归属（SetWin32Owner）代替 WPF Owner：子窗口可被鼠标选中、可被 Alt+Tab 切换，
+        // 并在任务栏与主窗口共用同一图标（不脱离主进程）；同时规避 WPF 关闭 owned 窗口
+        // 误激活/最小化 AllowsTransparency 主窗口的问题。
+        owner ??= System.Windows.Application.Current.MainWindow;
+        var win = new Window
         {
             Title = title,
             Width = width,
             Height = height,
             MinWidth = 440,
             MinHeight = 340,
-            WindowStartupLocation = WindowStartupLocation.CenterScreen,
-            ShowInTaskbar = false,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            ShowInTaskbar = true,
             ResizeMode = ResizeMode.CanResize,
             Background = Brush("WindowBackgroundBrush")
         };
+        ViewHelpers.SetWin32Owner(win, owner);
+        ViewHelpers.CenterWindowOnOwner(win, owner);
+        return win;
     }
 
     private static ComboBox Combo(string[] items, string selected, double width)

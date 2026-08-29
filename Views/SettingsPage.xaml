@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="YangzaiWorkshop.Views.SettingsPage"
+<UserControl x:Class="YangzaiWorkshop.Views.SettingsPage"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              Background="{DynamicResource WindowBackgroundBrush}">
@@ -982,7 +982,7 @@
                                    Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,2">
                             <Run Text="🎬" /><Run Text=" AI 生成 Skill"/>
                         </TextBlock>
-                        <TextBlock Text="自定义剧本生成和提示词生成的 AI 指令" FontSize="10"
+                        <TextBlock Text="自定义剧本生成、提示词生成和提示词优化的 AI 指令" FontSize="10"
                                    Foreground="{DynamicResource TextSecondaryBrush}"/>
                     </StackPanel>
                     <Button HorizontalAlignment="Right" VerticalAlignment="Center"

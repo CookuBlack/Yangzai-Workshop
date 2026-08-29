@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -13,6 +15,12 @@ namespace YangzaiWorkshop.Services;
 /// <summary>跨页面复用工具方法</summary>
 public static class ViewHelpers
 {
+    /// <summary>
+    /// 参考图 base64 缓存：按「文件路径 + 最后修改时间」判断是否复用，
+    /// 避免每次点击资产重建参考图时重复读取并压缩大图（选中图片卡顿的根因之一）。
+    /// </summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Stamp, string Data)> RefImageCache = new();
+
     // ===== AI 生成尺寸 =====
 
     /// <summary>
@@ -272,8 +280,9 @@ public static class ViewHelpers
     }
 
     /// <summary>
-    /// 添加参考图缩略图到 WrapPanel。每个缩略图为带 ✕ 的 44px 圆角图块，
-    /// 点击 ✕ 从 refImages 移除并删除自身。返回移除回调供批量清除使用。
+    /// 添加参考图缩略图到 WrapPanel（立即渲染，UI 不卡顿）。
+    /// base64 压缩放到后台线程异步完成，完成后按缩略图顺序追加到 refImages/refPaths。
+    /// 每个缩略图为带 ✕ 的 44px 圆角图块，点击 ✕ 移除并同步删除对应数据。
     /// </summary>
     public static void AddReferenceThumb(
         System.Windows.Controls.WrapPanel panel, string filePath,
@@ -281,97 +290,301 @@ public static class ViewHelpers
         Action onChanged, int maxCount = 6,
         System.Collections.Generic.List<string>? refPaths = null)
     {
-        if (refImages.Count >= maxCount) return;
-        var data = ImageToBase64DataUrl(filePath);
-        if (data == null) return;
-
-        refImages.Add(data);
-        refPaths?.Add(filePath);
-        var bmp = new BitmapImage();
-        bmp.BeginInit();
-        bmp.UriSource = new Uri(filePath);
-        bmp.CacheOption = BitmapCacheOption.OnLoad;
-        bmp.DecodePixelWidth = 88;
-        bmp.EndInit();
-
-        var img = new Image
-        {
-            Source = bmp, Stretch = Stretch.UniformToFill,
-            Width = 44, Height = 44, Margin = new Thickness(0, 0, 6, 0),
-            SnapsToDevicePixels = true
-        };
-        var clip = new RectangleGeometry(new Rect(0, 0, 44, 44), 4, 4);
-        img.Clip = clip;
-
-        var delBtn = new Button
-        {
-            Content = "✕", FontSize = 9, Width = 16, Height = 16,
-            Padding = new Thickness(0), Margin = new Thickness(0),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Top,
-            Style = Application.Current.FindResource("SecondaryButtonStyle") as Style,
-            Background = new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20)),
-            Foreground = Brushes.White,
-            BorderThickness = new Thickness(0)
-        };
-
-        var border = new Border
-        {
-            Width = 44, Height = 44, Margin = new Thickness(0, 0, 6, 6),
-            CornerRadius = new CornerRadius(4),
-            Tag = "refthumb",
-            ClipToBounds = true
-        };
-        border.Child = new Grid
-        {
-            Children = { img, delBtn }
-        };
-        panel.Children.Add(border);
-
-        delBtn.Click += (_, _) =>
-        {
-            var idx = refImages.FindIndex(x => x == data);
-            if (idx >= 0) refImages.RemoveAt(idx);
-            if (refPaths != null && idx >= 0 && idx < refPaths.Count) refPaths.RemoveAt(idx);
-            panel.Children.Remove(border);
-            onChanged?.Invoke();
-        };
+        if (string.IsNullOrEmpty(filePath) || refImages.Count >= maxCount) return;
+        AddReferenceThumbsAsync(panel, new[] { filePath }, refImages, onChanged, maxCount, refPaths);
     }
 
-    /// <summary>更新参考图提示文字与清除按钮显隐</summary>
+    /// <summary>
+    /// 异步批量添加参考图缩略图：立即渲染全部缩略图并把路径记入 refPaths（不阻塞 UI），
+    /// 后台压缩 base64，全部完成后按「原顺序」一次性写回 refImages，
+    /// 保证参考图顺序与缩略图一致（1,2,3…）。
+    /// 已被移除（如重建）或压缩失败的缩略图不会写回并自行移除。
+    /// </summary>
+    public static void AddReferenceThumbsAsync(
+        System.Windows.Controls.WrapPanel panel, System.Collections.Generic.IReadOnlyList<string> filePaths,
+        System.Collections.Generic.List<string> refImages,
+        Action onChanged, int maxCount = 6,
+        System.Collections.Generic.List<string>? refPaths = null)
+    {
+        // 缩略图路径立即生效，参考图数据（base64）异步补全；上限按已生效路径数计算
+        int current = refPaths != null ? refPaths.Count : refImages.Count;
+        var remaining = maxCount - current;
+        var paths = new System.Collections.Generic.List<string>();
+        foreach (var p in filePaths)
+        {
+            if (paths.Count >= remaining) break;
+            if (!string.IsNullOrEmpty(p) && System.IO.File.Exists(p)) paths.Add(p);
+        }
+        if (paths.Count == 0) return;
+
+        var thumbs = new System.Collections.Generic.List<(System.Windows.Controls.Border Border, string Path)>();
+        foreach (var p in paths)
+        {
+            var b = BuildReferenceThumbUi(panel, p, refImages, onChanged, refPaths);
+            if (b != null)
+            {
+                thumbs.Add((b, p));
+                refPaths?.Add(p);
+            }
+        }
+        if (thumbs.Count == 0) return;
+
+        var results = new string?[thumbs.Count];
+        int pending = thumbs.Count;
+        var ui = System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext();
+        for (int i = 0; i < thumbs.Count; i++)
+        {
+            int idx = i;
+            var path = thumbs[idx].Path;
+            System.Threading.Tasks.Task.Run(() => ImageToBase64DataUrl(path))
+                .ContinueWith(t =>
+                {
+                    results[idx] = t.Result;
+                    if (System.Threading.Interlocked.Decrement(ref pending) != 0) return;
+                    // 全部压缩完成：按原顺序写回（已删除/失败的缩略图跳过并移除）
+                    for (int k = 0; k < thumbs.Count; k++)
+                    {
+                        var (border, _) = thumbs[k];
+                        if (!panel.Children.Contains(border)) continue;   // 缩略图已被删除（如重建）
+                        var data = results[k];
+                        if (string.IsNullOrEmpty(data)) { panel.Children.Remove(border); continue; }
+                        refImages.Add(data);
+                    }
+                    onChanged?.Invoke();
+                }, ui);
+        }
+    }
+
+    /// <summary>构建参考图缩略图 UI（立即加入面板），删除时按缩略图相对顺序同步移除 refImages/refPaths。</summary>
+    private static System.Windows.Controls.Border? BuildReferenceThumbUi(
+        System.Windows.Controls.WrapPanel panel, string filePath,
+        System.Collections.Generic.List<string> refImages,
+        Action onChanged, System.Collections.Generic.List<string>? refPaths)
+    {
+        try
+        {
+            // 缩略图先以占位方式加入面板（保证顺序），图片在后台线程解码后再填充，
+            // 避免 UI 线程同步解码大图导致「选中图片/打开窗口」卡顿。
+            var img = new Image
+            {
+                Stretch = Stretch.UniformToFill,
+                Width = 44, Height = 44, Margin = new Thickness(0, 0, 6, 0),
+                SnapsToDevicePixels = true
+            };
+            var clip = new RectangleGeometry(new Rect(0, 0, 44, 44), 4, 4);
+            img.Clip = clip;
+
+            var delBtn = new Button
+            {
+                Content = "✕", FontSize = 9, Width = 16, Height = 16,
+                Padding = new Thickness(0), Margin = new Thickness(0),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Style = Application.Current.FindResource("SecondaryButtonStyle") as Style,
+                Background = new SolidColorBrush(Color.FromRgb(0x20, 0x20, 0x20)),
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0)
+            };
+
+            var border = new Border
+            {
+                Width = 44, Height = 44, Margin = new Thickness(0, 0, 6, 6),
+                CornerRadius = new CornerRadius(4),
+                Tag = "refthumb",
+                ClipToBounds = true
+            };
+            border.Child = new Grid
+            {
+                Children = { img, delBtn }
+            };
+            panel.Children.Add(border);
+
+            delBtn.Click += (_, _) =>
+            {
+                var idx = IndexOfReferenceThumb(panel, border);
+                if (idx >= 0)
+                {
+                    if (idx < refImages.Count) refImages.RemoveAt(idx);
+                    if (refPaths != null && idx < refPaths.Count) refPaths.RemoveAt(idx);
+                }
+                panel.Children.Remove(border);
+                onChanged?.Invoke();
+            };
+
+            // 后台解码缩略图，完成后回填到 UI（冻结后跨线程安全）
+            var ui = System.Threading.Tasks.TaskScheduler.FromCurrentSynchronizationContext();
+            System.Threading.Tasks.Task.Run(() => DecodeThumb(filePath))
+                .ContinueWith(t =>
+                {
+                    try
+                    {
+                        var bmp = t.Result;
+                        if (bmp == null || img.Source != null) return;
+                        if (panel.Children.Contains(border)) img.Source = bmp;
+                    }
+                    catch { /* 解码失败则保留占位空白 */ }
+                }, ui);
+
+            return border;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>后台线程解码参考图缩略图（冻结后跨线程安全）</summary>
+    private static BitmapImage? DecodeThumb(string filePath, int decodePixelWidth = 88)
+    {
+        try
+        {
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.UriSource = new Uri(filePath);
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.DecodePixelWidth = decodePixelWidth;
+            bmp.EndInit();
+            bmp.Freeze();
+            return bmp;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>返回目标缩略图在参考图序列中的相对下标（跳过非 refthumb 子元素），不存在返回 -1。</summary>
+    private static int IndexOfReferenceThumb(
+        System.Windows.Controls.Panel panel, System.Windows.UIElement target)
+    {
+        int idx = 0;
+        foreach (var child in panel.Children)
+        {
+            if (child == target) return idx;
+            if (child is System.Windows.Controls.Border b && b.Tag is string t && t == "refthumb") idx++;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// 更新参考图提示文字与清除按钮显隐。
+    /// 有参考图时隐藏提示水印，避免把已选缩略图挤到右侧；仅 0 张时显示引导文字。
+    /// </summary>
     public static void UpdateReferenceHint(
         System.Collections.Generic.IReadOnlyCollection<string> refImages,
         System.Windows.Controls.TextBlock hintText,
         System.Windows.Controls.Button clearBtn)
     {
-        hintText.Text = refImages.Count switch
-        {
-            0 => "可添加 1 张（图生图）或多张（多图编辑）参考图",
-            1 => "图生图模式：AI 将基于参考图进行编辑",
-            _ => $"多图编辑模式：已选 {refImages.Count} 张参考图，请在提示词中说明组合方式"
-        };
+        hintText.Text = "可添加 1 张（图生图）或多张（多图编辑）参考图";
+        hintText.Visibility = refImages.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
         clearBtn.Visibility = refImages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>本地图片文件转 base64 data URL（供图生视频参考图使用）</summary>
-    public static string? ImageToBase64DataUrl(string filePath)
+    /// <summary>
+    /// 本地图片文件转「压缩后」的 base64 data URL（供参考图使用）。
+    /// 先按最长边缩放到 maxEdge（默认 1024），再编码：无透明通道→JPEG(q80)，有透明→PNG。
+    /// 避免把超大原图（如 4K PNG 可达 18MB+，base64 后更大）直接上传，
+    /// 导致多张参考图时请求体达到几十上百 MB，引发上传超时/请求超限而生成失败。
+    /// </summary>
+    public static string? ImageToBase64DataUrl(string filePath, int maxEdge = 1024)
     {
         try
         {
-            var ext = Path.GetExtension(filePath).ToLowerInvariant();
-            var mime = ext switch
+            var fi = new FileInfo(filePath);
+            if (!fi.Exists) return null;
+            long stamp = fi.LastWriteTimeUtc.Ticks;
+            // 命中缓存（文件未被修改）直接返回，避免每次重建参考图都重新读取并压缩大图
+            if (RefImageCache.TryGetValue(filePath, out var cached) && cached.Stamp == stamp)
+                return cached.Data;
+
+            var src = new BitmapImage();
+            src.BeginInit();
+            src.UriSource = new Uri(filePath);
+            src.CacheOption = BitmapCacheOption.OnLoad;
+            src.EndInit();
+            src.Freeze();
+
+            double scale = Math.Min(1.0, Math.Min((double)maxEdge / src.PixelWidth, (double)maxEdge / src.PixelHeight));
+            BitmapSource bmp = src;
+            if (scale < 1.0)
             {
-                ".png" => "image/png",
-                ".jpg" or ".jpeg" => "image/jpeg",
-                ".bmp" => "image/bmp",
-                ".gif" => "image/gif",
-                ".webp" => "image/webp",
-                _ => "image/png"
-            };
-            var bytes = File.ReadAllBytes(filePath);
-            return $"data:{mime};base64,{Convert.ToBase64String(bytes)}";
+                var tb = new TransformedBitmap(src, new ScaleTransform(scale, scale));
+                tb.Freeze();
+                bmp = tb;
+            }
+
+            // 含透明通道用 PNG 保留透明，否则用 JPEG 大幅减小体积
+            var fmt = bmp.Format;
+            bool hasAlpha = fmt == PixelFormats.Pbgra32 || fmt == PixelFormats.Prgba64
+                || fmt == PixelFormats.Bgra32 || fmt == PixelFormats.Prgba128Float
+                || fmt == PixelFormats.Rgba64;
+
+            BitmapEncoder enc = hasAlpha
+                ? new PngBitmapEncoder()
+                : new JpegBitmapEncoder { QualityLevel = 80 };
+            enc.Frames.Add(BitmapFrame.Create(bmp));
+            using var ms = new MemoryStream();
+            enc.Save(ms);
+            var result = $"data:{(hasAlpha ? "image/png" : "image/jpeg")};base64,{Convert.ToBase64String(ms.ToArray())}";
+            RefImageCache[filePath] = (stamp, result);
+            return result;
         }
         catch { return null; }
+    }
+
+    /// <summary>
+    /// 根据用户自定义的优化 Skill 模板构建 (SystemPrompt, UserMessage)。
+    /// 占位符：{hasRef} 参考图情况描述、{refCount} 参考图数量、{roleName} 角色名、{personality} 角色性格、{prompt} 原提示词（可选）。
+    /// Skill 为空时回退到内置默认模板，避免空 System Prompt 导致模型行为异常。
+    /// </summary>
+    public static (string SystemPrompt, string UserMessage) BuildOptimizePrompt(
+        string? skill, string rawPrompt, bool hasRef, int refCount,
+        string roleName = "", string personality = "", string subject = "图像")
+    {
+        if (string.IsNullOrWhiteSpace(skill))
+            skill = "你是一位专业的 AI 提示词优化师。请将用户提供的简短提示词扩展为一段详细、专业的提示词，只输出优化后的提示词，不要任何解释。";
+
+        var hasRefText = hasRef
+            ? $"用户提供了 {refCount} 张参考图，请仔细观察参考图的内容（主体外观、姿态、场景、构图、色彩风格），并结合用户文本，使生成结果与参考图风格统一；若文本与参考图冲突，以文本意图为主、参考图风格为辅"
+            : "用户未提供参考图";
+
+        var sys = skill
+            .Replace("{hasRef}", hasRefText)
+            .Replace("{refCount}", refCount.ToString())
+            .Replace("{roleName}", roleName)
+            .Replace("{personality}", personality)
+            .Replace("{prompt}", rawPrompt);
+
+        var userMsg = string.Empty;
+        if (!string.IsNullOrEmpty(roleName) || !string.IsNullOrEmpty(personality))
+            userMsg += $"角色名：{roleName}\n角色性格：{personality}\n\n";
+        userMsg += (hasRef ? "请结合参考图" : "请") + $"优化以下{subject}生成提示词：\n{rawPrompt}";
+
+        return (sys, userMsg);
+    }
+
+    /// <summary>
+    /// 把启用（勾选）的默认提示词追加到提示词末尾并返回，用于「每次生成时自动带上默认提示词」。
+    /// key 为 "Image" 或 "Video"，分别读取配置中的 DefaultImagePrompts / DefaultVideoPrompts。
+    /// 没有启用条目时原样返回。
+    /// </summary>
+    public static string AppendEnabledDefaultPrompts(string prompt, string key)
+    {
+        try
+        {
+            var config = FileService.LoadConfig(App.WorkRoot);
+            var list = key == "Video" ? config.DefaultVideoPrompts : config.DefaultImagePrompts;
+            var enabled = new System.Collections.Generic.List<string>();
+            foreach (var item in list)
+            {
+                if (item.Enabled && !string.IsNullOrWhiteSpace(item.Text))
+                    enabled.Add(item.Text.Trim());
+            }
+            if (enabled.Count == 0) return prompt;
+
+            var sb = new System.Text.StringBuilder(prompt);
+            if (!string.IsNullOrEmpty(prompt)) sb.Append('\n');
+            sb.Append(string.Join("\n", enabled));
+            return sb.ToString();
+        }
+        catch
+        {
+            return prompt; // 读取失败时不影响正常生成
+        }
     }
 
     /// <summary>对 UIElement 应用圆角矩形裁切</summary>
@@ -439,6 +652,30 @@ public static class ViewHelpers
             win.Top = owner.Top + (owner.ActualHeight - win.Height) / 2;
         }
     }
+
+    /// <summary>
+    /// 以 Win32 层把 child 窗口归属到 owner（等价于系统层的 owned 关系）。
+    /// 相比 WPF 的 Owner 属性：子窗口可被鼠标选中、可被 Alt+Tab 切换，
+    /// 且与主窗口在任务栏共用同一个图标（不新增独立任务栏按钮）；
+    /// 同时避免 WPF 关闭 owned 窗口时误激活/最小化 AllowsTransparency 主窗口的已知问题。
+    /// 注意：调用前不要设置 WPF 的 Owner 属性，二者会冲突。
+    /// </summary>
+    public static void SetWin32Owner(Window child, Window? owner)
+    {
+        if (child == null || owner == null) return;
+        try
+        {
+            var childHwnd = new WindowInteropHelper(child).Handle;
+            var ownerHwnd = new WindowInteropHelper(owner).Handle;
+            if (childHwnd == IntPtr.Zero || ownerHwnd == IntPtr.Zero) return;
+            const int GWL_HWNDPARENT = -8;
+            SetWindowLongPtr(childHwnd, GWL_HWNDPARENT, ownerHwnd);
+        }
+        catch { }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
     /// <summary>
     /// 保护 owned 子窗口（AI 生成窗口 / 项目资产选择器等）关闭时不把主窗口联动最小化。

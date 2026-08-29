@@ -6,7 +6,7 @@
 [![WPF](https://img.shields.io/badge/UI-WPF-blue)](https://github.com/dotnet/wpf)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-lightgrey)]()
-[![Release](https://img.shields.io/badge/release-v4.2.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
+[![Release](https://img.shields.io/badge/release-v4.3.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
 
 ![front](./README.assets/front.png)
 
@@ -64,7 +64,7 @@
   - 图像素材 — 3 列网格，支持拖拽导入、大图预览（滚轮缩放+拖拽平移）
 - AI 辅助：剧本生成 + 提示词生成（兼容 OpenAI 格式 API）
 - AI 生图：支持云端 API 与本地 ComfyUI 双引擎，可配置默认引擎、比例与像素档位
-- AI 生成增强：直接拖拽图片进生成窗口自动归入项目资产并作为参考素材；项目资产支持多选参考图并按选择顺序生成；一键回填 AI 生成历史（提示词、参数、参考素材）
+- AI 生成增强：直接拖拽图片进生成窗口自动归入项目资产并作为参考素材；项目资产支持多选参考图并按选择顺序生成；一键回填 AI 生成历史（提示词、参数、参考素材）；默认提示词勾选后自动追加到提示词末尾；提示词优化指令可在设置中自定义；参考图/缩略图异步加载，选中图片与打开窗口不卡顿，最小化可正常收进任务栏；AI 生成素材按时间顺序命名与排序（文件名含毫秒时间戳，同秒多次生成不互相覆盖），素材列表严格按生成时间先后排列
 - 文本历史：撤销/重做（Ctrl+Z / Ctrl+Y）+ 历史版本回退，支持停顿合并
 - 图像素材瀑布流布局，图片异步加载不卡顿
 - 删除小说时同步清除提示词，有剩余小说自动切换到下一部
