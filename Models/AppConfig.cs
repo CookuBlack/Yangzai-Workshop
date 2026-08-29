@@ -23,7 +23,7 @@ public class AppConfig
     /// <summary>文本模型名称（聊天/剧本/提示词）</summary>
     public string ApiModel { get; set; } = "gpt-4o-mini";
     /// <summary>图片生成模型名称</summary>
-    public string ImageModel { get; set; } = "agnes-image-2.0-flash";
+    public string ImageModel { get; set; } = "agnes-image-2.1-flash";
     /// <summary>视频生成模型名称</summary>
     public string VideoModel { get; set; } = "agnes-video-2.5-flash";
     /// <summary>默认图片生成引擎：Api=云端在线 API，ComfyUI=本地 ComfyUI</summary>

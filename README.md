@@ -6,7 +6,7 @@
 [![WPF](https://img.shields.io/badge/UI-WPF-blue)](https://github.com/dotnet/wpf)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-lightgrey)]()
-[![Release](https://img.shields.io/badge/release-v4.1.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
+[![Release](https://img.shields.io/badge/release-v4.2.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
 
 ![front](./README.assets/front.png)
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,22 +17,66 @@ public enum ImageProvider { Api, ComfyUI }
 /// <summary>AI 任务状态</summary>
 public enum AiTaskStatus { Queued, Running, Completed, Failed, Cancelled }
 
-/// <summary>
-/// AI 生成任务。所有参数在执行时快照保存，任务入队后即使切换小说/章节/关闭窗口也不受影响。
-/// </summary>
-public class AiTask
+/// <summary>AI 生成任务。所有参数在执行时快照保存，任务入队后即使切换小说/章节/关闭窗口也不受影响。
+/// 实现 INotifyPropertyChanged，任务状态与耗时变化时实时通知队列窗口刷新。</summary>
+public class AiTask : INotifyPropertyChanged
 {
     public Guid Id { get; } = Guid.NewGuid();
     public AiTaskType Type { get; init; }
     public string Prompt { get; init; } = "";
     /// <summary>展示用描述：如 1024x768 / 1152x768·121帧·24fps / 角色名</summary>
     public string Detail { get; init; } = "";
-    public AiTaskStatus Status { get; set; } = AiTaskStatus.Queued;
+    private AiTaskStatus _status = AiTaskStatus.Queued;
+    public AiTaskStatus Status
+    {
+        get => _status;
+        set
+        {
+            if (_status == value) return;
+            _status = value;
+            OnPropertyChanged(nameof(Status));
+            OnPropertyChanged(nameof(DurationText));
+        }
+    }
+    private string _statusText = "排队中";
     /// <summary>进度/状态描述文本（如“排队中”“生成中 45%”）</summary>
-    public string StatusText { get; set; } = "排队中";
+    public string StatusText
+    {
+        get => _statusText;
+        set
+        {
+            if (_statusText == value) return;
+            _statusText = value;
+            OnPropertyChanged(nameof(StatusText));
+        }
+    }
     public string? Error { get; set; }
     public string? ResultFileName { get; set; }
     public DateTime CreatedAt { get; } = DateTime.Now;
+
+    /// <summary>开始执行时间（转为 Running 时记录）</summary>
+    public DateTime? StartedAt { get; set; }
+    /// <summary>结束时间（完成/失败/取消时记录）</summary>
+    public DateTime? FinishedAt { get; set; }
+    /// <summary>耗时显示文本（仅已结束且有开始时间的任务），如 "耗时 12.3s" / "耗时 1m 23s"；未结束返回空。</summary>
+    public string DurationText
+    {
+        get
+        {
+            if (StartedAt is not { } start || FinishedAt is not { } finish) return "";
+            var dur = finish - start;
+            if (dur < TimeSpan.Zero) return "";
+            return dur.TotalMinutes >= 1
+                ? $"耗时 {(int)dur.TotalMinutes}m {dur.Seconds}s"
+                : $"耗时 {dur.TotalSeconds:0.#}s";
+        }
+    }
+    /// <summary>手动标记已结束（设置结束时间并刷新耗时显示）</summary>
+    public void MarkFinished()
+    {
+        FinishedAt = DateTime.Now;
+        OnPropertyChanged(nameof(DurationText));
+    }
 
     // ---- 执行参数（快照） ----
     public string ApiEndpoint { get; init; } = "";
@@ -41,6 +86,10 @@ public class AiTask
     /// <summary>生成的文件名模板（不含扩展名）</summary>
     public string FileNameBase { get; init; } = "";
     public string ImageSize { get; init; } = "1024x1024";
+    /// <summary>图片尺寸档位（agnes-image 系列：1K/2K/3K/4K），供档位式 size 请求使用</summary>
+    public string ImageLevel { get; init; } = "";
+    /// <summary>图片画幅比例（如 16:9），供档位式请求使用</summary>
+    public string ImageRatio { get; init; } = "";
     /// <summary>图片生成引擎（默认在线 API）</summary>
     public ImageProvider Provider { get; init; } = ImageProvider.Api;
     // ---- ComfyUI 参数（Provider=ComfyUI 时使用） ----
@@ -61,6 +110,10 @@ public class AiTask
     public string ScopeName { get; init; } = "";
 
     public CancellationTokenSource Cts { get; } = new();
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void OnPropertyChanged(string name) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
 /// <summary>
@@ -156,6 +209,7 @@ public static class AiTaskManager
 
                 next.Status = AiTaskStatus.Running;
                 next.StatusText = "生成中…";
+                next.StartedAt = DateTime.Now;
                 NotifyChanged(next);
 
                 try
@@ -163,6 +217,7 @@ public static class AiTaskManager
                     await ExecuteAsync(next);
                     next.Status = AiTaskStatus.Completed;
                     next.StatusText = "已完成";
+                    next.MarkFinished();
                     NotifyChanged(next);
                     Ui(() => MainWindow.Notify(
                         $"✓ {(next.Type == AiTaskType.Image ? "图片" : "视频")}已生成并保存：{next.ResultFileName}"));
@@ -172,6 +227,7 @@ public static class AiTaskManager
                 {
                     next.Status = AiTaskStatus.Cancelled;
                     next.StatusText = "已取消";
+                    next.MarkFinished();
                     NotifyChanged(next);
                 }
                 catch (Exception ex)
@@ -179,6 +235,7 @@ public static class AiTaskManager
                     next.Status = AiTaskStatus.Failed;
                     next.StatusText = "失败";
                     next.Error = ex.Message;
+                    next.MarkFinished();
                     NotifyChanged(next);
                     Ui(() => MainWindow.Notify(
                         $"⚠ {(next.Type == AiTaskType.Image ? "图片" : "视频")}生成失败：{ex.Message}", success: false));
@@ -207,7 +264,11 @@ public static class AiTaskManager
             else
             {
                 var imageUrl = await ApiService.GenerateImageAsync(
-                    t.ApiEndpoint, t.ApiKey, t.Prompt, t.Model, t.ImageSize, t.ReferenceImages, t.Cts.Token);
+                    t.ApiEndpoint, t.ApiKey, t.Prompt, t.Model,
+                    size: string.IsNullOrEmpty(t.ImageLevel) ? t.ImageSize : t.ImageLevel,
+                    referenceImages: t.ReferenceImages,
+                    ratio: t.ImageRatio,
+                    cancel: t.Cts.Token);
                 var bytes = await ApiService.DownloadImageAsync(imageUrl, t.Cts.Token);
                 await SaveAsync(t, bytes, ".png");
             }

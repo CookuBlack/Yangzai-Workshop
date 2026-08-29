@@ -331,6 +331,8 @@ public static class PetService
                 TargetDir = FileService.PetResourcesPath(App.WorkRoot),
                 FileNameBase = $"Pet_Image_{DateTime.Now:yyyyMMdd_HHmmss}",
                 ImageSize = size,
+                ImageLevel = level,
+                ImageRatio = ratio,
                 ReferenceImages = refImages.Count > 0 ? new List<string>(refImages) : null,
                 NovelName = "宠物",
                 ScopeName = "宠物生成"

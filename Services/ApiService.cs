@@ -281,6 +281,7 @@ public static class ApiService
         string endpoint, string apiKey,
         string prompt, string model, string size = "1024x768",
         IReadOnlyList<string>? referenceImages = null,
+        string? ratio = null,
         CancellationToken cancel = default)
     {
         var url = endpoint.TrimEnd('/') + "/images/generations";
@@ -291,9 +292,19 @@ public static class ApiService
         {
             ["model"] = model,
             ["prompt"] = prompt,
-            ["size"] = size,
             ["extra_body"] = extra
         };
+        // agnes-image 系列按官方推荐使用「档位式 size + ratio」，输出尺寸可预期（如 2K+16:9 → 2624x1472）。
+        // 其他模型退回历史精确尺寸写法（如 1024x768），避免未知参数导致请求失败。
+        if (ViewHelpers.IsAgnesImageModel(model) && !string.IsNullOrWhiteSpace(ratio))
+        {
+            body["size"] = size;   // size 传档位，如 "2K"
+            body["ratio"] = ratio; // 如 "16:9"
+        }
+        else
+        {
+            body["size"] = size;
+        }
 
         var json = JsonSerializer.Serialize(body);
         using var req = new HttpRequestMessage(HttpMethod.Post, url)

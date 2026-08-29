@@ -15,11 +15,14 @@ public static class ViewHelpers
 {
     // ===== AI 生成尺寸 =====
 
-    /// <summary>图片可选比例（宽:高）</summary>
-    public static readonly string[] ImageRatios = { "1:1", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9" };
+    /// <summary>
+    /// 图片可选比例（宽:高），对应 agnes-image-2.1-flash 官方支持的 ratio 列表：
+    /// 1:1 / 3:4 / 4:3 / 16:9 / 9:16 / 2:3 / 3:2 / 21:9。
+    /// </summary>
+    public static readonly string[] ImageRatios = { "1:1", "3:4", "4:3", "16:9", "9:16", "2:3", "3:2", "21:9" };
 
-    /// <summary>图片可选像素档位（短边像素，1K=1024）</summary>
-    public static readonly string[] ImageLevels = { "0.5K", "1K", "1.5K", "2K", "3K", "4K" };
+    /// <summary>图片可选尺寸档位（agnes-image-2.1-flash 官方推荐 size：1K / 2K / 3K / 4K）</summary>
+    public static readonly string[] ImageLevels = { "1K", "2K", "3K", "4K" };
 
     /// <summary>视频可选分辨率档位（agnes-video-2.5 非 Flash：720P/960P/2K）</summary>
     public static readonly string[] VideoLevels = { "720P", "960P", "2K" };
@@ -31,6 +34,10 @@ public static class ViewHelpers
     public static bool IsFlashVideoModel(string? model) =>
         model?.Contains("flash", StringComparison.OrdinalIgnoreCase) == true;
 
+    /// <summary>是否为 Agnes 图像模型（支持档位式 size + ratio，输出尺寸由官方表确定）</summary>
+    public static bool IsAgnesImageModel(string? model) =>
+        model?.Contains("agnes-image", StringComparison.OrdinalIgnoreCase) == true;
+
     /// <summary>按视频模型返回可用分辨率档位：Flash 仅 720P，非 Flash 支持 720P/960P/2K</summary>
     public static string[] VideoLevelsForModel(string? model) =>
         IsFlashVideoModel(model) ? new[] { "720P" } : VideoLevels;
@@ -40,35 +47,49 @@ public static class ViewHelpers
     /// </summary>
     public static int CalcVideoMaxSeconds(string level, string ratio) => 12;
 
-    private static (double w, double h) GetRatio(string ratio) => ratio switch
+    /// <summary>
+    /// agnes-image-2.1-flash 官方输出尺寸表（ratio × 档位 → 宽x高）。
+    /// 同一档位（如 1K）在不同比例下的实际输出不同（如 16:9 为 1312x736，3:4 为 864x1152）。
+    /// </summary>
+    private static readonly Dictionary<(string Ratio, string Level), string> ImageSizeTable = new()
     {
-        "3:4" => (3, 4), "4:3" => (4, 3), "4:5" => (4, 5), "5:4" => (5, 4),
-        "9:16" => (9, 16), "16:9" => (16, 9), "21:9" => (21, 9),
-        _ => (1, 1)
+        [("1:1", "1K")] = "1024x1024", [("1:1", "2K")] = "2048x2048",
+        [("1:1", "3K")] = "3072x3072", [("1:1", "4K")] = "4096x4096",
+        [("3:4", "1K")] = "864x1152",  [("3:4", "2K")] = "1728x2304",
+        [("3:4", "3K")] = "2592x3456", [("3:4", "4K")] = "3456x4608",
+        [("4:3", "1K")] = "1152x864",  [("4:3", "2K")] = "2304x1728",
+        [("4:3", "3K")] = "3456x2592", [("4:3", "4K")] = "4608x3456",
+        [("16:9", "1K")] = "1312x736", [("16:9", "2K")] = "2624x1472",
+        [("16:9", "3K")] = "3936x2208", [("16:9", "4K")] = "5248x2944",
+        [("9:16", "1K")] = "736x1312", [("9:16", "2K")] = "1472x2624",
+        [("9:16", "3K")] = "2208x3936", [("9:16", "4K")] = "2944x5248",
+        [("2:3", "1K")] = "832x1248",  [("2:3", "2K")] = "1664x2496",
+        [("2:3", "3K")] = "2496x3744", [("2:3", "4K")] = "3328x4992",
+        [("3:2", "1K")] = "1248x832",  [("3:2", "2K")] = "2496x1664",
+        [("3:2", "3K")] = "3744x2496", [("3:2", "4K")] = "4992x3328",
+        [("21:9", "1K")] = "1568x672", [("21:9", "2K")] = "3136x1344",
+        [("21:9", "3K")] = "4704x2016", [("21:9", "4K")] = "6272x2688"
     };
 
-    private static int GetPixelLevel(string level) => level switch
-    {
-        "0.5K" => 512, "1.5K" => 1536, "2K" => 2048, "3K" => 3072, "4K" => 4096,
-        _ => 1024
-    };
-
-    /// <summary>根据比例 + 像素档位计算图片实际尺寸（短边=档位像素，长边取 8 的倍数），返回 "宽x高"</summary>
+    /// <summary>按官方尺寸表返回比例+档位对应的图片实际输出尺寸（宽x高）；未知组合退回简单估算。</summary>
     public static string CalcImageSize(string ratio, string level)
     {
-        var (rw, rh) = GetRatio(ratio);
-        int shortSide = GetPixelLevel(level);
+        if (ImageSizeTable.TryGetValue((ratio, level), out var size)) return size;
+        // 兜底：短边=档位像素（1K=1024），长边按比例取 8 的倍数
+        int shortSide = level switch
+        {
+            "2K" => 2048, "3K" => 3072, "4K" => 4096,
+            _ => 1024
+        };
+        var (rw, rh) = ratio switch
+        {
+            "3:4" => (3d, 4d), "4:3" => (4d, 3d), "16:9" => (16d, 9d),
+            "9:16" => (9d, 16d), "2:3" => (2d, 3d), "3:2" => (3d, 2d), "21:9" => (21d, 9d),
+            _ => (1d, 1d)
+        };
         int w, h;
-        if (rw >= rh)
-        {
-            h = shortSide;
-            w = (int)Math.Round(shortSide * rw / rh / 8.0) * 8;
-        }
-        else
-        {
-            w = shortSide;
-            h = (int)Math.Round(shortSide * rh / rw / 8.0) * 8;
-        }
+        if (rw >= rh) { h = shortSide; w = (int)Math.Round(shortSide * rw / rh / 8.0) * 8; }
+        else { w = shortSide; h = (int)Math.Round(shortSide * rh / rw / 8.0) * 8; }
         return $"{w}x{h}";
     }
 

@@ -1831,6 +1831,8 @@ public partial class CharacterPage : UserControl
                 TargetDir = FileService.CharacterImagesPath(App.WorkRoot, novel.MediaFolder, character.Id),
                 FileNameBase = $"AI_{DateTime.Now:yyyyMMdd_HHmmss}",
                 ImageSize = size,
+                ImageLevel = level,
+                ImageRatio = ratio,
                 NovelName = novel.Name,
                 ScopeName = $"角色「{character.Name}」"
             };

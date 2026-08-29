@@ -1757,6 +1757,8 @@ public partial class ScriptPage : UserControl
                 TargetDir = FileService.ChapterImagesPath(App.WorkRoot, novel.MediaFolder, chapter.FolderName),
                 FileNameBase = $"AI_{DateTime.Now:yyyyMMdd_HHmmss}",
                 ImageSize = size,
+                ImageLevel = level,
+                ImageRatio = ratio,
                 NovelName = novel.Name,
                 ScopeName = $"第{chapter.Index}章 {chapter.Title}"
             };

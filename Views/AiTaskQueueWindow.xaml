@@ -83,6 +83,21 @@
                                                Margin="0,3,0,0">
                                         <Run Text="{Binding NovelName, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding ScopeName, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding Detail, Mode=OneWay}"/>
                                     </TextBlock>
+                                    <!-- 耗时显示（任务结束后出现，绿色高亮） -->
+                                    <TextBlock Text="{Binding DurationText}" FontSize="10.5"
+                                               Foreground="#2E7D32" FontWeight="Medium"
+                                               Margin="0,3,0,0">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding DurationText}" Value="">
+                                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
                                 </StackPanel>
 
                                 <!-- 状态徽章 -->
