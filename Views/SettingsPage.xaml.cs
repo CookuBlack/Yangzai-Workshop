@@ -139,22 +139,9 @@ public partial class SettingsPage : UserControl
         BackupIntervalInput.Text = _config.BackupIntervalHours.ToString("F0");
         HistoryCountSlider.Value = _config.TextHistoryMaxCount;
         HistoryCountInput.Text = _config.TextHistoryMaxCount.ToString("F0");
-        ApiEndpointBox.Text = _config.ApiEndpoint;
-        ApiKeyBox.Password = _config.ApiKey;
-        ApiModelBox.Text = _config.ApiModel;
-        ImageModelBox.Text = _config.ImageModel;
 
-        // 默认生图引擎单选框（先取值，再交回给处理器管理状态）
-        _config.DefaultImageProvider ??= "Api";
-        if (_config.DefaultImageProvider == "ComfyUI")
-            ProviderComfyRadio.IsChecked = true;
-        else
-            ProviderApiRadio.IsChecked = true;
-        VideoModelBox.Text = _config.VideoModel;
-
-        // ComfyUI 本地生图
-        ComfyEndpointBox.Text = _config.ComfyUiEndpoint;
-        ComfyWorkflowFileBox.Text = _config.ComfyUiWorkflowFile;
+        // AI 接口配置概览（完整配置在独立的「AI 接口配置」窗口管理）
+        UpdateAiConfigSummary();
 
         // 音乐播放器
         MusicAutoPlayCheck.IsChecked = _config.MusicAutoPlay;
@@ -519,12 +506,12 @@ public partial class SettingsPage : UserControl
         // ComfyUI 本地生图
         _config.ComfyUiEndpoint = "http://127.0.0.1:8188";
         _config.ComfyUiWorkflowFile = "";
-        ComfyEndpointBox.Text = _config.ComfyUiEndpoint;
-        ComfyWorkflowFileBox.Text = _config.ComfyUiWorkflowFile;
 
         // 默认生图引擎恢复为云端 API
         _config.DefaultImageProvider = "Api";
-        ProviderApiRadio.IsChecked = true;
+
+        // 刷新 AI 接口配置概览
+        UpdateAiConfigSummary();
 
         SaveConfig();
         ApplyFontSizeToEditor(defaultFontSize);
@@ -767,97 +754,44 @@ public partial class SettingsPage : UserControl
         }
     }
 
-    // ==================== AI 模型配置 ====================
-    private void ApiEndpointBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (_isLoading || !IsLoaded) return;
-        _config.ApiEndpoint = ApiEndpointBox.Text.Trim();
-        SaveConfig();
-    }
-    private void ApiKeyBox_PasswordChanged(object sender, RoutedEventArgs e)
-    {
-        if (_isLoading || !IsLoaded) return;
-        _config.ApiKey = ApiKeyBox.Password;
-        SaveConfig();
-    }
-    private void ApiModelBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (_isLoading || !IsLoaded) return;
-        _config.ApiModel = ApiModelBox.Text.Trim();
-        SaveConfig();
-    }
+    // ==================== AI 接口配置（独立窗口管理） ====================
 
-    /// <summary>ComboBox 鼠标滚轮切换选中项</summary>
-    private void ComboBox_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    /// <summary>打开独立的「AI 接口配置」窗口（文本/图片/视频接口与 ComfyUI 集中管理）</summary>
+    private void OpenAiConfig_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is ComboBox cb && cb.Items.Count > 0)
+        var owner = Window.GetWindow(this);
+        var win = new AiApiConfigWindow
         {
-            int delta = e.Delta > 0 ? -1 : 1;
-            int newIdx = cb.SelectedIndex + delta;
-            if (newIdx >= 0 && newIdx < cb.Items.Count)
-                cb.SelectedIndex = newIdx;
-            e.Handled = true;
-        }
-    }
-
-    private void ApiModelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_isLoading || !IsLoaded) return;
-        if (ApiModelBox.SelectedItem is string model)
-        {
-            _config.ApiModel = model;
-            SaveConfig();
-        }
-    }
-
-    private void ImageModelBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (_isLoading || !IsLoaded) return;
-        _config.ImageModel = ImageModelBox.Text.Trim();
-        SaveConfig();
-    }
-
-    private void VideoModelBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (_isLoading || !IsLoaded) return;
-        _config.VideoModel = VideoModelBox.Text.Trim();
-        SaveConfig();
-    }
-
-    // ==================== ComfyUI 本地生图配置 ====================
-    private void ComfyEndpointBox_LostFocus(object sender, RoutedEventArgs e)
-    {
-        if (_isLoading || !IsLoaded) return;
-        _config.ComfyUiEndpoint = ComfyEndpointBox.Text.Trim();
-        SaveConfig();
-    }
-
-    /// <summary>默认生图引擎切换（云端 API / 本地 ComfyUI）</summary>
-    private void ImageProviderRadio_Changed(object sender, RoutedEventArgs e)
-    {
-        if (_isLoading || !IsLoaded) return;
-        if (sender is not System.Windows.Controls.RadioButton rb || rb.Tag is not string tag) return;
-        // 避免同步设置时重复触发：仅在值实际变化时保存
-        if (_config.DefaultImageProvider == tag) return;
-        _config.DefaultImageProvider = tag;
-        SaveConfig();
-    }
-
-    /// <summary>浏览选择 ComfyUI 工作流 JSON 文件</summary>
-    private void ComfyWorkflowBrowse_Click(object sender, RoutedEventArgs e)
-    {
-        var dlg = new Microsoft.Win32.OpenFileDialog
-        {
-            Title = "选择 ComfyUI 工作流 JSON 文件",
-            Filter = "ComfyUI 工作流 (*.json)|*.json|所有文件 (*.*)|*.*",
-            CheckFileExists = true
+            Owner = owner,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
         };
-        if (dlg.ShowDialog(Window.GetWindow(this)) == true)
+        if (win.ShowDialog() == true)
         {
-            ComfyWorkflowFileBox.Text = dlg.FileName;
-            _config.ComfyUiWorkflowFile = dlg.FileName;
-            SaveConfig();
+            // 保存后重新加载配置并刷新概览
+            _config = FileService.LoadConfig(App.WorkRoot);
+            UpdateAiConfigSummary();
         }
+    }
+
+    /// <summary>刷新「AI 接口配置」卡片中的当前配置概览</summary>
+    private void UpdateAiConfigSummary()
+    {
+        if (AiConfigSummaryText == null) return;
+
+        var cfg = _config;
+        var lines = new List<string>
+        {
+            $"💬 文本：{AiModelCatalog.ProviderName(cfg.TextApi.Provider)} · {ModelOrDefault(cfg.TextApi.ModelId)}",
+            $"🖼️ 图片：{AiModelCatalog.ProviderName(cfg.ImageApi.Provider)} · {ModelOrDefault(cfg.ImageApi.ModelId)}",
+            $"🎬 视频：{AiModelCatalog.ProviderName(cfg.VideoApi.Provider)} · {ModelOrDefault(cfg.VideoApi.ModelId)}",
+            cfg.DefaultImageProvider == "ComfyUI"
+                ? $"🖥️ 默认生图引擎：本地 ComfyUI（{cfg.ComfyUiEndpoint}）"
+                : "🖥️ 默认生图引擎：云端 API"
+        };
+        AiConfigSummaryText.Text = string.Join("\n", lines);
+
+        static string ModelOrDefault(string model) =>
+            string.IsNullOrWhiteSpace(model) ? "未设置" : model;
     }
 
     private void EditSkill_Click(object sender, RoutedEventArgs e)
@@ -1102,59 +1036,6 @@ public partial class SettingsPage : UserControl
 
         btn.Template = template;
         return btn;
-    }
-
-    private async void FetchModels_Click(object sender, RoutedEventArgs e)
-    {
-        var endpoint = ApiEndpointBox.Text.Trim();
-        var apiKey = ApiKeyBox.Password.Trim();
-        if (string.IsNullOrEmpty(endpoint) || string.IsNullOrEmpty(apiKey))
-        {
-            MessageDialog.Show("提示", "请先填写 API 地址和密钥");
-            return;
-        }
-
-        // 获取模型按钮改为加载状态
-        var btn = (Button)sender;
-        btn.IsEnabled = false;
-        btn.Content = "⏳ 获取中...";
-        ApiModelBox.IsEnabled = false;
-        ImageModelBox.IsEnabled = false;
-        VideoModelBox.IsEnabled = false;
-
-        try
-        {
-            var models = await ApiService.FetchModelsAsync(endpoint, apiKey);
-            // 填充三个模型下拉框
-            ApiModelBox.ItemsSource = models;
-            ImageModelBox.ItemsSource = models;
-            VideoModelBox.ItemsSource = models;
-
-            if (!string.IsNullOrEmpty(_config.ApiModel))
-                ApiModelBox.SelectedItem = _config.ApiModel;
-            if (!string.IsNullOrEmpty(_config.ImageModel))
-                ImageModelBox.SelectedItem = _config.ImageModel;
-            if (!string.IsNullOrEmpty(_config.VideoModel))
-                VideoModelBox.SelectedItem = _config.VideoModel;
-
-            MessageDialog.Show("成功", $"获取到 {models.Count} 个模型");
-        }
-        catch (ApiException ex)
-        {
-            MessageDialog.Show("获取失败", ex.Message);
-        }
-        catch (Exception ex)
-        {
-            MessageDialog.Show("获取失败", $"网络错误：{ex.Message}");
-        }
-        finally
-        {
-            btn.IsEnabled = true;
-            btn.Content = "⬇ 获取模型列表";
-            ApiModelBox.IsEnabled = true;
-            ImageModelBox.IsEnabled = true;
-            VideoModelBox.IsEnabled = true;
-        }
     }
 
     // ==================== 自动更新 ====================

@@ -160,6 +160,13 @@
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
                                                     <Grid Margin="0,3" Cursor="Hand">
+                                                        <Grid.ContextMenu>
+                                                            <ContextMenu>
+                                                                <MenuItem Header="📂 在文件夹中显示"
+                                                                          Tag="{Binding FilePath}"
+                                                                          Click="OpenAudioLocation_Click"/>
+                                                            </ContextMenu>
+                                                        </Grid.ContextMenu>
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="Auto"/>
                                                             <ColumnDefinition Width="*"/>

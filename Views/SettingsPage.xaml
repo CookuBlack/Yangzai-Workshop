@@ -776,202 +776,34 @@
                 </StackPanel>
             </Border>
 
-            <!-- ===== AI 模型配置 ===== -->
+            <!-- ===== AI 接口配置（独立窗口管理，此处仅提供入口与概览） ===== -->
             <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12">
-                <StackPanel>
-                    <TextBlock FontSize="16" FontWeight="Bold"
-                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4">
-                        <Run Text="🤖" /><Run Text=" AI 模型配置"/>
-                    </TextBlock>
-                    <TextBlock Text="配置大模型 API，用于生成剧本内容和创作提示词" FontSize="11"
-                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,12"/>
-
-                    <!-- 默认生图引擎（云端 / 本地） -->
-                    <Border Background="{DynamicResource CardBackgroundBrush}"
-                            CornerRadius="6" Padding="12,10" Margin="0,0,0,12">
-                        <StackPanel>
-                            <TextBlock FontSize="12" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8">
-                                <Run Text="🎛️" /><Run Text=" 默认生图引擎"/>
-                            </TextBlock>
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="8"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <RadioButton x:Name="ProviderApiRadio" Grid.Column="0"
-                                             GroupName="ImageProvider"
-                                             Tag="Api"
-                                             Checked="ImageProviderRadio_Changed"
-                                             Cursor="Hand">
-                                    <RadioButton.Template>
-                                        <ControlTemplate TargetType="RadioButton">
-                                            <Border x:Name="bd" CornerRadius="8" Padding="12,10" Cursor="Hand"
-                                                    BorderThickness="1"
-                                                    Background="{DynamicResource WindowBackgroundBrush}"
-                                                    BorderBrush="{DynamicResource BorderBrush}">
-                                                <StackPanel Orientation="Horizontal">
-                                                    <TextBlock Text="☁️" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                    <StackPanel VerticalAlignment="Center">
-                                                        <TextBlock Text="云端 API" FontSize="12" FontWeight="SemiBold"
-                                                                   Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                                        <TextBlock Text="使用在线大模型（需要 API 密钥）" FontSize="10"
-                                                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="bd" Property="BorderBrush"
-                                                            Value="{DynamicResource PrimaryBrush}"/>
-                                                </Trigger>
-                                                <Trigger Property="IsChecked" Value="True">
-                                                    <Setter TargetName="bd" Property="BorderBrush"
-                                                            Value="{DynamicResource PrimaryBrush}"/>
-                                                    <Setter TargetName="bd" Property="BorderThickness"
-                                                            Value="2"/>
-                                                    <Setter TargetName="bd" Property="Background"
-                                                            Value="{DynamicResource PrimaryLowBrush}"/>
-                                                </Trigger>
-                                                <Trigger Property="IsPressed" Value="True">
-                                                    <Setter TargetName="bd" Property="Background"
-                                                            Value="{DynamicResource PrimaryLowBrush}"/>
-                                                </Trigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </RadioButton.Template>
-                                </RadioButton>
-                                <RadioButton x:Name="ProviderComfyRadio" Grid.Column="2"
-                                             GroupName="ImageProvider"
-                                             Tag="ComfyUI"
-                                             Checked="ImageProviderRadio_Changed"
-                                             Cursor="Hand">
-                                    <RadioButton.Template>
-                                        <ControlTemplate TargetType="RadioButton">
-                                            <Border x:Name="bd" CornerRadius="8" Padding="12,10" Cursor="Hand"
-                                                    BorderThickness="1"
-                                                    Background="{DynamicResource WindowBackgroundBrush}"
-                                                    BorderBrush="{DynamicResource BorderBrush}">
-                                                <StackPanel Orientation="Horizontal">
-                                                    <TextBlock Text="🖥️" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                                    <StackPanel VerticalAlignment="Center">
-                                                        <TextBlock Text="本地 ComfyUI" FontSize="12" FontWeight="SemiBold"
-                                                                   Foreground="{DynamicResource TextPrimaryBrush}"/>
-                                                        <TextBlock Text="使用本地 ComfyUI 服务（无需密钥）" FontSize="10"
-                                                                   Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                                    </StackPanel>
-                                                </StackPanel>
-                                            </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="bd" Property="BorderBrush"
-                                                            Value="{DynamicResource PrimaryBrush}"/>
-                                                </Trigger>
-                                                <Trigger Property="IsChecked" Value="True">
-                                                    <Setter TargetName="bd" Property="BorderBrush"
-                                                            Value="{DynamicResource PrimaryBrush}"/>
-                                                    <Setter TargetName="bd" Property="BorderThickness"
-                                                            Value="2"/>
-                                                    <Setter TargetName="bd" Property="Background"
-                                                            Value="{DynamicResource PrimaryLowBrush}"/>
-                                                </Trigger>
-                                                <Trigger Property="IsPressed" Value="True">
-                                                    <Setter TargetName="bd" Property="Background"
-                                                            Value="{DynamicResource PrimaryLowBrush}"/>
-                                                </Trigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </RadioButton.Template>
-                                </RadioButton>
-                            </Grid>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <TextBlock FontSize="16" FontWeight="Bold"
+                                   Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4">
+                            <Run Text="🔌" /><Run Text=" AI 接口配置"/>
+                        </TextBlock>
+                        <TextBlock Text="文本 / 图片 / 视频接口各自独立，可分别配置不同服务商（DeepSeek、字节跳动、千问、ModelScope、OpenAI）与模型，并支持本地 ComfyUI 生图" FontSize="11"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="AiConfigSummaryText" FontSize="11" Margin="0,10,0,0"
+                                   Foreground="{DynamicResource TextTertiaryBrush}"
+                                   TextWrapping="Wrap" LineHeight="18"/>
+                    </StackPanel>
+                    <Button Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
+                            FontSize="13" Padding="20,10" Cursor="Hand"
+                            Style="{StaticResource PrimaryButtonStyle}"
+                            Click="OpenAiConfig_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="⚙️" Margin="0,0,8,0"/>
+                            <TextBlock Text="打开 AI 接口配置"/>
                         </StackPanel>
-                    </Border>
-
-                    <TextBlock Text="API 地址" FontSize="12" Margin="0,0,0,4"
-                               Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <TextBox x:Name="ApiEndpointBox" Margin="0,0,0,10"
-                             Style="{StaticResource ModernTextBoxStyle}" FontSize="12"
-                             LostFocus="ApiEndpointBox_LostFocus"/>
-
-                    <TextBlock Text="API 密钥" FontSize="12" Margin="0,0,0,4"
-                               Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <PasswordBox x:Name="ApiKeyBox" Margin="0,0,0,10"
-                                 Style="{StaticResource ModernPasswordBoxStyle}" FontSize="12"
-                                 PasswordChanged="ApiKeyBox_PasswordChanged"/>
-
-                    <TextBlock Text="文本模型" FontSize="12" Margin="0,0,0,4"
-                               Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <ComboBox x:Name="ApiModelBox" Grid.Column="0" IsEditable="True"
-                                  Style="{StaticResource ModernComboBoxStyle}" MinHeight="28"
-                                  SelectionChanged="ApiModelBox_SelectionChanged"
-                                  LostFocus="ApiModelBox_LostFocus"
-                                  PreviewMouseWheel="ComboBox_PreviewMouseWheel" Margin="0,0,8,0"/>
-                        <Button Grid.Column="1" Content="⬇ 获取模型列表"
-                                FontSize="11" Padding="8,5"
-                                Style="{StaticResource SecondaryButtonStyle}"
-                                Click="FetchModels_Click"/>
-                    </Grid>
-
-                    <TextBlock Text="图片模型" FontSize="12" Margin="0,0,0,4"
-                               Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <ComboBox x:Name="ImageModelBox" IsEditable="True" Margin="0,0,0,10"
-                              Style="{StaticResource ModernComboBoxStyle}" MinHeight="28"
-                              LostFocus="ImageModelBox_LostFocus"
-                              PreviewMouseWheel="ComboBox_PreviewMouseWheel"/>
-
-                    <TextBlock Text="视频模型" FontSize="12" Margin="0,0,0,4"
-                               Foreground="{DynamicResource TextPrimaryBrush}"/>
-                    <ComboBox x:Name="VideoModelBox" IsEditable="True" Margin="0,0,0,10"
-                              Style="{StaticResource ModernComboBoxStyle}" MinHeight="28"
-                              LostFocus="VideoModelBox_LostFocus"
-                              PreviewMouseWheel="ComboBox_PreviewMouseWheel"/>
-
-                    <!-- ===== ComfyUI 本地生图 ===== -->
-                    <Border Background="{DynamicResource CardBackgroundBrush}"
-                            CornerRadius="6" Padding="12,10" Margin="0,4,0,0">
-                        <StackPanel>
-                            <TextBlock FontSize="13" FontWeight="Bold"
-                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,2">
-                                <Run Text="🖥️" /><Run Text=" 本地 ComfyUI 生图"/>
-                            </TextBlock>
-                            <TextBlock Text="使用本机运行的 ComfyUI 服务生成图片。选择已导出的工作流 JSON 文件，生图时直接发送给 ComfyUI。" FontSize="10"
-                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,10"
-                                       TextWrapping="Wrap"/>
-
-                            <TextBlock Text="ComfyUI 地址" FontSize="11" Margin="0,0,0,4"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <TextBox x:Name="ComfyEndpointBox" Margin="0,0,0,8"
-                                     Style="{StaticResource ModernTextBoxStyle}" FontSize="12"
-                                     LostFocus="ComfyEndpointBox_LostFocus"
-                                     ToolTip="例如 http://127.0.0.1:8188"/>
-
-                            <TextBlock Text="工作流 JSON 文件" FontSize="11" Margin="0,0,0,4"
-                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBox Grid.Column="0" x:Name="ComfyWorkflowFileBox"
-                                         Style="{StaticResource ModernTextBoxStyle}" FontSize="12"
-                                         Margin="0,0,6,0" IsReadOnly="True"
-                                         ToolTip="从 ComfyUI 网页「Export (API)」导出工作流 JSON 文件，生图时会读取并发送给 ComfyUI"/>
-                                <Button Grid.Column="1" Content="浏览…" FontSize="12" Padding="12,4"
-                                        Cursor="Hand" Click="ComfyWorkflowBrowse_Click"
-                                        Style="{StaticResource SecondaryButtonStyle}"/>
-                            </Grid>
-                            <TextBlock Text="提示：工作流中的正向提示词会自动替换为你输入的提示词；若含 LoadImage 节点，参考图会自动注入。" FontSize="9"
-                                       Foreground="{DynamicResource TextTertiaryBrush}"
-                                       TextWrapping="Wrap" Margin="0,0,0,4"/>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
+                    </Button>
+                </Grid>
             </Border>
 
             <!-- ===== AI 生成 Skill ===== -->

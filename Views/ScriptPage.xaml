@@ -56,12 +56,11 @@
             <Grid Grid.Row="1" ClipToBounds="True" x:Name="ContentGrid"
                   SizeChanged="ContentGrid_SizeChanged">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition x:Name="OriginalCol" Width="*"/>
+                    <ColumnDefinition x:Name="OriginalCol" Width="*" MinWidth="200"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition x:Name="ScriptCol" Width="*"/>
+                    <ColumnDefinition x:Name="ScriptCol" Width="*" MinWidth="200"/>
                     <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition x:Name="ImageCol" Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition x:Name="ImageCol" Width="*" MinWidth="220"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- ===== 小说原内容 ===== -->
@@ -158,8 +157,7 @@
                 <GridSplitter x:Name="Splitter1" Grid.Column="1" Width="4"
                               HorizontalAlignment="Center" VerticalAlignment="Stretch"
                               Background="Transparent"
-                              DragDelta="Splitter1_DragDelta"
-                              DragCompleted="Splitter_DragCompleted"
+                              ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
                               PreviewMouseDoubleClick="Splitter_DoubleClick"/>
 
                 <!-- ===== 剧本内容 ===== -->
@@ -244,8 +242,7 @@
                 <GridSplitter x:Name="Splitter2" Grid.Column="3" Width="4"
                               HorizontalAlignment="Center" VerticalAlignment="Stretch"
                               Background="Transparent"
-                              DragDelta="Splitter2_DragDelta"
-                              DragCompleted="Splitter_DragCompleted"
+                              ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"
                               PreviewMouseDoubleClick="Splitter_DoubleClick"/>
 
                 <!-- ===== 图像素材 ===== -->
@@ -332,14 +329,6 @@
                         </Grid>
                     </Grid>
                 </Border>
-
-                <!-- GridSplitter 3：图像面板右边界拖拽 -->
-                <GridSplitter x:Name="Splitter3" Grid.Column="5" Width="4"
-                              HorizontalAlignment="Center" VerticalAlignment="Stretch"
-                              Background="Transparent"
-                              DragDelta="Splitter3_DragDelta"
-                              DragCompleted="Splitter3_DragCompleted"
-                              PreviewMouseDoubleClick="Splitter_DoubleClick"/>
             </Grid>
         </Grid>
 

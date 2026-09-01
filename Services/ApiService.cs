@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -9,12 +10,24 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using YangzaiWorkshop.Models;
 
 namespace YangzaiWorkshop.Services;
 
 public static class ApiService
 {
-    private static readonly HttpClient _client = new() { Timeout = TimeSpan.FromMinutes(3) };
+    // 统一 Http 客户端：显式跟随系统代理，保证 API 域名若走代理可访问时应用能正常连通
+    private static readonly HttpClient _client = CreateClient();
+
+    private static HttpClient CreateClient()
+    {
+        var handler = new HttpClientHandler
+        {
+            UseProxy = true,
+            Proxy = WebRequest.GetSystemWebProxy()
+        };
+        return new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(3) };
+    }
 
     /// <summary>调用大模型 API 生成内容（非流式）</summary>
     public static async Task<string?> ChatAsync(
@@ -273,16 +286,41 @@ public static class ApiService
     }
 
     /// <summary>
-    /// 调用图片生成 API，返回图片 URL。
-    /// referenceImages 可选：传入一张或多张参考图（Data URI Base64，形如 data:image/png;base64,...）。
-    /// 1 张 → 图生图；多张 → 多图编辑/合成（由 prompt 描述组合方式）。
+    /// 调用图片生成 API，返回图片 URL（个别服务商返回 Data URI，下载器会自动处理）。
+    /// 按服务商适配请求格式（依据各官方文档）：
+    ///   Agnes：档位式 size + ratio，最多 6 张参考图；
+    ///   字节 Seedream：image 数组（单图=图生图 / 多图=多图融合），1K/2K/4K 或精确尺寸；
+    ///   千问 qwen-image-3.x / 2.x：DashScope 同步 multimodal-generation（图生图/编辑）；旧版走异步任务；
+    ///   OpenAI：gpt-image 文生图 / edits（多图编辑，base64 返回）；
+    ///   自定义 / ModelScope / DeepSeek：OpenAI 兼容 images/generations。
+    /// referenceImages：Data URI Base64 列表，1 张=图生图，多张=多图编辑/合成。
     /// </summary>
     public static async Task<string> GenerateImageAsync(
         string endpoint, string apiKey,
-        string prompt, string model, string size = "1024x768",
+        string prompt, string model,
+        ApiProvider provider = ApiProvider.Agnes,
+        string size = "1024x768",
         IReadOnlyList<string>? referenceImages = null,
         string? ratio = null,
         CancellationToken cancel = default)
+    {
+        return provider switch
+        {
+            ApiProvider.ByteDance => await GenerateByteDanceImageAsync(endpoint, apiKey, prompt, model, size, referenceImages, cancel),
+            ApiProvider.Qwen => await GenerateQwenImageAsync(endpoint, apiKey, prompt, model, size, referenceImages, cancel),
+            ApiProvider.OpenAI => await GenerateOpenAIImageAsync(endpoint, apiKey, prompt, model, size, referenceImages, cancel),
+            ApiProvider.Agnes => await GenerateAgnesImageAsync(endpoint, apiKey, prompt, model, size, referenceImages, ratio, cancel),
+            // 自定义 / ModelScope / DeepSeek：OpenAI 兼容格式
+            _ => await GenerateOpenAICompatibleImageAsync(endpoint, apiKey, prompt, model, size, referenceImages, cancel)
+        };
+    }
+
+    // ==================== 图片生成：各服务商适配 ====================
+
+    /// <summary>Agnes 图片：档位式 size + ratio。</summary>
+    private static async Task<string> GenerateAgnesImageAsync(
+        string endpoint, string apiKey, string prompt, string model,
+        string size, IReadOnlyList<string>? referenceImages, string? ratio, CancellationToken cancel)
     {
         var url = endpoint.TrimEnd('/') + "/images/generations";
         var extra = new Dictionary<string, object> { ["response_format"] = "url" };
@@ -295,7 +333,6 @@ public static class ApiService
             ["extra_body"] = extra
         };
         // agnes-image 系列按官方推荐使用「档位式 size + ratio」，输出尺寸可预期（如 2K+16:9 → 2624x1472）。
-        // 其他模型退回历史精确尺寸写法（如 1024x768），避免未知参数导致请求失败。
         if (ViewHelpers.IsAgnesImageModel(model) && !string.IsNullOrWhiteSpace(ratio))
         {
             body["size"] = size;   // size 传档位，如 "2K"
@@ -306,6 +343,63 @@ public static class ApiService
             body["size"] = size;
         }
 
+        return await PostImageAndGetUrl(url, apiKey, body, model, cancel);
+    }
+
+    /// <summary>OpenAI 兼容图片（自定义 / ModelScope / DeepSeek 等）：images/generations，返回 URL。</summary>
+    private static async Task<string> GenerateOpenAICompatibleImageAsync(
+        string endpoint, string apiKey, string prompt, string model,
+        string size, IReadOnlyList<string>? referenceImages, CancellationToken cancel)
+    {
+        var url = endpoint.TrimEnd('/') + "/images/generations";
+        var body = new Dictionary<string, object>
+        {
+            ["model"] = model,
+            ["prompt"] = prompt,
+            ["size"] = size,
+            ["response_format"] = "url"
+        };
+        // 部分聚合/中转服务支持以 image 数组传参考图（OpenAI 兼容 Image API 风格）
+        if (referenceImages is { Count: > 0 })
+            body["image"] = referenceImages.ToList();
+        return await PostImageAndGetUrl(url, apiKey, body, model, cancel);
+    }
+
+    /// <summary>字节 Seedream：image 数组参考图（单图=图生图、多图=多图融合），1K/2K/4K 档位或精确尺寸。</summary>
+    private static async Task<string> GenerateByteDanceImageAsync(
+        string endpoint, string apiKey, string prompt, string model,
+        string size, IReadOnlyList<string>? referenceImages, CancellationToken cancel)
+    {
+        var url = endpoint.TrimEnd('/') + "/images/generations";
+        var body = new Dictionary<string, object>
+        {
+            ["model"] = model,
+            ["prompt"] = prompt,
+            ["size"] = size,          // 支持 1K/2K/4K 档位或 2560x1440 精确尺寸
+            ["response_format"] = "url",
+            ["watermark"] = false,
+            ["sequential_image_generation"] = "disabled" // 本软件一次生成单张
+        };
+        if (referenceImages is { Count: > 0 })
+            body["image"] = referenceImages.ToList();
+        return await PostImageAndGetUrl(url, apiKey, body, model, cancel);
+    }
+
+    /// <summary>OpenAI：gpt-image 文生图（base64 返回）。有参考图时走 /images/edits（多图编辑）。</summary>
+    private static async Task<string> GenerateOpenAIImageAsync(
+        string endpoint, string apiKey, string prompt, string model,
+        string size, IReadOnlyList<string>? referenceImages, CancellationToken cancel)
+    {
+        if (referenceImages is { Count: > 0 })
+            return await GenerateOpenAIEditsAsync(endpoint, apiKey, prompt, model, size, referenceImages, cancel);
+
+        var url = endpoint.TrimEnd('/') + "/images/generations";
+        var body = new Dictionary<string, object>
+        {
+            ["model"] = model,
+            ["prompt"] = prompt,
+            ["size"] = size
+        };
         var json = JsonSerializer.Serialize(body);
         using var req = new HttpRequestMessage(HttpMethod.Post, url)
         {
@@ -315,33 +409,256 @@ public static class ApiService
 
         using var res = await _client.SendAsync(req, cancel);
         var respText = await res.Content.ReadAsStringAsync();
-
-        if (!res.IsSuccessStatusCode)
-            HandleNonSuccess(res, respText, url, model);
+        if (!res.IsSuccessStatusCode) HandleNonSuccess(res, respText, url, model);
 
         using var doc = JsonDocument.Parse(respText);
         var data = doc.RootElement.GetProperty("data");
-        if (data.GetArrayLength() == 0)
-            throw new ApiException("图片 API 未返回有效结果");
+        if (data.GetArrayLength() == 0) throw new ApiException("图片 API 未返回有效结果");
+        var first = data[0];
+        // gpt-image 系列总是返回 base64；dall-e 等兼容 URL
+        if (first.TryGetProperty("b64_json", out var b64) && b64.ValueKind == JsonValueKind.String)
+            return "data:image/png;base64," + b64.GetString()!;
+        if (first.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String)
+            return u.GetString()!;
+        throw new ApiException("图片 API 未返回结果");
+    }
 
+    /// <summary>OpenAI /images/edits：多图编辑（multipart，最多 16 张）。</summary>
+    private static async Task<string> GenerateOpenAIEditsAsync(
+        string endpoint, string apiKey, string prompt, string model,
+        string size, IReadOnlyList<string>? referenceImages, CancellationToken cancel)
+    {
+        var url = endpoint.TrimEnd('/') + "/images/edits";
+        using var content = new MultipartFormDataContent();
+        content.Add(new StringContent(model), "model");
+        content.Add(new StringContent(prompt), "prompt");
+        if (!string.IsNullOrWhiteSpace(size) && size.Contains('x'))
+            content.Add(new StringContent(size), "size");
+
+        int i = 0;
+        foreach (var dataUrl in referenceImages!)
+        {
+            var (mime, bytes) = DecodeDataUrl(dataUrl);
+            var ext = mime switch { "image/png" => "png", "image/webp" => "webp", _ => "jpg" };
+            var part = new ByteArrayContent(bytes);
+            part.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mime);
+            content.Add(part, "image", $"ref_{i++}.{ext}");
+        }
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+        req.Headers.Add("Authorization", $"Bearer {apiKey}");
+        using var res = await _client.SendAsync(req, cancel);
+        var respText = await res.Content.ReadAsStringAsync();
+        if (!res.IsSuccessStatusCode) HandleNonSuccess(res, respText, url, model);
+
+        using var doc = JsonDocument.Parse(respText);
+        var data = doc.RootElement.GetProperty("data");
+        if (data.GetArrayLength() == 0) throw new ApiException("图片 API 未返回有效结果");
+        var first = data[0];
+        if (first.TryGetProperty("b64_json", out var b64) && b64.ValueKind == JsonValueKind.String)
+            return "data:image/png;base64," + b64.GetString()!;
+        if (first.TryGetProperty("url", out var u) && u.ValueKind == JsonValueKind.String)
+            return u.GetString()!;
+        throw new ApiException("图片 API 未返回结果");
+    }
+
+    /// <summary>千问图片：qwen-image-3.x / 2.x 走同步 multimodal-generation；旧版走异步 text2image 任务。</summary>
+    private static async Task<string> GenerateQwenImageAsync(
+        string endpoint, string apiKey, string prompt, string model,
+        string size, IReadOnlyList<string>? referenceImages, CancellationToken cancel)
+    {
+        if (IsQwenMultimodalImage(model))
+            return await GenerateQwenMultimodalImageAsync(endpoint, apiKey, prompt, model, size, referenceImages, cancel);
+        return await GenerateQwenAsyncTaskImageAsync(endpoint, apiKey, prompt, model, size, cancel);
+    }
+
+    /// <summary>判断是否为 qwen-image 系列的多模态模型（走同步 multimodal-generation 接口）。</summary>
+    private static bool IsQwenMultimodalImage(string model) =>
+        model.StartsWith("qwen-image-3", StringComparison.OrdinalIgnoreCase) ||
+        model.StartsWith("qwen-image-2", StringComparison.OrdinalIgnoreCase) ||
+        model.StartsWith("qwen-image-edit", StringComparison.OrdinalIgnoreCase) ||
+        model.StartsWith("wanx2.1-imageedit", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>把通用尺寸字符串转为千问 DashScope 尺寸格式（如 "1024x768" → "1024*768"，档位式 → "1024*1024"）。</summary>
+    private static string ToQwenSize(string size)
+    {
+        if (string.IsNullOrWhiteSpace(size)) return "1024*1024";
+        var s = size.Trim().ToLowerInvariant();
+        if (s is "1k" or "2k" or "3k" or "4k") return "1024*1024";
+        var sep = s.IndexOf('x');
+        if (sep < 0) sep = s.IndexOf('*');
+        if (sep > 0 && int.TryParse(s[..sep], out var w) && int.TryParse(s[(sep + 1)..], out var h))
+            return $"{w}*{h}";
+        return s.Replace('x', '*');
+    }
+
+    /// <summary>qwen-image-3.x / 2.x：同步 multimodal-generation（文生图 + 图生图/编辑，支持 1-3 张参考图）。</summary>
+    private static async Task<string> GenerateQwenMultimodalImageAsync(
+        string endpoint, string apiKey, string prompt, string model,
+        string size, IReadOnlyList<string>? referenceImages, CancellationToken cancel)
+    {
+        var url = endpoint.TrimEnd('/') + "/services/aigc/multimodal-generation/generation";
+        var content = new List<object>();
+        if (referenceImages is { Count: > 0 })
+            foreach (var img in referenceImages)
+                content.Add(new { image = img }); // URL 或 Data URI
+        content.Add(new { text = prompt });
+
+        var body = new Dictionary<string, object>
+        {
+            ["model"] = model,
+            ["input"] = new Dictionary<string, object>
+            {
+                ["messages"] = new[] { new { role = "user", content = (object)content } }
+            },
+            ["parameters"] = new Dictionary<string, object>
+            {
+                ["size"] = ToQwenSize(size),
+                ["watermark"] = false
+            }
+        };
+        var json = JsonSerializer.Serialize(body);
+        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+        req.Headers.Add("Authorization", $"Bearer {apiKey}");
+        using var res = await _client.SendAsync(req, cancel);
+        var respText = await res.Content.ReadAsStringAsync();
+        if (!res.IsSuccessStatusCode) HandleNonSuccess(res, respText, url, model);
+
+        using var doc = JsonDocument.Parse(respText);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("output", out var output) &&
+            output.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0 &&
+            choices[0].TryGetProperty("message", out var msg) &&
+            msg.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in c.EnumerateArray())
+                if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("image", out var img) && img.ValueKind == JsonValueKind.String)
+                    return img.GetString()!;
+        }
+        throw new ApiException("千问图片 API 未返回结果");
+    }
+
+    /// <summary>千问旧版（qwen-image / plus / max / wan）：异步 text2image 任务，提交后轮询。</summary>
+    private static async Task<string> GenerateQwenAsyncTaskImageAsync(
+        string endpoint, string apiKey, string prompt, string model,
+        string size, CancellationToken cancel)
+    {
+        var submitUrl = endpoint.TrimEnd('/') + "/services/aigc/text2image/image-synthesis";
+        var body = new Dictionary<string, object>
+        {
+            ["model"] = model,
+            ["input"] = new Dictionary<string, object> { ["prompt"] = prompt },
+            ["parameters"] = new Dictionary<string, object>
+            {
+                ["size"] = ToQwenSize(size),
+                ["n"] = 1,
+                ["watermark"] = false
+            }
+        };
+        var json = JsonSerializer.Serialize(body);
+
+        string taskId;
+        using (var req = new HttpRequestMessage(HttpMethod.Post, submitUrl)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        })
+        {
+            req.Headers.Add("Authorization", $"Bearer {apiKey}");
+            req.Headers.Add("X-DashScope-Async", "enable");
+            using var res = await _client.SendAsync(req, cancel);
+            var respText = await res.Content.ReadAsStringAsync();
+            if (!res.IsSuccessStatusCode) HandleNonSuccess(res, respText, submitUrl, model);
+            using var doc = JsonDocument.Parse(respText);
+            var output = doc.RootElement.GetProperty("output");
+            taskId = output.TryGetProperty("task_id", out var tid) && tid.ValueKind == JsonValueKind.String
+                ? tid.GetString()!
+                : throw new ApiException("千问图片任务未返回 task_id");
+        }
+
+        var pollUrl = endpoint.TrimEnd('/') + "/tasks/" + Uri.EscapeDataString(taskId);
+        while (true)
+        {
+            cancel.ThrowIfCancellationRequested();
+            var (status, jsonResult, raw) = await GetJsonAsync(pollUrl, apiKey, cancel);
+            if (status == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                await Task.Delay(3000, cancel);
+                continue;
+            }
+            if (status != System.Net.HttpStatusCode.OK)
+                HandleNonSuccess(new HttpResponseMessage(status), raw, pollUrl, model);
+            if (jsonResult is not { } root || !root.TryGetPropertyValue("output", out var outputNode) || outputNode is not JsonObject output)
+                throw new ApiException($"千问图片任务查询失败：{raw}");
+
+            var taskStatus = output["task_status"]?.GetValue<string>() ?? "";
+            if (taskStatus is "SUCCEEDED" or "SUCCESS")
+            {
+                if (output["results"] is JsonArray results && results.Count > 0 && results[0] is JsonObject r)
+                {
+                    if (r["url"] is JsonValue u && u.TryGetValue<string>(out var uStr)) return uStr;
+                    if (r["b64_image"] is JsonValue b && b.TryGetValue<string>(out var bStr))
+                        return "data:image/png;base64," + bStr;
+                }
+                if (output["url"] is JsonValue ou && ou.TryGetValue<string>(out var ouStr)) return ouStr;
+                throw new ApiException("千问图片任务成功但未找到图片");
+            }
+            if (taskStatus is "FAILED" or "FAILURE" or "CANCELED" or "UNKNOWN")
+            {
+                var msg = output["message"]?.GetValue<string>() ?? "未知错误";
+                throw new ApiException($"千问图片生成失败：{msg}");
+            }
+            await Task.Delay(2000, cancel);
+        }
+    }
+
+    /// <summary>POST 图片请求并解析 data[0].url（OpenAI 兼容返回结构）。</summary>
+    private static async Task<string> PostImageAndGetUrl(
+        string url, string apiKey, Dictionary<string, object> body,
+        string model, CancellationToken cancel)
+    {
+        var json = JsonSerializer.Serialize(body);
+        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+        req.Headers.Add("Authorization", $"Bearer {apiKey}");
+
+        using var res = await _client.SendAsync(req, cancel);
+        var respText = await res.Content.ReadAsStringAsync();
+        if (!res.IsSuccessStatusCode) HandleNonSuccess(res, respText, url, model);
+
+        using var doc = JsonDocument.Parse(respText);
+        var data = doc.RootElement.GetProperty("data");
+        if (data.GetArrayLength() == 0) throw new ApiException("图片 API 未返回有效结果");
         var first = data[0];
         if (first.TryGetProperty("url", out var imgUrl) && imgUrl.ValueKind == JsonValueKind.String)
             return imgUrl.GetString()!;
-
-        throw new ApiException("图片 API 未返回 URL");
+        if (first.TryGetProperty("b64_json", out var b64) && b64.ValueKind == JsonValueKind.String)
+            return "data:image/png;base64," + b64.GetString()!;
+        throw new ApiException("图片 API 未返回结果");
     }
 
-    /// <summary>下载图片到字节数组</summary>
+    /// <summary>下载图片到字节数组。支持普通 URL 与 Data URI（个别服务商直接返回 base64）。</summary>
     public static async Task<byte[]> DownloadImageAsync(string imageUrl, CancellationToken cancel = default)
     {
+        if (imageUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            return DecodeDataUrl(imageUrl).Bytes;
         using var res = await _client.GetAsync(imageUrl, cancel);
         res.EnsureSuccessStatusCode();
         return await res.Content.ReadAsByteArrayAsync();
     }
 
-    /// <summary>创建视频生成任务（agnes-video-2.5 / agnes-video-2.5-flash），返回 video_id。
-    /// mode：text=文生视频，keyframe=首尾帧控制，reference=参考生成。
-    /// 参考媒体传入 base64 Data URL（与图生图一致）；videos 仅 agnes-video-2.5（非 Flash）支持。</summary>
+    /// <summary>
+    /// 创建视频生成任务，返回任务 ID。按服务商适配请求格式（依据各官方文档）：
+    ///   Agnes：agnes-video-2.5 / 2.5-flash，返回 video_id；
+    ///   千问 Wan：DashScope 异步任务（text2video / image2video），返回 task_id；
+    ///   字节 Seedance：火山方舟异步任务，返回任务 id；
+    ///   OpenAI Sora：/videos 创建，返回视频 id；
+    ///   其它（自定义 / ModelScope / DeepSeek）：尝试 OpenAI 兼容 /videos，失败时提示未适配。
+    /// </summary>
     public static async Task<string> CreateVideoTaskAsync(
         string endpoint, string apiKey, string model,
         string prompt, string mode = "text",
@@ -350,7 +667,30 @@ public static class ApiService
         IReadOnlyList<string>? referenceImages = null,
         IReadOnlyList<string>? referenceAudios = null,
         IReadOnlyList<VideoReference>? referenceVideos = null,
+        ApiProvider provider = ApiProvider.Agnes,
         CancellationToken cancel = default)
+    {
+        return provider switch
+        {
+            ApiProvider.Qwen => await CreateQwenVideoTaskAsync(endpoint, apiKey, model, prompt, seconds, size, referenceImages, cancel),
+            ApiProvider.OpenAI => await CreateOpenAIVideoTaskAsync(endpoint, apiKey, model, prompt, size, referenceImages, cancel),
+            ApiProvider.ByteDance => await CreateByteDanceVideoTaskAsync(endpoint, apiKey, model, prompt, referenceImages, cancel),
+            _ => await CreateAgnesVideoTaskAsync(endpoint, apiKey, model, prompt, mode, seconds, size, aspectRatio, firstFrame, lastFrame, referenceImages, referenceAudios, referenceVideos, cancel)
+        };
+    }
+
+    /// <summary>Agnes 视频：创建任务（agnes-video-2.5 / agnes-video-2.5-flash），返回 video_id。
+    /// mode：text=文生视频，keyframe=首尾帧控制，reference=参考生成。
+    /// 参考媒体传入 base64 Data URL（与图生图一致）；videos 仅 agnes-video-2.5（非 Flash）支持。</summary>
+    private static async Task<string> CreateAgnesVideoTaskAsync(
+        string endpoint, string apiKey, string model,
+        string prompt, string mode,
+        int seconds, string size, string aspectRatio,
+        string? firstFrame, string? lastFrame,
+        IReadOnlyList<string>? referenceImages,
+        IReadOnlyList<string>? referenceAudios,
+        IReadOnlyList<VideoReference>? referenceVideos,
+        CancellationToken cancel)
     {
         var url = endpoint.TrimEnd('/') + "/videos";
         var body = new Dictionary<string, object>
@@ -423,13 +763,30 @@ public static class ApiService
         }
     }
 
-    /// <summary>轮询视频结果直到完成或失败，返回视频 URL。
-    /// 按 agnes-video-2.5 / 2.5-flash 文档使用 video_id + model_name 查询（keyframe/reference 模式必须带 model_name）。</summary>
+    /// <summary>轮询视频结果直到完成或失败，返回视频 URL。按服务商适配查询接口。</summary>
     public static async Task<string> PollVideoResultAsync(
         string endpoint, string apiKey,
         string videoId, string model,
         IProgress<string>? progress = null,
+        ApiProvider provider = ApiProvider.Agnes,
         CancellationToken cancel = default)
+    {
+        return provider switch
+        {
+            ApiProvider.Qwen => await PollQwenVideoTaskAsync(endpoint, apiKey, videoId, progress, cancel),
+            ApiProvider.OpenAI => await PollOpenAIVideoTaskAsync(endpoint, apiKey, videoId, progress, cancel),
+            ApiProvider.ByteDance => await PollByteDanceVideoTaskAsync(endpoint, apiKey, videoId, progress, cancel),
+            _ => await PollAgnesVideoResultAsync(endpoint, apiKey, videoId, model, progress, cancel)
+        };
+    }
+
+    /// <summary>Agnes 视频：轮询结果。
+    /// 按 agnes-video-2.5 / 2.5-flash 文档使用 video_id + model_name 查询（keyframe/reference 模式必须带 model_name）。</summary>
+    private static async Task<string> PollAgnesVideoResultAsync(
+        string endpoint, string apiKey,
+        string videoId, string model,
+        IProgress<string>? progress,
+        CancellationToken cancel)
     {
         var baseUrl = endpoint.TrimEnd('/');
         // 去掉 /v1 后缀得到根地址
@@ -513,12 +870,315 @@ public static class ApiService
         }
     }
 
-    /// <summary>下载视频到字节数组</summary>
+    // ==================== 视频生成：各服务商适配（创建 + 轮询） ====================
+
+    /// <summary>千问 Wan：创建视频任务（DashScope 异步任务），返回 task_id。
+    /// 文生视频走 /video-synthesis，图生视频走 multimodal-generation；均带 X-DashScope-Async: enable。</summary>
+    private static async Task<string> CreateQwenVideoTaskAsync(
+        string endpoint, string apiKey, string model, string prompt,
+        int seconds, string size, IReadOnlyList<string>? referenceImages, CancellationToken cancel)
+    {
+        var hasRef = referenceImages is { Count: > 0 };
+        object input;
+        if (hasRef)
+        {
+            var content = new List<object>();
+            foreach (var img in referenceImages!)
+                content.Add(new { image = img }); // URL 或 Data URI
+            content.Add(new { text = prompt });
+            input = new Dictionary<string, object>
+            {
+                ["messages"] = new[] { new { role = "user", content = (object)content } }
+            };
+        }
+        else
+        {
+            input = new Dictionary<string, object> { ["prompt"] = prompt };
+        }
+
+        var body = new Dictionary<string, object>
+        {
+            ["model"] = model,
+            ["input"] = input,
+            ["parameters"] = new Dictionary<string, object>
+            {
+                ["size"] = ToQwenVideoSize(size),
+                ["duration"] = Math.Clamp(seconds, 1, 30)
+            }
+        };
+
+        var url = endpoint.TrimEnd('/') + "/services/aigc/video-generation/video-synthesis";
+        var json = JsonSerializer.Serialize(body);
+        var respText = await PostJsonTextAsync(url, apiKey, json, new Dictionary<string, string>
+        {
+            ["X-DashScope-Async"] = "enable"
+        }, cancel);
+
+        using var doc = JsonDocument.Parse(respText);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("output", out var output) && output.TryGetProperty("task_id", out var tid))
+            return tid.GetString()!;
+        throw new ApiException("千问视频任务未返回 task_id");
+    }
+
+    /// <summary>千问 Wan：轮询异步任务结果，返回视频 URL。</summary>
+    private static async Task<string> PollQwenVideoTaskAsync(
+        string endpoint, string apiKey, string taskId,
+        IProgress<string>? progress, CancellationToken cancel)
+    {
+        var url = endpoint.TrimEnd('/') + "/tasks/" + Uri.EscapeDataString(taskId);
+        while (true)
+        {
+            cancel.ThrowIfCancellationRequested();
+            var (status, json, raw) = await GetJsonAsync(url, apiKey, cancel);
+            if (status == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                await Task.Delay(3000, cancel);
+                continue;
+            }
+            if (status != System.Net.HttpStatusCode.OK)
+                HandleNonSuccess(new HttpResponseMessage(status), raw, url, "video");
+            if (json is not { } root || root["output"] is not JsonObject output)
+                throw new ApiException($"千问视频任务查询失败：{raw}");
+
+            var taskStatus = output["task_status"]?.GetValue<string>() ?? "";
+            if (taskStatus is "SUCCEEDED" or "SUCCESS")
+            {
+                var videoUrl = output["video_url"]?.GetValue<string>();
+                if (string.IsNullOrWhiteSpace(videoUrl) && output["results"] is JsonArray results && results.Count > 0 && results[0] is JsonObject r0)
+                    videoUrl = r0["url"]?.GetValue<string>() ?? r0["video_url"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(videoUrl)) return videoUrl!;
+                throw new ApiException("千问视频任务成功但未找到视频 URL");
+            }
+            if (taskStatus is "FAILED" or "FAILURE" or "CANCELED" or "UNKNOWN")
+            {
+                var msg = output["message"]?.GetValue<string>() ?? output["code"]?.GetValue<string>() ?? "未知错误";
+                throw new ApiException($"千问视频生成失败：{msg}");
+            }
+
+            progress?.Report(taskStatus);
+            await Task.Delay(3000, cancel);
+        }
+    }
+
+    /// <summary>OpenAI Sora：创建视频任务，返回视频 id。</summary>
+    private static async Task<string> CreateOpenAIVideoTaskAsync(
+        string endpoint, string apiKey, string model, string prompt,
+        string size, IReadOnlyList<string>? referenceImages, CancellationToken cancel)
+    {
+        var url = endpoint.TrimEnd('/') + "/videos";
+        var body = new Dictionary<string, object>
+        {
+            ["model"] = model,
+            ["prompt"] = prompt
+        };
+        if (!string.IsNullOrWhiteSpace(size))
+            body["size"] = size.ToLowerInvariant();
+        if (referenceImages is { Count: > 0 })
+            body["input_image_url"] = referenceImages[0]; // 图生视频（Sora 2 支持首帧图）
+
+        var json = JsonSerializer.Serialize(body);
+        var respText = await PostJsonTextAsync(url, apiKey, json, null, cancel);
+
+        using var doc = JsonDocument.Parse(respText);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("id", out var id))
+            return id.GetString()!;
+        throw new ApiException("OpenAI 视频 API 未返回 id");
+    }
+
+    /// <summary>OpenAI Sora：轮询视频结果，返回视频 URL。</summary>
+    private static async Task<string> PollOpenAIVideoTaskAsync(
+        string endpoint, string apiKey, string videoId,
+        IProgress<string>? progress, CancellationToken cancel)
+    {
+        var url = endpoint.TrimEnd('/') + "/videos/" + Uri.EscapeDataString(videoId);
+        while (true)
+        {
+            cancel.ThrowIfCancellationRequested();
+            var (status, json, raw) = await GetJsonAsync(url, apiKey, cancel);
+            if (status == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                await Task.Delay(3000, cancel);
+                continue;
+            }
+            if (status != System.Net.HttpStatusCode.OK)
+                HandleNonSuccess(new HttpResponseMessage(status), raw, url, "video");
+            if (json is not { } root)
+                throw new ApiException($"OpenAI 视频任务查询失败：{raw}");
+
+            var taskStatus = root["status"]?.GetValue<string>() ?? "";
+            if (taskStatus == "completed")
+            {
+                string? videoUrl = null;
+                if (root["assets"] is JsonObject assets)
+                    videoUrl = assets["video_file_url"]?.GetValue<string>() ?? assets["video_url"]?.GetValue<string>();
+                if (videoUrl == null)
+                    videoUrl = root["output"]?.GetValue<string>() ?? root["url"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(videoUrl)) return videoUrl!;
+                throw new ApiException("OpenAI 视频已完成但响应中未找到视频 URL");
+            }
+            if (taskStatus is "failed" or "cancelled" or "expired")
+            {
+                var msg = root["error"]?.GetValue<string>() ?? "未知错误";
+                throw new ApiException($"OpenAI 视频生成失败：{msg}");
+            }
+
+            progress?.Report(taskStatus);
+            await Task.Delay(3000, cancel);
+        }
+    }
+
+    /// <summary>字节 Seedance（火山方舟）：创建视频任务，返回任务 id。</summary>
+    private static async Task<string> CreateByteDanceVideoTaskAsync(
+        string endpoint, string apiKey, string model, string prompt,
+        IReadOnlyList<string>? referenceImages, CancellationToken cancel)
+    {
+        var url = endpoint.TrimEnd('/') + "/contents/generations/tasks";
+        var content = new List<object>();
+        if (referenceImages is { Count: > 0 })
+            content.Add(new { type = "image_url", image_url = new { url = referenceImages[0] } });
+        content.Add(new { type = "text", text = prompt });
+
+        var body = new Dictionary<string, object>
+        {
+            ["model"] = model,
+            ["content"] = content
+        };
+
+        var json = JsonSerializer.Serialize(body);
+        var respText = await PostJsonTextAsync(url, apiKey, json, null, cancel);
+
+        using var doc = JsonDocument.Parse(respText);
+        var root = doc.RootElement;
+        if (root.TryGetProperty("id", out var id))
+            return id.GetString()!;
+        throw new ApiException("字节视频 API 未返回任务 id");
+    }
+
+    /// <summary>字节 Seedance（火山方舟）：轮询任务结果，返回视频 URL。</summary>
+    private static async Task<string> PollByteDanceVideoTaskAsync(
+        string endpoint, string apiKey, string taskId,
+        IProgress<string>? progress, CancellationToken cancel)
+    {
+        var url = endpoint.TrimEnd('/') + "/contents/generations/tasks/" + Uri.EscapeDataString(taskId);
+        while (true)
+        {
+            cancel.ThrowIfCancellationRequested();
+            var (status, json, raw) = await GetJsonAsync(url, apiKey, cancel);
+            if (status == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                await Task.Delay(3000, cancel);
+                continue;
+            }
+            if (status != System.Net.HttpStatusCode.OK)
+                HandleNonSuccess(new HttpResponseMessage(status), raw, url, "video");
+            if (json is not { } root)
+                throw new ApiException($"字节视频任务查询失败：{raw}");
+
+            var taskStatus = root["status"]?.GetValue<string>() ?? "";
+            if (taskStatus == "succeeded")
+            {
+                string? videoUrl = null;
+                if (root["content"] is JsonObject content)
+                    videoUrl = content["video_url"]?.GetValue<string>() ?? content["url"]?.GetValue<string>();
+                if (videoUrl == null)
+                    videoUrl = root["video_url"]?.GetValue<string>() ?? root["url"]?.GetValue<string>();
+                if (!string.IsNullOrWhiteSpace(videoUrl)) return videoUrl!;
+                throw new ApiException("字节视频已完成但响应中未找到视频 URL");
+            }
+            if (taskStatus is "failed" or "cancelled")
+            {
+                var msg = root["error"]?.GetValue<string>() ?? "未知错误";
+                throw new ApiException($"字节视频生成失败：{msg}");
+            }
+
+            progress?.Report(taskStatus);
+            await Task.Delay(3000, cancel);
+        }
+    }
+
+    /// <summary>把视频分辨率档位转为千问 Wan 尺寸（DashScope 用 宽*高）。</summary>
+    private static string ToQwenVideoSize(string size)
+    {
+        var s = (size ?? "").Trim().ToLowerInvariant();
+        return s switch
+        {
+            "1080p" or "2k" => "1920*1080",
+            "540p" => "960*540",
+            _ => "1280*720"
+        };
+    }
+
+    /// <summary>POST JSON 请求并返回响应文本（统一带 Bearer 认证，可附加额外请求头）。</summary>
+    private static async Task<string> PostJsonTextAsync(
+        string url, string apiKey, string json,
+        IReadOnlyDictionary<string, string>? headers, CancellationToken cancel)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, url)
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json")
+        };
+        req.Headers.Add("Authorization", $"Bearer {apiKey}");
+        if (headers != null)
+        {
+            foreach (var kv in headers)
+                req.Headers.TryAddWithoutValidation(kv.Key, kv.Value);
+        }
+        using var res = await _client.SendAsync(req, cancel);
+        var respText = await res.Content.ReadAsStringAsync();
+        if (!res.IsSuccessStatusCode)
+            HandleNonSuccess(res, respText, url, "video");
+        return respText;
+    }
+
+    /// <summary>下载视频到字节数组。支持普通 URL 与 Data URI。</summary>
     public static async Task<byte[]> DownloadVideoAsync(string videoUrl, CancellationToken cancel = default)
     {
+        if (videoUrl.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+            return DecodeDataUrl(videoUrl).Bytes;
         using var res = await _client.GetAsync(videoUrl, cancel);
         res.EnsureSuccessStatusCode();
         return await res.Content.ReadAsByteArrayAsync();
+    }
+
+    /// <summary>GET 请求并解析 JSON（用于轮询异步任务等场景）。</summary>
+    private static async Task<(System.Net.HttpStatusCode Status, JsonObject? Json, string Raw)> GetJsonAsync(
+        string url, string apiKey, CancellationToken cancel)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Add("Authorization", $"Bearer {apiKey}");
+        using var res = await _client.SendAsync(req, cancel);
+        var raw = await res.Content.ReadAsStringAsync();
+        JsonObject? json = null;
+        try { json = JsonNode.Parse(raw) as JsonObject; } catch { /* 非 JSON 响应 */ }
+        return (res.StatusCode, json, raw);
+    }
+
+    /// <summary>解析 Data URI（data:image/png;base64,XXXX）为 MIME 类型与原始字节。</summary>
+    private static (string Mime, byte[] Bytes) DecodeDataUrl(string dataUrl)
+    {
+        var comma = dataUrl.IndexOf(',');
+        if (comma < 0)
+            throw new ApiException("无效的 Data URI（缺少分隔符 ,）");
+
+        var mime = "image/png";
+        var header = dataUrl[..comma];
+        if (header.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+        {
+            var parts = header.Substring(5).Split(';');
+            if (parts.Length > 0 && parts[0].Contains('/'))
+                mime = parts[0].Trim().ToLowerInvariant();
+        }
+
+        try
+        {
+            return (mime, Convert.FromBase64String(dataUrl[(comma + 1)..]));
+        }
+        catch (FormatException ex)
+        {
+            throw new ApiException($"Data URI 的 Base64 内容无效：{ex.Message}");
+        }
     }
 
     /// <summary>获取可用模型列表</summary>

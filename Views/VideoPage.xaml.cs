@@ -962,13 +962,13 @@ public partial class VideoPage : UserControl
         if (_currentNovel == null || _currentChapter == null) return;
 
         var config = FileService.LoadConfig(App.WorkRoot);
-        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
+        if (!config.VideoApi.IsConfigured)
         {
-            Toast("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥");
+            Toast("⚠ 请先在「AI 接口配置」窗口中配置视频接口地址和密钥");
             return;
         }
         // Flash 模型固定 720P 且不支持参考视频；非 Flash（agnes-video-2.5）支持 720P/960P/2K 与参考视频
-        var isFlashModel = ViewHelpers.IsFlashVideoModel(config.VideoModel);
+        var isFlashModel = ViewHelpers.IsFlashVideoModel(config.VideoApi.ModelId);
 
         // 用 Win32 层归属（SetWin32Owner）代替 WPF Owner：子窗口可被鼠标选中、可被 Alt+Tab 切换，
         // 并在任务栏与主窗口共用同一图标；同时规避 WPF 关闭 owned 窗口误激活/最小化 AllowsTransparency 主窗口的问题。
@@ -998,6 +998,7 @@ public partial class VideoPage : UserControl
         // 标题区域（含优化按钮）
         var headerGrid = new Grid { Margin = new Thickness(0, 0, 0, 0) };
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
         var titleStack = new StackPanel();
@@ -1032,253 +1033,284 @@ public partial class VideoPage : UserControl
         Grid.SetColumnSpan(headerGrid, 3);
         grid.Children.Add(headerGrid);
 
-        // 提示词
-        var promptBox = new TextBox
+        // 提示词（支持 @ 提及参考图 + 图像名称自动匹配 + 内置水印）
+        var promptBox = new PromptMentionBox
         {
-            Text = "",
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontSize = 13, FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            Background = (Brush)FindResource("CardBackgroundBrush"),
-            BorderBrush = (Brush)FindResource("BorderBrush"),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(10)
+            Watermark = "在此输入提示词…"
         };
-        // 提示词放入中央子网格（三栏布局构建 center 时再挂载）
+
+        // 「提示词设置」按钮（优化提示词右侧，内含中英文切换 + 实时自动匹配）
+        var settingsBtn = ViewHelpers.BuildGenSettingsButton(promptBox, msg => Toast(msg));
+        Grid.SetColumn(settingsBtn, 2);
+        headerGrid.Children.Add(settingsBtn);
 
         // 底部区域：分为上下两行
         var footerStack = new StackPanel { Orientation = Orientation.Vertical, Margin = new Thickness(0, 8, 0, 0) };
 
         // 第1行：参考图（图生视频，可选）+ 状态（两行网格，按钮/缩略图自动换行）
-        var topRow = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-        topRow.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        topRow.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        // 第1行：参考图 + 参考视频（统一素材区，纵向堆叠）
+        var materialStack = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
 
-        var refPanel = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
         var refImages = new List<string>();
         var refPaths = new List<string>();  // 与 refImages 对应的源文件路径（用于历史回填）
-        var refBtn = new Button
-        {
-            Content = "🖼️ 参考图（可选）", FontSize = 11, Padding = new Thickness(10, 4, 10, 4),
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            ToolTip = "选择一张或多张参考图片，作为生成视频的画面参考（图生视频 / 多图参考）"
-        };
-        refPanel.Children.Add(refBtn);
-        var assetRefBtn = new Button
-        {
-            Content = "📁 项目资产", FontSize = 11, Padding = new Thickness(10, 4, 10, 4),
-            Margin = new Thickness(6, 0, 0, 0),
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            ToolTip = "从当前项目的图片资产中选择参考图（章节图片 / 人物素材 / 封面 / 头像）"
-        };
-        refPanel.Children.Add(assetRefBtn);
-        var refWrap = new WrapPanel { MaxWidth = 400, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
-        refPanel.Children.Add(refWrap);
-        // 右侧状态文字（供参考图缩略图更新引用，最早声明）
-        var statusLabel = new TextBlock
-        {
-            Text = "", FontSize = 11,
-            Foreground = (Brush)FindResource("TextSecondaryBrush"),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(12, 0, 0, 0),
-            TextTrimming = TextTrimming.CharacterEllipsis
-        };
-        var clearRefBtn = new Button
-        {
-            Content = "✕", FontSize = 11, Padding = new Thickness(6, 2, 6, 2),
-            Margin = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed,
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            ToolTip = "清除参考图"
-        };
-        refPanel.Children.Add(clearRefBtn);
 
-        // 应用参考图（缩略图流，支持多张；Flash 最多 5 张）
-        void ApplyRefImage(string path)
-        {
-            ViewHelpers.AddReferenceThumb(refWrap, path, refImages, UpdateRefState, maxCount: 5, refPaths: refPaths);
-            UpdateRefState();
-        }
+        // ===== 参考素材（图片/视频/音频）统一素材区，按上传类型自动分类并限制数量 =====
+        const int MaxRefImages = 5, MaxRefVideo = 1, MaxRefAudio = 3;
 
-        void UpdateRefState()
-        {
-            clearRefBtn.Visibility = refImages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            statusLabel.Text = refImages.Count switch
-            {
-                0 => "可添加多张参考图（图生视频 / 多图参考）",
-                1 => "1 张参考图：图生视频",
-                _ => $"{refImages.Count} 张参考图：多图参考"
-            };
-        }
+        string? refVideoData = null;   // 参考视频 base64（DataUrl）
+        string? refVideoPath = null;   // 参考视频源文件路径（用于历史回填）
+        string? sequelLabel = null;        // 视频续集尾帧当前 label
+        string? sequelFrameData = null;    // 尾帧 base64（供重建时保留尾帧参考图）
+        string? sequelFrameSource = null;  // 尾帧源视频路径
+        List<string> audioFiles = new();      // 参考音频源文件路径
+        List<string> audioDataUrls = new();   // 参考音频 base64（DataUrl）
+        Border? videoChip = null;             // 参考视频 chip（名称 + ✕）
+        List<Border> audioChips = new();      // 参考音频 chips（仅用于重排 <Audio N> 编号）
 
-        // 从本地文件选择参考图
-        refBtn.Click += (_, _) =>
-        {
-            var dlg = new Microsoft.Win32.OpenFileDialog
-            {
-                Filter = "图片文件|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif",
-                Title = "选择参考图片",
-                Multiselect = true
-            };
-            // 显式绑定 owner 为 AI 小窗口，避免对话框关闭后激活主窗口触发其误最小化
-            if (dlg.ShowDialog(win) != true) return;
-            ViewHelpers.AddReferenceThumbsAsync(refWrap, dlg.FileNames, refImages, UpdateRefState, maxCount: 5, refPaths: refPaths);
-            UpdateRefState();
-        };
+        // 参考素材区：非内联模式，标题+角标在左、操作按钮右对齐；内容区图片/视频/音频各占一行
+        var materialStrip = new MaterialStrip("参考素材",
+            "支持图片/视频/音频，按上传类型自动分类；图片 ≤5 张、视频 ≤1 段、音频 ≤3 段",
+            "🧩");
+        var addMaterialBtn = materialStrip.AddButton("添加素材",
+            "选择图片/视频/音频文件，按类型自动分类并限制数量（图片≤5 / 视频≤1 / 音频≤3）");
+        var clearAllBtn = materialStrip.AddButton("✕ 全部清除", "清除所有参考素材（参考图/参考视频/参考音频）");
+        clearAllBtn.Visibility = Visibility.Collapsed;
 
-        // 从项目资产中选择参考图（owner 传 AI 小窗口，避免模态选择器关闭时激活主窗口触发其误最小化）
-        assetRefBtn.Click += (_, _) =>
-        {
-            try
-            {
-                if (_currentNovel == null) { Toast("⚠ 请先选择小说"); return; }
-                var paths = ViewHelpers.PickProjectImages(
-                    win, "选择项目图片作为参考图（可多选）",
-                    App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder);
-                ViewHelpers.AddReferenceThumbsAsync(refWrap, paths, refImages, UpdateRefState, maxCount: 5, refPaths: refPaths);
-                UpdateRefState();
-            }
-            catch (Exception ex)
-            {
-                Toast($"⚠ 无法打开项目资产：{ex.Message}");
-            }
-        };
-
-        clearRefBtn.Click += (_, _) =>
-        {
-            refImages.Clear();
-            refPaths.Clear();
-            refWrap.Children.Clear();
-            UpdateRefState();
-        };
-
-        // ===== 视频参考（仅 agnes-video-2.5 非 Flash 支持）=====
-        string? refVideoData = null;
-        string? refVideoPath = null;  // 参考视频源文件路径（用于历史回填）
-        var videoRefBtn = new Button
-        {
-            Content = "🎞️ 参考视频（可选）", FontSize = 11, Padding = new Thickness(10, 4, 10, 4),
-            Margin = new Thickness(6, 0, 0, 0),
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            IsEnabled = !isFlashModel,
-            ToolTip = isFlashModel
-                ? "agnes-video-2.5-flash 不支持参考视频（videos 参数返回 400），请改用 agnes-video-2.5"
-                : "选择一段参考视频，延续其动作、镜头节奏与视觉表现（仅 agnes-video-2.5 支持）"
-        };
-        refPanel.Children.Add(videoRefBtn);
-        var videoRefName = new TextBlock
-        {
-            FontSize = 11,
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 0, 0),
-            Visibility = Visibility.Collapsed,
-            MaxWidth = 160,
-            TextTrimming = TextTrimming.CharacterEllipsis
-        };
-        refPanel.Children.Add(videoRefName);
-        var clearVideoRefBtn = new Button
-        {
-            Content = "✕", FontSize = 11, Padding = new Thickness(6, 2, 6, 2),
-            Margin = new Thickness(6, 0, 0, 0), Visibility = Visibility.Collapsed,
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            ToolTip = "清除参考视频"
-        };
-        refPanel.Children.Add(clearVideoRefBtn);
-
-        void ApplyRefVideo(string path)
-        {
-            var data = ViewHelpers.VideoToBase64DataUrl(path);
-            if (data == null) { Toast("⚠ 参考视频读取失败"); return; }
-            refVideoData = data;
-            refVideoPath = path;
-            videoRefName.Text = Path.GetFileName(path);
-            videoRefName.Visibility = Visibility.Visible;
-            clearVideoRefBtn.Visibility = Visibility.Visible;
-            Toast("✓ 已添加参考视频");
-        }
-        videoRefBtn.Click += (_, _) =>
-        {
-            var dlg = new Microsoft.Win32.OpenFileDialog
-            {
-                Filter = "视频文件|*.mp4;*.mkv;*.avi;*.mov;*.webm;*.wmv",
-                Title = "选择参考视频"
-            };
-            if (dlg.ShowDialog(win) != true) return;
-            ApplyRefVideo(dlg.FileName);
-        };
-        clearVideoRefBtn.Click += (_, _) =>
-        {
-            refVideoData = null;
-            refVideoPath = null;
-            videoRefName.Text = "";
-            videoRefName.Visibility = Visibility.Collapsed;
-            clearVideoRefBtn.Visibility = Visibility.Collapsed;
-        };
-
-        Grid.SetRow(refPanel, 0);
-        Grid.SetRow(statusLabel, 1);
-        topRow.Children.Add(refPanel);
-        topRow.Children.Add(statusLabel);
+        // 内容区：图片 / 视频 / 音频 各自独立一行，行内自动换行，避免混排溢出
+        var contentStack = new StackPanel { Orientation = Orientation.Vertical };
+        var imageWrap = new WrapPanel();                                        // 图片行
+        var videoRow = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };    // 视频行
+        var audioWrap = new WrapPanel { Margin = new Thickness(0, 4, 0, 0) };   // 音频行
+        contentStack.Children.Add(imageWrap);
+        contentStack.Children.Add(videoRow);
+        contentStack.Children.Add(audioWrap);
+        materialStrip.ContentPanel.Children.Add(contentStack);
 
         // ===== 右侧边栏：项目资产（点击按顺序编号，作为参考图顺序） =====
         var assetPaths = _currentNovel != null
             ? ViewHelpers.CollectProjectImagePaths(App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder)
             : new List<string>();
-        var assetPanel = new AssetPanel("项目资产", assetPaths, maxCount: 5);
+        var assetPanel = new AssetPanel("项目资产", assetPaths, maxCount: MaxRefImages);
+        // 参考图缩略图被 ✕ 删除时：同步移除右侧栏对应选中项（保留其余顺序与编号），并刷新 @ 提及候选
+        void RemoveSelectedRef(string p)
+        {
+            assetPanel.RemoveSelected(p);
+            UpdateMergedState();
+        }
+
+        // 应用参考图（缩略图流，支持多张；最多 MaxRefImages 张）
+        void ApplyRefImage(string path)
+        {
+            ViewHelpers.AddReferenceThumb(imageWrap, path, refImages, UpdateMergedState, maxCount: MaxRefImages, refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
+            UpdateMergedState();
+        }
+
+        // 构建「文件名 + ✕」样式的 chip（参考视频 / 参考音频共用）
+        Border MakeFileChip(string label, string tooltip, Action onRemove)
+        {
+            var chip = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(0x20, 0x4A, 0x90, 0xE2)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(0x66, 0x4A, 0x90, 0xE2)),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(4, 2, 4, 2), Margin = new Thickness(0, 1, 6, 1),
+                ToolTip = tooltip
+            };
+            var lay = new StackPanel { Orientation = Orientation.Horizontal };
+            lay.Children.Add(new TextBlock
+            {
+                Text = label, FontSize = 9.5, Foreground = Brushes.White,
+                VerticalAlignment = VerticalAlignment.Center, MaxWidth = 170,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            var removeBtn = new Button
+            {
+                Content = "✕", FontSize = 9, Padding = new Thickness(2, 0, 2, 0), Margin = new Thickness(4, 0, 0, 0),
+                Background = Brushes.Transparent, Foreground = Brushes.White,
+                BorderThickness = new Thickness(0), Cursor = Cursors.Hand, ToolTip = "移除该项"
+            };
+            removeBtn.Click += (_, _) => onRemove();
+            lay.Children.Add(removeBtn);
+            chip.Child = lay;
+            return chip;
+        }
+
+        // 参考视频：替换式添加 chip（仅 1 段；agnes-video-2.5-flash 不支持）
+        void AddVideoRef(string path)
+        {
+            if (isFlashModel)
+            {
+                Toast("⚠ agnes-video-2.5-flash 不支持参考视频，请改用 agnes-video-2.5");
+                return;
+            }
+            var data = ViewHelpers.VideoToBase64DataUrl(path);
+            if (data == null) { Toast("⚠ 参考视频读取失败"); return; }
+            if (videoChip != null) videoRow.Children.Remove(videoChip);
+            refVideoData = data;
+            refVideoPath = path;
+            videoChip = MakeFileChip($"<Video 1> {Path.GetFileName(path)}", path, RemoveVideoRef);
+            videoRow.Children.Add(videoChip);
+            Toast("✓ 已添加参考视频");
+            UpdateMergedState();
+        }
+        void RemoveVideoRef()
+        {
+            if (videoChip != null) videoRow.Children.Remove(videoChip);
+            videoChip = null;
+            refVideoData = null;
+            refVideoPath = null;
+            UpdateMergedState();
+        }
+
+        // 参考音频：追加 chip（自动编号 <Audio N>，最多 MaxRefAudio 段）
+        void AddAudioRef(string path)
+        {
+            if (audioDataUrls.Count >= MaxRefAudio) { Toast($"⚠ 参考音频最多 {MaxRefAudio} 段，已忽略多余文件"); return; }
+            if (audioFiles.Contains(path)) { Toast("⚠ 该音频已在列表中"); return; }
+            var data = ViewHelpers.AudioToBase64DataUrl(path);
+            if (string.IsNullOrEmpty(data)) { Toast($"⚠ 无法读取音频：{Path.GetFileName(path)}"); return; }
+            audioFiles.Add(path);
+            audioDataUrls.Add(data);
+            Border chip = null!;   // 先声明，供移除回调捕获使用
+            chip = MakeFileChip($"<Audio {audioDataUrls.Count}> {Path.GetFileName(path)}", path, () =>
+            {
+                var i = audioChips.IndexOf(chip);
+                if (i < 0) return;
+                audioWrap.Children.Remove(chip);
+                audioChips.RemoveAt(i);
+                audioFiles.RemoveAt(i);
+                audioDataUrls.RemoveAt(i);
+                RenumberAudioChips();
+            });
+            audioChips.Add(chip);
+            audioWrap.Children.Add(chip);
+        }
+        void RenumberAudioChips()
+        {
+            for (int i = 0; i < audioChips.Count; i++)
+                if (audioChips[i].Child is StackPanel sp && sp.Children.Count > 0 && sp.Children[0] is TextBlock t)
+                    t.Text = $"<Audio {i + 1}> {Path.GetFileName(audioFiles[i])}";
+            UpdateMergedState();
+        }
+
+        // 依据扩展名自动归类上传：图片→参考图、视频→参考视频、音频→参考音频，并自动限制数量
+        void AddMaterialFiles(string[] files)
+        {
+            foreach (var file in files)
+            {
+                var ext = Path.GetExtension(file).ToLowerInvariant();
+                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif") ApplyRefImage(file);
+                else if (ext is ".mp4" or ".mkv" or ".avi" or ".mov" or ".wmv" or ".webm") AddVideoRef(file);
+                else if (ext is ".mp3" or ".wav" or ".m4a" or ".aac" or ".flac" or ".ogg" or ".wma") AddAudioRef(file);
+                else Toast($"⚠ 不支持的类型：{Path.GetFileName(file)}");
+            }
+            UpdateMergedState();
+        }
+
+        // 统一刷新：角标 = 总数量，提示文字与 @ 提及候选随参考图路径更新
+        void UpdateMergedState()
+        {
+            var imgs = refImages.Count;
+            var hasVideo = !string.IsNullOrWhiteSpace(refVideoData);
+            var auds = audioDataUrls.Count;
+            var total = imgs + (hasVideo ? 1 : 0) + auds;
+            clearAllBtn.Visibility = total > 0 ? Visibility.Visible : Visibility.Collapsed;
+            materialStrip.SetCount(total);
+            var parts = new List<string>();
+            if (imgs > 0) parts.Add($"图片 {imgs}/{MaxRefImages}");
+            if (hasVideo) parts.Add($"视频 1/{MaxRefVideo}");
+            if (auds > 0) parts.Add($"音频 {auds}/{MaxRefAudio}");
+            materialStrip.HintText.Text = parts.Count == 0
+                ? "支持图片/视频/音频，按上传类型自动分类；图片 ≤5 张、视频 ≤1 段、音频 ≤3 段"
+                : $"已选：{string.Join("、", parts)}；提示词用 @图片名 / <Video 1> / <Audio N> 指代";
+            // 参考图（路径）变化时同步 @ 提及候选与图像名称自动匹配
+            promptBox.SetRefImages(refPaths);
+        }
+
+        // 「添加素材」：支持多选，按扩展名自动归类
+        addMaterialBtn.Click += (_, _) =>
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "素材文件（图片/视频/音频）|*.png;*.jpg;*.jpeg;*.webp;*.bmp;*.gif;*.mp4;*.mkv;*.avi;*.mov;*.wmv;*.webm;*.mp3;*.wav;*.m4a;*.aac;*.flac;*.ogg;*.wma",
+                Title = "选择参考素材（图片/视频/音频，可多选）", Multiselect = true
+            };
+            if (dlg.ShowDialog(win) != true) return;
+            AddMaterialFiles(dlg.FileNames);
+        };
+
+        // 全部清除：同时清空参考素材与右侧栏资产选择
+        void ClearAllMaterials()
+        {
+            assetPanel.ClearSelection();
+            refImages.Clear(); refPaths.Clear();
+            audioFiles.Clear(); audioDataUrls.Clear(); audioChips.Clear();
+            refVideoData = null; refVideoPath = null; videoChip = null;
+            imageWrap.Children.Clear();
+            videoRow.Children.Clear();
+            audioWrap.Children.Clear();
+            sequelLabel = null; sequelFrameData = null; sequelFrameSource = null;
+            UpdateMergedState();
+        }
+        clearAllBtn.Click += (_, _) => ClearAllMaterials();
+
+        // 仅清空参考图缩略图（保留参考视频/参考音频 chip）
+        void ClearReferenceImages()
+        {
+            refImages.Clear(); refPaths.Clear();
+            for (int i = imageWrap.Children.Count - 1; i >= 0; i--)
+                if (imageWrap.Children[i] is Border b && b.Tag is string s && s == "refthumb") imageWrap.Children.RemoveAt(i);
+        }
 
         // 右侧栏选择顺序 → 重建参考图列表（含手动添加的本地参考图共存于 refImages）
         void RebuildRefsFromAssets()
         {
-            refImages.Clear();
-            refPaths.Clear();
-            refWrap.Children.Clear();
-            ViewHelpers.AddReferenceThumbsAsync(refWrap, assetPanel.SelectedOrder, refImages,
-                UpdateRefState, maxCount: 5, refPaths: refPaths);
-            UpdateRefState();
+            // 保留「视频续集尾帧」参考图，避免重建时被清掉（重建会按右侧资产顺序重排普通图）
+            string? saveData = sequelFrameData, saveSrc = sequelFrameSource, saveLabel = sequelLabel;
+            ClearReferenceImages();
+            // 尾帧先占一个槽位，其余留给新增资产，保证尾帧不因数量上限被挤掉
+            if (saveLabel != null && saveData != null)
+                ViewHelpers.AddReferenceFrame(imageWrap, saveData, saveLabel, saveSrc ?? "", refImages, refPaths, UpdateMergedState, maxCount: MaxRefImages);
+            ViewHelpers.AddReferenceThumbsAsync(imageWrap, assetPanel.SelectedOrder, refImages,
+                UpdateMergedState, maxCount: MaxRefImages, refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
+            UpdateMergedState();
         }
         assetPanel.SelectionChanged = RebuildRefsFromAssets;
-        // 清除参考图（同时清空右侧栏资产选择）
-        clearRefBtn.Click += (_, _) =>
-        {
-            assetPanel.ClearSelection();
-            refImages.Clear();
-            refPaths.Clear();
-            refWrap.Children.Clear();
-            UpdateRefState();
-        };
+
+        materialStack.Children.Add(materialStrip.Root);
 
         // ===== 左侧边栏：文本导入/编辑/选区加入/导出 + 默认提示词 =====
-        void AppendPromptText(string t)
-        {
-            var cur = promptBox.Text;
-            promptBox.Text = string.IsNullOrWhiteSpace(cur) ? t : cur.TrimEnd() + "\n" + t;
-            promptBox.CaretIndex = promptBox.Text.Length;
-            promptBox.Focus();
-        }
+        void AppendPromptText(string t) => promptBox.AppendText(t);
         var promptPanel = new PromptPanel(win, "Video")
         {
             AppendToPrompt = AppendPromptText
         };
 
-        // ===== 中央：提示词输入 + 参考图区 =====
+        // ===== 中央：提示词输入 + 参考素材区 =====
         var center = new Grid();
         center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 0 提示词
         center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });                  // 1 间距
-        center.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // 2 参考图
-        Grid.SetRow(promptBox, 0);
-        center.Children.Add(promptBox);
-        Grid.SetRow(topRow, 2);
-        center.Children.Add(topRow);
+        center.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // 2 参考素材
+        var promptHost = promptBox;
+        Grid.SetRow(promptHost, 0);
+        center.Children.Add(promptHost);
+        Grid.SetRow(materialStack, 2);
+        center.Children.Add(materialStack);
 
-        // 第2行：参数卡片 + 生成按钮（右对齐）
-        var bottomRow = new DockPanel();
+        // 第2行：参数卡片（占满行宽）+ 操作按钮（右对齐）
+        var bottomRow = new Grid();
+        bottomRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // 0 参数卡片
+        bottomRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                     // 1 按钮区
 
-        // 右侧参数 + 按钮容器
-        var rightPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        // 右侧按钮容器（查看队列 / 历史 / 生成）
+        var rightPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center
+        };
 
-        // 参数卡片：分辨率档位 + 横竖屏 + 时长滑动条 + FPS
+        // 参数卡片：分辨率档位 + 横竖屏 + 时长滑动条（滑块自动拉伸占满行内剩余宽度）
         var paramCard = new Border
         {
             Background = (Brush)FindResource("CardBackgroundBrush"),
@@ -1286,12 +1318,22 @@ public partial class VideoPage : UserControl
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(12, 6, 12, 6),
-            Margin = new Thickness(0, 0, 10, 0)
+            Margin = new Thickness(0, 0, 10, 0),
+            VerticalAlignment = VerticalAlignment.Center
         };
-        var paramRow = new StackPanel { Orientation = Orientation.Horizontal };
+        var paramRow = new Grid();
+        paramRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                       // 0 画质组
+        paramRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });                   // 1 间距
+        paramRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                       // 2 比例组
+        paramRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });                   // 3 间距
+        paramRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                       // 4 “时长”标签
+        paramRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });  // 5 时长滑块（拉伸）
+        paramRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                       // 6 秒数框
+        paramRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                       // 7 “秒”标签
 
         // 分辨率档位（480P / 720P / 1080P / 2K）
-        paramRow.Children.Add(new TextBlock
+        var levelGroup = new StackPanel { Orientation = Orientation.Horizontal };
+        levelGroup.Children.Add(new TextBlock
         {
             Text = "画质", FontSize = 11,
             Foreground = (Brush)FindResource("TextSecondaryBrush"),
@@ -1301,7 +1343,7 @@ public partial class VideoPage : UserControl
         var levelBox = new ComboBox
         {
             Width = 74, Height = 26, FontSize = 12,
-            ItemsSource = ViewHelpers.VideoLevelsForModel(config.VideoModel),
+            ItemsSource = ViewHelpers.VideoLevelsForModel(config.VideoApi.ModelId),
             SelectedItem = "720P",
             ToolTip = isFlashModel
                 ? "agnes-video-2.5-flash 固定输出 720P"
@@ -1312,15 +1354,18 @@ public partial class VideoPage : UserControl
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             Padding = new Thickness(6, 0, 6, 0)
         };
-        paramRow.Children.Add(levelBox);
+        levelGroup.Children.Add(levelBox);
+        Grid.SetColumn(levelGroup, 0);
+        paramRow.Children.Add(levelGroup);
 
         // 比例（16:9 / 9:16 / 1:1 / 4:3 / 3:4）
-        paramRow.Children.Add(new TextBlock
+        var ratioGroup = new StackPanel { Orientation = Orientation.Horizontal };
+        ratioGroup.Children.Add(new TextBlock
         {
             Text = "比例", FontSize = 11,
             Foreground = (Brush)FindResource("TextSecondaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 4, 0)
+            Margin = new Thickness(0, 0, 4, 0)
         });
         var ratioBox = new ComboBox
         {
@@ -1333,17 +1378,26 @@ public partial class VideoPage : UserControl
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             Padding = new Thickness(6, 0, 6, 0)
         };
-        paramRow.Children.Add(ratioBox);
+        ratioGroup.Children.Add(ratioBox);
+        Grid.SetColumn(ratioGroup, 2);
+        paramRow.Children.Add(ratioGroup);
 
-        // 时长滑动条（agnes-video 2.5 系列 seconds 支持 4–12）
-        paramRow.Children.Add(new TextBlock
+        // 时长滑动条（agnes-video 2.5 系列 seconds 支持 4–12，滑块拉伸占满剩余宽度）
+        var durLabel = new TextBlock
         {
             Text = "时长", FontSize = 11,
             Foreground = (Brush)FindResource("TextSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(durLabel, 4);
+        paramRow.Children.Add(durLabel);
+        var secSlider = new Slider
+        {
+            Minimum = 4, Maximum = 12, Value = 5,
             VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(8, 0, 4, 0)
-        });
-        var secSlider = new Slider { Minimum = 4, Maximum = 12, Value = 5, Width = 90, VerticalAlignment = VerticalAlignment.Center };
+            HorizontalAlignment = HorizontalAlignment.Stretch
+        };
+        Grid.SetColumn(secSlider, 5);
         paramRow.Children.Add(secSlider);
         var secBox = new TextBox
         {
@@ -1355,16 +1409,19 @@ public partial class VideoPage : UserControl
             BorderThickness = new Thickness(1),
             Padding = new Thickness(2, 0, 2, 0),
             VerticalContentAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(4, 0, 0, 0)
+            Margin = new Thickness(6, 0, 0, 0)
         };
+        Grid.SetColumn(secBox, 6);
         paramRow.Children.Add(secBox);
-        paramRow.Children.Add(new TextBlock
+        var secLabel = new TextBlock
         {
             Text = "秒", FontSize = 11,
             Foreground = (Brush)FindResource("TextSecondaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(2, 0, 0, 0)
-        });
+        };
+        Grid.SetColumn(secLabel, 7);
+        paramRow.Children.Add(secLabel);
 
         // 当前允许的最大秒数（agnes-video 2.5 系列固定 12）
         int maxSec = 12;
@@ -1412,7 +1469,6 @@ public partial class VideoPage : UserControl
         };
 
         paramCard.Child = paramRow;
-        rightPanel.Children.Add(paramCard);
 
         var queueBtn = new Button
         {
@@ -1422,6 +1478,7 @@ public partial class VideoPage : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Style = (Style)FindResource("SecondaryButtonStyle")
         };
+        ViewHelpers.AttachQueueBadge(queueBtn);
         queueBtn.Click += (_, _) => OpenQueueWindow();
         rightPanel.Children.Add(queueBtn);
 
@@ -1460,16 +1517,16 @@ public partial class VideoPage : UserControl
 
                 // 回填参考图：先同步右侧栏选择顺序（存在的资产），再补充非资产路径
                 assetPanel.SetSelection(e.RefImagePaths);
-                refImages.Clear(); refPaths.Clear(); refWrap.Children.Clear();
+                ClearReferenceImages();
                 var ordered = assetPanel.SelectedOrder.ToList();
                 foreach (var p in e.RefImagePaths)
                     if (!ordered.Contains(p) && System.IO.File.Exists(p)) ordered.Add(p);
-                ViewHelpers.AddReferenceThumbsAsync(refWrap, ordered, refImages,
-                    UpdateRefState, maxCount: 5, refPaths: refPaths);
+                ViewHelpers.AddReferenceThumbsAsync(imageWrap, ordered, refImages,
+                    UpdateMergedState, maxCount: MaxRefImages, refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
                 // 回填参考视频
                 if (!string.IsNullOrWhiteSpace(e.RefVideoPath) && System.IO.File.Exists(e.RefVideoPath) && !isFlashModel)
-                    ApplyRefVideo(e.RefVideoPath);
-                UpdateRefState();
+                    AddVideoRef(e.RefVideoPath);
+                UpdateMergedState();
                 Toast("✓ 已从历史回填");
             }
             catch (Exception ex) { Toast($"⚠ 历史回填失败：{ex.Message}"); }
@@ -1483,16 +1540,46 @@ public partial class VideoPage : UserControl
             Style = (Style)FindResource("PrimaryButtonStyle")
         };
         rightPanel.Children.Add(genBtn);
-        DockPanel.SetDock(rightPanel, Dock.Right);
+        Grid.SetColumn(paramCard, 0);
+        bottomRow.Children.Add(paramCard);
+        Grid.SetColumn(rightPanel, 1);
         bottomRow.Children.Add(rightPanel);
 
+        // ===== 视频连贯（首尾帧）面板：上传两段视频自动取 A 尾帧/B 首帧，或手动精准选帧 =====
+        var videoAssets = _currentNovel != null
+            ? ViewHelpers.CollectProjectVideoPaths(App.WorkRoot, _currentNovel.Id)
+            : new List<string>();
+        var continuity = new VideoContinuityPanel(win, videoAssets, startCollapsed: true) { Notify = Toast };
+        footerStack.Children.Add(continuity.Root);
+
+        // ===== 视频续集（尾帧参考）面板：上传上一段视频自动提取尾帧作参考图，或手动选帧 =====
+        var sequel = new VideoSequelPanel(win, videoAssets, startCollapsed: true) { Notify = Toast };
+        sequel.FrameReady += (data, label, sourcePath) =>
+        {
+            sequelLabel = label;
+            sequelFrameData = data;
+            sequelFrameSource = sourcePath;
+            // 帧数据加入参考图列表，同时让 @ 提及与名称自动匹配识别（伪路径 frame://label|源路径）
+            ViewHelpers.AddReferenceFrame(imageWrap, data, label, sourcePath, refImages, refPaths, UpdateMergedState, maxCount: MaxRefImages);
+        };
+        sequel.FrameCleared += () =>
+        {
+            if (sequelLabel != null)
+            {
+                ViewHelpers.RemoveReferenceFrame(imageWrap, refImages, refPaths, sequelLabel, UpdateMergedState);
+                sequelLabel = null;
+                sequelFrameData = null;
+                sequelFrameSource = null;
+            }
+        };
+        footerStack.Children.Add(sequel.Root);
         footerStack.Children.Add(bottomRow);
         Grid.SetRow(footerStack, 4);
         Grid.SetColumnSpan(footerStack, 3);
         grid.Children.Add(footerStack);
 
         // 三栏布局（左右栏可拖拽调整宽度并持久化）：左栏（提示词素材） | 中央（提示词+参考图） | 右栏（项目资产）
-        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel.Root, center, assetPanel.Root);
+        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel, center, assetPanel);
         Grid.SetRow(bodyRow, 2);
         Grid.SetColumnSpan(bodyRow, 3);
         grid.Children.Add(bodyRow);
@@ -1516,15 +1603,20 @@ public partial class VideoPage : UserControl
                 bool hasRef = refImages.Count > 0;
 
                 // 使用用户自定义的优化 Skill（设置 → AI 生成 Skill 中编辑）
+                var optPrompt = ViewHelpers.ResolveRefMentions(rawPrompt, refImages, "picture");   // @名 → <Picture N>
                 var (sys, userMsg) = ViewHelpers.BuildOptimizePrompt(
-                    config.VideoOptimizeSkill, rawPrompt, hasRef, refImages.Count, subject: "视频");
+                    config.VideoOptimizeSkill, optPrompt, hasRef, refImages.Count, subject: "视频",
+                    language: FileService.LoadConfig(App.WorkRoot).OptimizePromptLanguage, markerStyle: "picture");
 
                 // 有参考图时，将参考图作为视觉输入一起交给模型；否则仅用文本
+                var optCfg = config.TextApi;
+                PromptMentionBox.Dbg($"OPTV start hasRef={hasRef} txt={{url={(optCfg?.BaseUrl is null ? "NULL" : "set")},key={(string.IsNullOrEmpty(optCfg?.ApiKey) ? "∅" : "set")},model={(optCfg?.ModelId ?? "NULL")}}}");
                 var result = hasRef
                     ? await ApiService.ChatWithImagesAsync(
-                        config.ApiEndpoint, config.ApiKey, config.ApiModel, sys, userMsg, refImages)
+                        config.TextApi.BaseUrl, config.TextApi.ApiKey, config.TextApi.ModelId, sys, userMsg, refImages)
                     : await ApiService.ChatAsync(
-                        config.ApiEndpoint, config.ApiKey, config.ApiModel, sys, userMsg);
+                        config.TextApi.BaseUrl, config.TextApi.ApiKey, config.TextApi.ModelId, sys, userMsg);
+                PromptMentionBox.Dbg($"OPTV result-len={(result?.Length ?? -1)} head={(result?.Substring(0, Math.Min(60, result.Length)) ?? "NULL")}");
 
                 if (!string.IsNullOrWhiteSpace(result))
                 {
@@ -1535,10 +1627,12 @@ public partial class VideoPage : UserControl
             catch (ApiException ex)
             {
                 Toast($"⚠ {ex.Message}");
+                PromptMentionBox.Dbg($"OPTV ApiException:{ex.Message}");
             }
             catch (Exception ex)
             {
                 Toast($"⚠ 优化失败：{ex.Message}");
+                PromptMentionBox.Dbg($"OPTV Exception:{ex.GetType().Name}:{ex.Message}");
             }
             finally
             {
@@ -1563,7 +1657,8 @@ public partial class VideoPage : UserControl
         // 生成按钮：创建任务并入队，窗口保持打开，生成交给后台队列串行执行
         genBtn.Click += (_, _) =>
         {
-            var prompt = ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Video");
+            var prompt = ViewHelpers.ResolveRefMentions(
+                ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Video"), refImages, "picture");
             if (string.IsNullOrWhiteSpace(prompt))
             { Toast("⚠ 请输入提示词"); return; }
 
@@ -1572,12 +1667,21 @@ public partial class VideoPage : UserControl
             var seconds = (int)Math.Clamp(Math.Round(secSlider.Value), 4, ViewHelpers.CalcVideoMaxSeconds(level, ratio));
             var hasImageRef = refImages.Count > 0;
             var hasVideoRef = !string.IsNullOrWhiteSpace(refVideoData);
-            // 参考模式按文档补齐 <Picture N>/<Video 1> 提示词引用
-            var finalPrompt = ViewHelpers.BuildVideoPrompt(prompt, refImages.Count, hasVideoRef ? 1 : 0);
+            // 视频连贯（首尾帧）：两个帧都必须设置才能以 keyframe 模式提交
+            var hasKeyframes = continuity.HasAnyFrame;
+            if (hasKeyframes && (continuity.FirstFrameDataUrl == null || continuity.LastFrameDataUrl == null))
+            { Toast("⚠ 视频连贯需同时设置首帧和尾帧，请补全后再生成"); return; }
+            // 参考模式按文档补齐 <Picture N>/<Video N>/<Audio N> 提示词引用（首尾帧模式不追加参考标签）
+            var hasAudioRef = audioDataUrls.Count > 0;
+            var finalPrompt = hasKeyframes
+                ? prompt
+                : ViewHelpers.BuildVideoPrompt(prompt, refImages.Count, hasVideoRef ? 1 : 0, audioDataUrls.Count);
 
             var detail = $"{level}·{ratio}·{seconds}s";
             if (hasImageRef) detail += $"·参考图{refImages.Count}";
             if (hasVideoRef) detail += "·参考视频";
+            if (hasAudioRef) detail += $"·音频{audioDataUrls.Count}";
+            if (hasKeyframes) detail += "·首尾帧";
 
             // 快照当前小说/章节，防止用户切换后任务保存到错误目录
             var novel = _currentNovel;
@@ -1587,14 +1691,18 @@ public partial class VideoPage : UserControl
                 Type = AiTaskType.Video,
                 Prompt = finalPrompt,
                 Detail = detail,
-                ApiEndpoint = config.ApiEndpoint,
-                ApiKey = config.ApiKey,
-                Model = config.VideoModel,
+                ApiEndpoint = config.VideoApi.BaseUrl,
+                ApiKey = config.VideoApi.ApiKey,
+                Model = config.VideoApi.ModelId,
+                ApiProvider = config.VideoApi.Provider,
                 TargetDir = FileService.ChapterVideosPath(App.WorkRoot, novel.MediaFolder, chapter.FolderName),
                 FileNameBase = $"AI_{DateTime.Now:yyyyMMdd_HHmmss_fff}",
                 VideoSize = level, VideoRatio = ratio, VideoSeconds = seconds,
                 ReferenceImages = hasImageRef ? new List<string>(refImages) : null,
                 ReferenceVideos = hasVideoRef ? new List<string> { refVideoData! } : null,
+                ReferenceAudios = (!hasKeyframes && audioDataUrls.Count > 0) ? new List<string>(audioDataUrls) : null,
+                FirstFrame = continuity.FirstFrameDataUrl,
+                LastFrame = continuity.LastFrameDataUrl,
                 NovelName = novel.Name,
                 ScopeName = $"第{chapter.Index}章 {chapter.Title}"
             };
@@ -1608,9 +1716,11 @@ public partial class VideoPage : UserControl
                 Seconds = seconds,
                 RefImagePaths = new List<string>(refPaths),
                 RefVideoPath = refVideoPath ?? "",
-                EngineBadge = config.VideoModel
+                EngineBadge = config.VideoApi.ModelId
             });
-            Toast("✓ 已加入 AI 任务队列，窗口保持打开");
+            Toast(hasKeyframes
+                ? "✓ 已加入 AI 任务队列（首尾帧连贯模式），窗口保持打开"
+                : "✓ 已加入 AI 任务队列，窗口保持打开");
         };
 
         // 异步窗口：非模态显示且无 Owner，用户可关闭窗口/离开页面做其他事，生成在后台队列中继续

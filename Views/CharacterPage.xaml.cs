@@ -618,9 +618,9 @@ public partial class CharacterPage : UserControl
         }
 
         var config = FileService.LoadConfig(App.WorkRoot);
-        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
+        if (!config.TextApi.IsConfigured)
         {
-            Toast("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥");
+            Toast("⚠ 请先在「AI 接口配置」窗口中配置文本接口地址和密钥");
             return;
         }
 
@@ -671,7 +671,7 @@ public partial class CharacterPage : UserControl
         try
         {
             await ApiService.ChatStreamAsync(
-                config.ApiEndpoint, config.ApiKey, config.ApiModel,
+                config.TextApi.BaseUrl, config.TextApi.ApiKey, config.TextApi.ModelId,
                 sysPrompt, userMsg,
                 onToken: token =>
                 {
@@ -823,6 +823,7 @@ public partial class CharacterPage : UserControl
                     if (!_multiSelectMode)
                         ViewHelpers.ShowImageViewer(ip, Window.GetWindow(this));
                 };
+                card.ContextMenu = ViewHelpers.BuildAssetContextMenu(ip, () => ViewHelpers.ShowImageViewer(ip, Window.GetWindow(this)));
                 ia.Children.Add(charImg);
                 ia.Children.Add(selOverlay);
 
@@ -1405,6 +1406,12 @@ public partial class CharacterPage : UserControl
         }
     }
 
+    private void OpenAudioLocation_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem mi && mi.Tag is string filePath)
+            ViewHelpers.OpenInExplorer(filePath);
+    }
+
     private void CharAudio_Drop(object sender, DragEventArgs e)
     {
         if (_currentNovel == null || _currentCharacter == null) return;
@@ -1435,9 +1442,16 @@ public partial class CharacterPage : UserControl
         if (_currentNovel == null || _currentCharacter == null) return;
 
         var config = FileService.LoadConfig(App.WorkRoot);
-        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
+        // 默认生图引擎（全局设置）：ComfyUI 本地生图 或 云端 API
+        bool useComfy = config.DefaultImageProvider == "ComfyUI";
+        if (!useComfy && !config.ImageApi.IsConfigured)
         {
-            Toast("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥");
+            Toast("⚠ 使用在线 API 需先在「AI 接口配置」窗口中配置图片接口地址和密钥");
+            return;
+        }
+        if (useComfy && (string.IsNullOrWhiteSpace(config.ComfyUiEndpoint) || string.IsNullOrWhiteSpace(config.ComfyUiWorkflowFile)))
+        {
+            Toast("⚠ 使用本地 ComfyUI 需先在「AI 接口配置」窗口中配置 ComfyUI 地址和工作流文件");
             return;
         }
 
@@ -1473,9 +1487,10 @@ public partial class CharacterPage : UserControl
         var headerGrid = new Grid();
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         headerGrid.Children.Add(new TextBlock
         {
-            Text = $"为角色「{_currentCharacter.Name}」输入图片生成提示词",
+            Text = $"为角色「{_currentCharacter.Name}」输入图片生成提示词 · {(useComfy ? "本地 ComfyUI" : "云端 API")}",
             FontSize = 14, FontWeight = FontWeights.SemiBold,
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             VerticalAlignment = VerticalAlignment.Center
@@ -1490,66 +1505,45 @@ public partial class CharacterPage : UserControl
         };
         Grid.SetColumn(optimizeBtn, 1);
         headerGrid.Children.Add(optimizeBtn);
+
         Grid.SetRow(headerGrid, 0);
         Grid.SetColumnSpan(headerGrid, 3);
         grid.Children.Add(headerGrid);
 
-        var promptBox = new TextBox
+        var promptBox = new PromptMentionBox
         {
             Text = personalityHint,
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontSize = 13.5,
-            FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            Background = (Brush)FindResource("CardBackgroundBrush"),
-            BorderBrush = (Brush)FindResource("BorderBrush"),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(12, 10, 12, 10),
-            VerticalContentAlignment = VerticalAlignment.Top
+            Watermark = "在此输入提示词…"
         };
+
+        // 「提示词设置」按钮（优化提示词右侧，内含中英文切换 + 实时自动匹配）
+        var settingsBtn = ViewHelpers.BuildGenSettingsButton(promptBox, msg => Toast(msg));
+        Grid.SetColumn(settingsBtn, 2);
+        headerGrid.Children.Add(settingsBtn);
         // 提示词放入中央子网格（三栏布局构建 center 时再挂载）
 
         // ===== 参考图区域（0 张=文生图，1 张=图生图，多张=多图编辑） =====
         var refImages = new List<string>(); // Data URI Base64
         var refPaths = new List<string>();  // 与 refImages 对应的源文件路径（用于历史回填）
-        var refPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
-        var addRefBtn = new Button
+        var refStrip = new MaterialStrip("参考图", "可添加 1 张（图生图）或多张（多图编辑）参考图", "🖼️");
+        var refPanel = refStrip.ContentPanel;
+        var addRefBtn = refStrip.AddButton("添加参考图", "选择本地图片作为参考：1 张=图生图，多张=多图编辑/合成（在提示词中说明组合方式）");
+        var assetRefBtn = refStrip.AddButton("📁 项目资产", "从当前项目的图片资产中选择参考图（章节图片 / 人物素材 / 封面 / 头像）");
+        var clearRefBtn = refStrip.AddButton("✕ 清除", "清除参考图");
+        clearRefBtn.Visibility = Visibility.Collapsed;
+        var refHintText = refStrip.HintText;
+
+        // ===== 右侧边栏：项目资产（点击按顺序编号，作为参考图顺序） =====
+        var assetPaths = _currentNovel != null
+            ? ViewHelpers.CollectProjectImagePaths(App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder)
+            : new List<string>();
+        var assetPanel = new AssetPanel("项目资产", assetPaths, maxCount: 6);
+        // 参考图缩略图被 ✕ 删除时：同步移除右侧栏对应选中项（保留其余顺序与编号），并刷新 @ 提及候选
+        void RemoveSelectedRef(string p)
         {
-            Content = "🖼️ 添加参考图", FontSize = 11,
-            Padding = new Thickness(10, 4, 10, 4),
-            Margin = new Thickness(0, 0, 6, 0),
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            ToolTip = "选择本地图片作为参考：1 张=图生图，多张=多图编辑/合成（在提示词中说明组合方式）"
-        };
-        refPanel.Children.Add(addRefBtn);
-        var assetRefBtn = new Button
-        {
-            Content = "📁 项目资产", FontSize = 11,
-            Padding = new Thickness(10, 4, 10, 4),
-            Margin = new Thickness(0, 0, 6, 0),
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            ToolTip = "从当前项目的图片资产中选择参考图（章节图片 / 人物素材 / 封面 / 头像）"
-        };
-        refPanel.Children.Add(assetRefBtn);
-        var clearRefBtn = new Button
-        {
-            Content = "✕ 清除", FontSize = 11,
-            Padding = new Thickness(8, 4, 8, 4),
-            Margin = new Thickness(0, 0, 8, 0),
-            Visibility = Visibility.Collapsed,
-            Style = (Style)FindResource("SecondaryButtonStyle")
-        };
-        refPanel.Children.Add(clearRefBtn);
-        var refHintText = new TextBlock
-        {
-            Text = "可添加 1 张（图生图）或多张（多图编辑）参考图",
-            FontSize = 10.5,
-            Foreground = (Brush)FindResource("TextTertiaryBrush"),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        refPanel.Children.Add(refHintText);
+            assetPanel.RemoveSelected(p);
+            SyncMentions();
+        }
 
         addRefBtn.Click += (_, _) =>
         {
@@ -1563,8 +1557,9 @@ public partial class CharacterPage : UserControl
             if (dlg.ShowDialog(win) != true) return;
             ViewHelpers.AddReferenceThumbsAsync(refPanel, dlg.FileNames, refImages,
                 () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                refPaths: refPaths);
+                refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         };
         // 从项目资产中选择参考图（多选，按点击顺序排序）
         assetRefBtn.Click += (_, _) =>
@@ -1577,8 +1572,9 @@ public partial class CharacterPage : UserControl
                     App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder);
                 ViewHelpers.AddReferenceThumbsAsync(refPanel, paths, refImages,
                     () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                    refPaths: refPaths);
+                    refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+                SyncMentions();
             }
             catch (Exception ex)
             {
@@ -1595,16 +1591,11 @@ public partial class CharacterPage : UserControl
                     refPanel.Children.RemoveAt(i);
             }
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         };
 
         var refRow = new Grid();
-        refRow.Children.Add(refPanel);
-
-        // ===== 右侧边栏：项目资产（点击按顺序编号，作为参考图顺序） =====
-        var assetPaths = _currentNovel != null
-            ? ViewHelpers.CollectProjectImagePaths(App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder)
-            : new List<string>();
-        var assetPanel = new AssetPanel("项目资产", assetPaths, maxCount: 6);
+        refRow.Children.Add(refStrip.Root);
 
         void RemoveRefThumbs()
         {
@@ -1620,8 +1611,9 @@ public partial class CharacterPage : UserControl
             RemoveRefThumbs();
             ViewHelpers.AddReferenceThumbsAsync(refPanel, assetPanel.SelectedOrder, refImages,
                 () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                refPaths: refPaths);
+                refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         }
         assetPanel.SelectionChanged = RebuildRefsFromAssets;
         // 清除参考图（同时清空右侧栏资产选择）
@@ -1632,16 +1624,13 @@ public partial class CharacterPage : UserControl
             refPaths.Clear();
             RemoveRefThumbs();
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         };
 
         // ===== 左侧边栏：文本导入/编辑/选区加入/导出 + 默认提示词 =====
-        void AppendPromptText(string t)
-        {
-            var cur = promptBox.Text;
-            promptBox.Text = string.IsNullOrWhiteSpace(cur) ? t : cur.TrimEnd() + "\n" + t;
-            promptBox.CaretIndex = promptBox.Text.Length;
-            promptBox.Focus();
-        }
+        // 参考图（路径）变化时同步 @ 提及候选与名称自动匹配
+        void SyncMentions() => promptBox.SetRefImages(refPaths);
+        void AppendPromptText(string t) => promptBox.AppendText(t);
         var promptPanel = new PromptPanel(win, "Image")
         {
             AppendToPrompt = AppendPromptText
@@ -1652,8 +1641,9 @@ public partial class CharacterPage : UserControl
         center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 0 提示词
         center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });                  // 1 间距
         center.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // 2 参考图
-        Grid.SetRow(promptBox, 0);
-        center.Children.Add(promptBox);
+        var promptHost = promptBox;
+        Grid.SetRow(promptHost, 0);
+        center.Children.Add(promptHost);
         Grid.SetRow(refRow, 2);
         center.Children.Add(refRow);
 
@@ -1743,6 +1733,7 @@ public partial class CharacterPage : UserControl
             Margin = new Thickness(0, 0, 8, 0),
             Style = (Style)FindResource("SecondaryButtonStyle")
         };
+        ViewHelpers.AttachQueueBadge(queueBtn);
         queueBtn.Click += (_, _) => OpenQueueWindow();
         btnPanel.Children.Add(queueBtn);
 
@@ -1780,8 +1771,9 @@ public partial class CharacterPage : UserControl
                     if (!ordered.Contains(p) && System.IO.File.Exists(p)) ordered.Add(p);
                 ViewHelpers.AddReferenceThumbsAsync(refPanel, ordered, refImages,
                     () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                    refPaths: refPaths);
+                    refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+                SyncMentions();
                 Toast("✓ 已从历史回填");
             }
             catch (Exception ex) { Toast($"⚠ 历史回填失败：{ex.Message}"); }
@@ -1801,7 +1793,7 @@ public partial class CharacterPage : UserControl
         grid.Children.Add(footer);
 
         // 三栏布局（左右栏可拖拽调整宽度并持久化）：左栏（提示词素材） | 中央（提示词+参考图） | 右栏（项目资产）
-        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel.Root, center, assetPanel.Root);
+        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel, center, assetPanel);
         Grid.SetRow(bodyRow, 2);
         Grid.SetColumnSpan(bodyRow, 3);
         grid.Children.Add(bodyRow);
@@ -1817,7 +1809,7 @@ public partial class CharacterPage : UserControl
             {
                 ViewHelpers.AddReferenceThumb(refPanel, path, refImages,
                     () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                    refPaths: refPaths);
+                    refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
                 assetPanel.SelectImported(path);
                 Toast("✓ 已加入参考图并归入角色素材");
@@ -1838,19 +1830,24 @@ public partial class CharacterPage : UserControl
             try
             {
                 // 使用用户自定义的优化 Skill（设置 → AI 生成 Skill 中编辑），并注入角色信息
+                var optPrompt = ViewHelpers.ResolveRefMentions(rawPrompt, refImages);   // @名 → (参考图N)
                 var (sys, userMsg) = ViewHelpers.BuildOptimizePrompt(
-                    config.ImageOptimizeSkill, rawPrompt, false, 0,
-                    roleName: _currentCharacter?.Name ?? "", personality: personalityHint, subject: "图像");
+                    config.ImageOptimizeSkill, optPrompt, false, 0,
+                    roleName: _currentCharacter?.Name ?? "", personality: personalityHint, subject: "图像",
+                    language: FileService.LoadConfig(App.WorkRoot).OptimizePromptLanguage);
+                var optCfg = config.TextApi;
+                PromptMentionBox.Dbg($"OPTC start txt={{url={(optCfg?.BaseUrl is null ? "NULL" : "set")},key={(string.IsNullOrEmpty(optCfg?.ApiKey) ? "∅" : "set")},model={(optCfg?.ModelId ?? "NULL")}}}");
                 var result = await ApiService.ChatAsync(
-                    config.ApiEndpoint, config.ApiKey, config.ApiModel, sys, userMsg);
+                    config.TextApi.BaseUrl, config.TextApi.ApiKey, config.TextApi.ModelId, sys, userMsg);
+                PromptMentionBox.Dbg($"OPTC result-len={(result?.Length ?? -1)} head={(result?.Substring(0, Math.Min(60, result.Length)) ?? "NULL")}");
                 if (!string.IsNullOrWhiteSpace(result))
                 {
                     promptBox.Text = result.Trim();
                     Toast("✓ 提示词已优化");
                 }
             }
-            catch (ApiException ex) { Toast($"⚠ {ex.Message}"); }
-            catch (Exception ex) { Toast($"⚠ 优化失败：{ex.Message}"); }
+            catch (ApiException ex) { Toast($"⚠ {ex.Message}"); PromptMentionBox.Dbg($"OPTC ApiException:{ex.Message}"); }
+            catch (Exception ex) { Toast($"⚠ 优化失败：{ex.Message}"); PromptMentionBox.Dbg($"OPTC Exception:{ex.GetType().Name}:{ex.Message}"); }
             finally
             {
                 optimizeBtn.IsEnabled = true;
@@ -1861,7 +1858,8 @@ public partial class CharacterPage : UserControl
         // 生成按钮：创建任务并入队后立即关闭窗口，生成交给后台队列串行执行
         genBtn.Click += (_, _) =>
         {
-            var prompt = ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Image");
+            var prompt = ViewHelpers.ResolveRefMentions(
+                ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Image"), refImages);
             if (string.IsNullOrWhiteSpace(prompt))
             {
                 Toast("⚠ 请输入提示词");
@@ -1880,12 +1878,17 @@ public partial class CharacterPage : UserControl
             var task = new AiTask
             {
                 Type = AiTaskType.Image,
+                Provider = useComfy ? ImageProvider.ComfyUI : ImageProvider.Api,
                 Prompt = prompt,
-                Detail = refImages.Count > 0 ? $"参考图×{refImages.Count}·{size}" : size,
+                Detail = useComfy
+                    ? $"ComfyUI·{size}" + (refImages.Count > 0 ? $"·参考图×{refImages.Count}" : "")
+                    : (refImages.Count > 0 ? $"参考图×{refImages.Count}·{size}" : size),
                 ReferenceImages = refImages.Count > 0 ? new List<string>(refImages) : null,
-                ApiEndpoint = config.ApiEndpoint,
-                ApiKey = config.ApiKey,
-                Model = config.ImageModel,
+                ApiEndpoint = useComfy ? config.ComfyUiEndpoint : config.ImageApi.BaseUrl,
+                ApiKey = config.ImageApi.ApiKey,
+                Model = config.ImageApi.ModelId,
+                ApiProvider = config.ImageApi.Provider,
+                ComfyWorkflowFile = config.ComfyUiWorkflowFile,
                 TargetDir = FileService.CharacterImagesPath(App.WorkRoot, novel!.MediaFolder, character!.Id),
                 FileNameBase = $"AI_{DateTime.Now:yyyyMMdd_HHmmss_fff}",
                 ImageSize = size,
@@ -1902,9 +1905,9 @@ public partial class CharacterPage : UserControl
                 Ratio = ratio,
                 Level = level,
                 RefImagePaths = new List<string>(refPaths),
-                EngineBadge = "API"
+                EngineBadge = useComfy ? "ComfyUI" : "API"
             });
-            Toast("✓ 已加入 AI 任务队列，窗口保持打开");
+            Toast($"✓ 已加入 AI 任务队列（{(useComfy ? "ComfyUI" : "API")}），窗口保持打开");
         };
 
         // 异步窗口：非模态显示且无 Owner，用户可关闭窗口/离开页面做其他事，生成在后台队列中继续

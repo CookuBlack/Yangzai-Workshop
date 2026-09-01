@@ -539,6 +539,9 @@ public static class FileService
         var config = ReadJson<AppConfig>(SettingsFile(workRoot)) ?? new AppConfig();
         config.WorkDataPath = workRoot;
 
+        // 旧版扁平 API 配置 → 分体式 TextApi/ImageApi/VideoApi 的一次性迁移
+        MigrateLegacyApiConfig(config, workRoot);
+
         lock (_configLock)
         {
             // 双重检查：避免在读盘期间其他线程写入覆盖有效缓存
@@ -548,6 +551,68 @@ public static class FileService
             _cachedWorkRoot = workRoot;
         }
         return config;
+    }
+
+    /// <summary>
+    /// 把旧版扁平 API 配置（ApiEndpoint/ApiKey/ApiModel/ImageModel/VideoModel）迁移到
+    /// 分体式 TextApi/ImageApi/VideoApi。仅执行一次（由 ApiProfileMigrated 标记），
+    /// 未自定义过的字段保持默认值不迁移，避免覆盖新配置。
+    /// </summary>
+    private static void MigrateLegacyApiConfig(AppConfig config, string workRoot)
+    {
+        if (config.ApiProfileMigrated) return;
+
+        bool changed = false;
+        var endpoint = config.ApiEndpoint?.Trim() ?? "";
+        if (!string.IsNullOrEmpty(endpoint) &&
+            !string.Equals(endpoint, "https://api.agnes-ai.cn/v1", StringComparison.OrdinalIgnoreCase))
+        {
+            config.TextApi.BaseUrl = endpoint;
+            config.ImageApi.BaseUrl = endpoint;
+            config.VideoApi.BaseUrl = endpoint;
+            changed = true;
+        }
+
+        var apiKey = config.ApiKey?.Trim() ?? "";
+        if (!string.IsNullOrEmpty(apiKey))
+        {
+            config.TextApi.ApiKey = apiKey;
+            config.ImageApi.ApiKey = apiKey;
+            config.VideoApi.ApiKey = apiKey;
+            changed = true;
+        }
+
+        var apiModel = config.ApiModel?.Trim() ?? "";
+        if (!string.IsNullOrEmpty(apiModel) &&
+            !string.Equals(apiModel, "gpt-4o-mini", StringComparison.OrdinalIgnoreCase))
+        {
+            config.TextApi.ModelId = apiModel;
+            changed = true;
+        }
+
+        var imageModel = config.ImageModel?.Trim() ?? "";
+        if (!string.IsNullOrEmpty(imageModel) &&
+            !string.Equals(imageModel, "agnes-image-2.1-flash", StringComparison.OrdinalIgnoreCase))
+        {
+            config.ImageApi.ModelId = imageModel;
+            changed = true;
+        }
+
+        var videoModel = config.VideoModel?.Trim() ?? "";
+        if (!string.IsNullOrEmpty(videoModel) &&
+            !string.Equals(videoModel, "agnes-video-2.5-flash", StringComparison.OrdinalIgnoreCase))
+        {
+            config.VideoApi.ModelId = videoModel;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            config.ApiProfileMigrated = true;
+            // 迁移结果立即落盘，避免每次启动重复迁移
+            try { WriteJson(SettingsFile(workRoot), config); }
+            catch { /* 写盘失败不阻断启动 */ }
+        }
     }
 
     public static void SaveConfig(string workRoot, AppConfig config)
@@ -922,12 +987,9 @@ public static class FileService
         // 公告（每次启动更新，确保版本号同步）
         WriteText(NoticeFile(workRoot), "欢迎使用 Yangzai Workshop 小说漫剧创作工作台！\n\n" +
             $"v{appVersion ?? "1.0"} 更新内容：\n" +
-            "• 生成窗口全面优化：参考图/资产缩略图改为后台异步解码，选中图片与首次打开不再卡顿\n" +
-            "• 修复生成窗口最小化后消失的问题，最小化可正常收进任务栏\n" +
-            "• 默认提示词改为勾选式：勾选的条目在每次生成时自动追加到提示词末尾\n" +
-            "• 默认提示词支持多行编辑，列表排版更清晰易区分\n" +
-            "• 提示词优化指令可自定义：在「设置→AI 生成 Skill」中编辑图片/视频优化模板\n" +
-            "• AI 生成素材按时间顺序命名与排序：文件名自动附加毫秒时间戳，同一秒内多次生成不再互相覆盖\n\n" +
+            "• 剧本管理三栏（小说内容/剧本内容/图像素材）拖拽全面优化：始终铺满整行、不再抖动、右侧不再留空白\n" +
+            "• 视频连贯/续集「展开/收起」按钮改为与右侧项目资产一致的非蓝色简洁样式\n" +
+            "• AI 接口请求自动跟随系统代理，联网环境兼容性更稳定\n\n" +
             "点击「+」按钮导入你的第一本小说吧！");
     }
 

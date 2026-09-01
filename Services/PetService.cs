@@ -103,6 +103,7 @@ public static class PetService
         var headerGrid = new Grid();
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var header = new TextBlock
         {
             Text = config.DefaultImageProvider == "ComfyUI" ? "输入图片生成提示词 · 本地 ComfyUI" : "输入图片生成提示词 · 云端 API",
@@ -117,17 +118,9 @@ public static class PetService
         Grid.SetColumnSpan(headerGrid, 3);
         grid.Children.Add(headerGrid);
 
-        var promptBox = new TextBox
+        var promptBox = new PromptMentionBox
         {
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontSize = 13,
-            Foreground = Brush("TextPrimaryBrush"),
-            Background = Brush("CardBackgroundBrush"),
-            BorderBrush = Brush("BorderBrush"),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(10)
+            Watermark = "在此输入提示词…"
         };
         // 提示词放入中央子网格（三栏布局构建 center 时再挂载）
 
@@ -171,6 +164,23 @@ public static class PetService
         };
         refPanel.Children.Add(refHintText);
 
+        // ===== 右侧边栏：宠物资产（点击按顺序编号，作为参考图顺序） =====
+        var petDir = FileService.PetResourcesPath(App.WorkRoot);
+        var petPaths = new List<string>();
+        if (Directory.Exists(petDir))
+            foreach (var f in Directory.GetFiles(petDir))
+            {
+                var ext = Path.GetExtension(f).ToLowerInvariant();
+                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif") petPaths.Add(f);
+            }
+        var assetPanel = new AssetPanel("宠物资产", petPaths, maxCount: 6);
+        // 参考图缩略图被 ✕ 删除时：同步移除右侧栏对应选中项（保留其余顺序与编号），并刷新 @ 提及候选
+        void RemoveSelectedRef(string p)
+        {
+            assetPanel.RemoveSelected(p);
+            SyncMentions();
+        }
+
         addRefBtn.Click += (_, _) =>
         {
             var dlg = new Microsoft.Win32.OpenFileDialog
@@ -185,9 +195,10 @@ public static class PetService
             {
                 ViewHelpers.AddReferenceThumb(refPanel, file, refImages,
                     () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                    refPaths: refPaths);
+                    refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
             }
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         };
         assetRefBtn.Click += (_, _) =>
         {
@@ -209,8 +220,9 @@ public static class PetService
                 if (picker.ShowDialog() != true) return;
                 ViewHelpers.AddReferenceThumbsAsync(refPanel, picker.OrderedPaths, refImages,
                     () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                    refPaths: refPaths);
+                    refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+                SyncMentions();
             }
             catch (Exception ex)
             {
@@ -227,21 +239,11 @@ public static class PetService
                     refPanel.Children.RemoveAt(i);
             }
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         };
 
         var refRow = new Grid();
         refRow.Children.Add(refPanel);
-
-        // ===== 右侧边栏：宠物资产（点击按顺序编号，作为参考图顺序） =====
-        var petDir = FileService.PetResourcesPath(App.WorkRoot);
-        var petPaths = new List<string>();
-        if (Directory.Exists(petDir))
-            foreach (var f in Directory.GetFiles(petDir))
-            {
-                var ext = Path.GetExtension(f).ToLowerInvariant();
-                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif") petPaths.Add(f);
-            }
-        var assetPanel = new AssetPanel("宠物资产", petPaths, maxCount: 6);
 
         void RemoveRefThumbs()
         {
@@ -257,8 +259,9 @@ public static class PetService
             RemoveRefThumbs();
             ViewHelpers.AddReferenceThumbsAsync(refPanel, assetPanel.SelectedOrder, refImages,
                 () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                refPaths: refPaths);
+                refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         }
         assetPanel.SelectionChanged = RebuildRefsFromAssets;
         // 清除参考图（同时清空右侧栏资产选择）
@@ -269,16 +272,13 @@ public static class PetService
             refPaths.Clear();
             RemoveRefThumbs();
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         };
 
         // ===== 左侧边栏：文本导入/编辑/选区加入/导出 + 默认提示词 =====
-        void AppendPromptText(string t)
-        {
-            var cur = promptBox.Text;
-            promptBox.Text = string.IsNullOrWhiteSpace(cur) ? t : cur.TrimEnd() + "\n" + t;
-            promptBox.CaretIndex = promptBox.Text.Length;
-            promptBox.Focus();
-        }
+        // 参考图（路径）变化时同步 @ 提及候选与名称自动匹配
+        void SyncMentions() => promptBox.SetRefImages(refPaths);
+        void AppendPromptText(string t) => promptBox.AppendText(t);
         var promptPanel = new PromptPanel(win, "Image")
         {
             AppendToPrompt = AppendPromptText
@@ -289,8 +289,9 @@ public static class PetService
         center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 0 提示词
         center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });                  // 1 间距
         center.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // 2 参考图
-        Grid.SetRow(promptBox, 0);
-        center.Children.Add(promptBox);
+        var promptHost = promptBox;
+        Grid.SetRow(promptHost, 0);
+        center.Children.Add(promptHost);
         Grid.SetRow(refRow, 2);
         center.Children.Add(refRow);
 
@@ -300,6 +301,11 @@ public static class PetService
             "image");
         Grid.SetColumn(optimizeBtn, 1);
         headerGrid.Children.Add(optimizeBtn);
+
+        // 优化输出语言切换（中文 / English，默认中文）
+        var langBtn = ViewHelpers.BuildOptimizeLanguageToggle(msg => MainWindow.Notify(msg));
+        Grid.SetColumn(langBtn, 2);
+        headerGrid.Children.Add(langBtn);
 
         // ===== 底部 =====
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
@@ -340,8 +346,9 @@ public static class PetService
                     if (!ordered.Contains(p) && System.IO.File.Exists(p)) ordered.Add(p);
                 ViewHelpers.AddReferenceThumbsAsync(refPanel, ordered, refImages,
                     () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                    refPaths: refPaths);
+                    refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+                SyncMentions();
                 MainWindow.Notify("✓ 已从历史回填");
             }
             catch (Exception ex) { MainWindow.Notify($"⚠ 历史回填失败：{ex.Message}", success: false); }
@@ -360,20 +367,21 @@ public static class PetService
         grid.Children.Add(footer);
 
         // 三栏布局（左右栏可拖拽调整宽度并持久化）：左栏（提示词素材） | 中央（提示词+参考图） | 右栏（宠物资产）
-        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel.Root, center, assetPanel.Root);
+        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel, center, assetPanel);
         Grid.SetRow(bodyRow, 2);
         Grid.SetColumnSpan(bodyRow, 3);
         grid.Children.Add(bodyRow);
 
         genBtn.Click += (_, _) =>
         {
-            var prompt = ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Image");
+            var prompt = ViewHelpers.ResolveRefMentions(
+                ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Image"), refImages);
             if (string.IsNullOrWhiteSpace(prompt)) { MainWindow.Notify("⚠ 请输入提示词", success: false); return; }
 
             bool useComfy = config.DefaultImageProvider == "ComfyUI";
-            if (!useComfy && (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint)))
+            if (!useComfy && !config.ImageApi.IsConfigured)
             {
-                MainWindow.Notify("⚠ 使用在线 API 需先在「设置→AI 模型配置」中填入 API 地址和密钥", success: false);
+                MainWindow.Notify("⚠ 使用在线 API 需先在「AI 接口配置」窗口中配置图片接口地址和密钥", success: false);
                 return;
             }
             if (useComfy && (string.IsNullOrWhiteSpace(config.ComfyUiEndpoint) || string.IsNullOrWhiteSpace(config.ComfyUiWorkflowFile)))
@@ -394,9 +402,10 @@ public static class PetService
                 Detail = useComfy
                     ? $"ComfyUI·{size}" + (refImages.Count > 0 ? $"·参考图×{refImages.Count}" : "")
                     : (refImages.Count > 0 ? $"参考图×{refImages.Count}·{size}" : size),
-                ApiEndpoint = useComfy ? config.ComfyUiEndpoint : config.ApiEndpoint,
-                ApiKey = config.ApiKey,
-                Model = config.ImageModel,
+                ApiEndpoint = useComfy ? config.ComfyUiEndpoint : config.ImageApi.BaseUrl,
+                ApiKey = config.ImageApi.ApiKey,
+                Model = config.ImageApi.ModelId,
+                ApiProvider = config.ImageApi.Provider,
                 ComfyWorkflowFile = config.ComfyUiWorkflowFile,
                 TargetDir = FileService.PetResourcesPath(App.WorkRoot),
                 FileNameBase = $"Pet_Image_{DateTime.Now:yyyyMMdd_HHmmss_fff}",
@@ -428,7 +437,7 @@ public static class PetService
             {
                 ViewHelpers.AddReferenceThumb(refPanel, path, refImages,
                     () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                    refPaths: refPaths);
+                    refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
                 assetPanel.SelectImported(path);
                 MainWindow.Notify("✓ 已加入参考图并归入宠物资源");
@@ -442,13 +451,13 @@ public static class PetService
     private static void OpenGenerateVideo()
     {
         var config = FileService.LoadConfig(App.WorkRoot);
-        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
+        if (!config.VideoApi.IsConfigured)
         {
-            MainWindow.Notify("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥", success: false);
+            MainWindow.Notify("⚠ 请先在「AI 接口配置」窗口中配置视频接口地址和密钥", success: false);
             return;
         }
         // Flash 模型固定 720P 且不支持参考视频；非 Flash（agnes-video-2.5）支持 720P/960P/2K 与参考视频
-        var isFlashModel = ViewHelpers.IsFlashVideoModel(config.VideoModel);
+        var isFlashModel = ViewHelpers.IsFlashVideoModel(config.VideoApi.ModelId);
 
         var win = CreateDialog("AI 生成视频", 1010, 620);
         win.MinWidth = 980;
@@ -467,6 +476,7 @@ public static class PetService
         var headerGrid = new Grid();
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var videoHeader = new TextBlock
         {
             Text = "输入视频生成提示词 · 云端 API",
@@ -480,17 +490,9 @@ public static class PetService
         Grid.SetColumnSpan(headerGrid, 3);
         grid.Children.Add(headerGrid);
 
-        var promptBox = new TextBox
+        var promptBox = new PromptMentionBox
         {
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontSize = 13,
-            Foreground = Brush("TextPrimaryBrush"),
-            Background = Brush("CardBackgroundBrush"),
-            BorderBrush = Brush("BorderBrush"),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(10)
+            Watermark = "在此输入提示词…"
         };
         // 提示词放入中央子网格（三栏布局构建 center 时再挂载）
 
@@ -524,16 +526,35 @@ public static class PetService
         };
         refPanel.Children.Add(clearRefBtn);
 
+        // ===== 右侧边栏：宠物资产（点击按顺序编号，作为参考图顺序） =====
+        var petDir = FileService.PetResourcesPath(App.WorkRoot);
+        var petPaths = new List<string>();
+        if (Directory.Exists(petDir))
+            foreach (var f in Directory.GetFiles(petDir))
+            {
+                var ext = Path.GetExtension(f).ToLowerInvariant();
+                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif") petPaths.Add(f);
+            }
+        var assetPanel = new AssetPanel("宠物资产", petPaths, maxCount: 5);
+        // 参考图缩略图被 ✕ 删除时：同步移除右侧栏对应选中项（保留其余顺序与编号），并刷新 @ 提及候选
+        void RemoveSelectedRef(string p)
+        {
+            assetPanel.RemoveSelected(p);
+            UpdateRefState();
+        }
+
         // 应用参考图（缩略图流，支持多张；Flash 最多 5 张）
         void ApplyRefImage(string path)
         {
-            ViewHelpers.AddReferenceThumb(refWrap, path, refImages, UpdateRefState, maxCount: 5, refPaths: refPaths);
+            ViewHelpers.AddReferenceThumb(refWrap, path, refImages, UpdateRefState, maxCount: 5, refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
             UpdateRefState();
         }
 
         void UpdateRefState()
         {
             clearRefBtn.Visibility = refImages.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            // 参考图（路径）变化时同步 @ 提及候选与图像名称自动匹配
+            promptBox.SetRefImages(refPaths);
         }
 
         // 从本地文件选择参考图（支持多选）
@@ -652,17 +673,6 @@ public static class PetService
         var refRow = new Grid();
         refRow.Children.Add(refPanel);
 
-        // ===== 右侧边栏：宠物资产（点击按顺序编号，作为参考图顺序） =====
-        var petDir = FileService.PetResourcesPath(App.WorkRoot);
-        var petPaths = new List<string>();
-        if (Directory.Exists(petDir))
-            foreach (var f in Directory.GetFiles(petDir))
-            {
-                var ext = Path.GetExtension(f).ToLowerInvariant();
-                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif") petPaths.Add(f);
-            }
-        var assetPanel = new AssetPanel("宠物资产", petPaths, maxCount: 5);
-
         // 右侧栏选择顺序 → 重建参考图列表（含手动添加的本地参考图共存于 refImages）
         void RebuildRefsFromAssets()
         {
@@ -670,7 +680,7 @@ public static class PetService
             refPaths.Clear();
             refWrap.Children.Clear();
             ViewHelpers.AddReferenceThumbsAsync(refWrap, assetPanel.SelectedOrder, refImages,
-                UpdateRefState, maxCount: 5, refPaths: refPaths);
+                UpdateRefState, maxCount: 5, refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
             UpdateRefState();
         }
         assetPanel.SelectionChanged = RebuildRefsFromAssets;
@@ -685,13 +695,7 @@ public static class PetService
         };
 
         // ===== 左侧边栏：文本导入/编辑/选区加入/导出 + 默认提示词 =====
-        void AppendPromptText(string t)
-        {
-            var cur = promptBox.Text;
-            promptBox.Text = string.IsNullOrWhiteSpace(cur) ? t : cur.TrimEnd() + "\n" + t;
-            promptBox.CaretIndex = promptBox.Text.Length;
-            promptBox.Focus();
-        }
+        void AppendPromptText(string t) => promptBox.AppendText(t);
         var promptPanel = new PromptPanel(win, "Video")
         {
             AppendToPrompt = AppendPromptText
@@ -702,8 +706,9 @@ public static class PetService
         center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 0 提示词
         center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });                  // 1 间距
         center.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                     // 2 参考图
-        Grid.SetRow(promptBox, 0);
-        center.Children.Add(promptBox);
+        var promptHost = promptBox;
+        Grid.SetRow(promptHost, 0);
+        center.Children.Add(promptHost);
         Grid.SetRow(refRow, 2);
         center.Children.Add(refRow);
 
@@ -714,9 +719,14 @@ public static class PetService
         Grid.SetColumn(optimizeBtn, 1);
         headerGrid.Children.Add(optimizeBtn);
 
+        // 优化输出语言切换（中文 / English，默认中文）
+        var langBtn = ViewHelpers.BuildOptimizeLanguageToggle(msg => MainWindow.Notify(msg));
+        Grid.SetColumn(langBtn, 2);
+        headerGrid.Children.Add(langBtn);
+
         // ===== 底部 =====
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-        var levelBox = Combo(ViewHelpers.VideoLevelsForModel(config.VideoModel), "720P", 80);
+        var levelBox = Combo(ViewHelpers.VideoLevelsForModel(config.VideoApi.ModelId), "720P", 80);
         var ratioBox = Combo(ViewHelpers.VideoRatios, "16:9", 76);
         var secondsBox = Combo(new[] { "4", "5", "8", "10", "12" }, "5", 62);
         footer.Children.Add(levelBox);
@@ -787,14 +797,15 @@ public static class PetService
         grid.Children.Add(footer);
 
         // 三栏布局（左右栏可拖拽调整宽度并持久化）：左栏（提示词素材） | 中央（提示词+参考图） | 右栏（宠物资产）
-        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel.Root, center, assetPanel.Root);
+        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel, center, assetPanel);
         Grid.SetRow(bodyRow, 2);
         Grid.SetColumnSpan(bodyRow, 3);
         grid.Children.Add(bodyRow);
 
         genBtn.Click += (_, _) =>
         {
-            var prompt = ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Video");
+            var prompt = ViewHelpers.ResolveRefMentions(
+                ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Video"), refImages, "picture");
             if (string.IsNullOrWhiteSpace(prompt)) { MainWindow.Notify("⚠ 请输入提示词", success: false); return; }
 
             var level = levelBox.SelectedItem?.ToString() ?? "720P";
@@ -815,9 +826,10 @@ public static class PetService
                 Type = AiTaskType.Video,
                 Prompt = finalPrompt,
                 Detail = detail,
-                ApiEndpoint = config.ApiEndpoint,
-                ApiKey = config.ApiKey,
-                Model = config.VideoModel,
+                ApiEndpoint = config.VideoApi.BaseUrl,
+                ApiKey = config.VideoApi.ApiKey,
+                Model = config.VideoApi.ModelId,
+                ApiProvider = config.VideoApi.Provider,
                 TargetDir = FileService.PetResourcesPath(App.WorkRoot),
                 FileNameBase = $"Pet_Video_{DateTime.Now:yyyyMMdd_HHmmss_fff}",
                 VideoSize = level, VideoRatio = ratio, VideoSeconds = seconds,
@@ -860,9 +872,9 @@ public static class PetService
     private static void OpenChat()
     {
         var config = FileService.LoadConfig(App.WorkRoot);
-        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
+        if (!config.TextApi.IsConfigured)
         {
-            MainWindow.Notify("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥", success: false);
+            MainWindow.Notify("⚠ 请先在「AI 接口配置」窗口中配置文本接口地址和密钥", success: false);
             return;
         }
 
@@ -910,7 +922,7 @@ public static class PetService
         });
         var modelLabel = new TextBlock
         {
-            Text = string.IsNullOrWhiteSpace(config.ApiModel) ? "未设置模型" : $"模型：{config.ApiModel}",
+            Text = string.IsNullOrWhiteSpace(config.TextApi.ModelId) ? "未设置模型" : $"模型：{config.TextApi.ModelId}",
             FontSize = 11, Foreground = Brush("TextTertiaryBrush"), Margin = new Thickness(0, 3, 0, 0)
         };
         titleStack.Children.Add(modelLabel);
@@ -1043,7 +1055,7 @@ public static class PetService
             try
             {
                 var answer = await ApiService.ChatAsync(
-                    config.ApiEndpoint, config.ApiKey, config.ApiModel,
+                    config.TextApi.BaseUrl, config.TextApi.ApiKey, config.TextApi.ModelId,
                     "你是一个乐于助人的创意助手，请用简洁清晰的中文回答。", question);
                 var text = string.IsNullOrWhiteSpace(answer) ? "（未返回内容）" : answer.Trim();
                 history.AppendLine($"AI：{text}").AppendLine();
@@ -1171,10 +1183,10 @@ public static class PetService
     /// <summary>
     /// 创建「✨ 优化提示词」按钮：复用主程序设计，有参考图时结合参考图内容优化。
     /// </summary>
-    /// <param name="promptBox">提示词输入框</param>
+    /// <param name="promptBox">提示词输入框（@ 提及编辑器）</param>
     /// <param name="getRefImages">返回当前参考图 Data URI 列表（无参考图返回 null/空）</param>
     /// <param name="kind">"image"=生图提示词优化，"video"=生视频提示词优化</param>
-    private static Button CreateOptimizeButton(TextBox promptBox, Func<IReadOnlyList<string>?> getRefImages, string kind)
+    private static Button CreateOptimizeButton(PromptMentionBox promptBox, Func<IReadOnlyList<string>?> getRefImages, string kind)
     {
         var config = FileService.LoadConfig(App.WorkRoot);
         bool isVideo = kind == "video";
@@ -1208,13 +1220,14 @@ public static class PetService
                 var skill = isVideo ? config.VideoOptimizeSkill : config.ImageOptimizeSkill;
                 var (sys, userPrompt) = ViewHelpers.BuildOptimizePrompt(
                     skill, rawPrompt, hasRef, refImages?.Count ?? 0,
-                    subject: isVideo ? "视频" : "图像");
+                    subject: isVideo ? "视频" : "图像",
+                    language: FileService.LoadConfig(App.WorkRoot).OptimizePromptLanguage);
 
                 var result = hasRef
                     ? await ApiService.ChatWithImagesAsync(
-                        config.ApiEndpoint, config.ApiKey, config.ApiModel, sys, userPrompt, refImages)
+                        config.TextApi.BaseUrl, config.TextApi.ApiKey, config.TextApi.ModelId, sys, userPrompt, refImages)
                     : await ApiService.ChatAsync(
-                        config.ApiEndpoint, config.ApiKey, config.ApiModel, sys, userPrompt);
+                        config.TextApi.BaseUrl, config.TextApi.ApiKey, config.TextApi.ModelId, sys, userPrompt);
 
                 if (!string.IsNullOrWhiteSpace(result))
                 {

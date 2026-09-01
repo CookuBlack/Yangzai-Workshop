@@ -22,6 +22,13 @@ public partial class AiTaskQueueWindow : Window
             AiTaskManager.Cancel(task.Id);
     }
 
+    /// <summary>重新生成指定任务（点击行内“🔄 重新生成”按钮）</summary>
+    private void RetryTask_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { DataContext: AiTask task })
+            AiTaskManager.Retry(task.Id);
+    }
+
     /// <summary>清空所有已结束任务</summary>
     private void ClearFinished_Click(object sender, RoutedEventArgs e)
     {

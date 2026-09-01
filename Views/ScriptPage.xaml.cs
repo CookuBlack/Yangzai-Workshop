@@ -1122,9 +1122,9 @@ public partial class ScriptPage : UserControl
         }
 
         var config = FileService.LoadConfig(App.WorkRoot);
-        if (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint))
+        if (!config.TextApi.IsConfigured)
         {
-            ShowCopyToast("⚠ 请先在「设置→AI 模型配置」中填入 API 地址和密钥");
+            ShowCopyToast("⚠ 请先在「AI 接口配置」窗口中配置文本接口地址和密钥");
             return;
         }
 
@@ -1172,7 +1172,7 @@ public partial class ScriptPage : UserControl
         try
         {
             await ApiService.ChatStreamAsync(
-                config.ApiEndpoint, config.ApiKey, config.ApiModel,
+                config.TextApi.BaseUrl, config.TextApi.ApiKey, config.TextApi.ModelId,
                 sysPrompt, userMsg,
                 onToken: token =>
                 {
@@ -1321,6 +1321,7 @@ public partial class ScriptPage : UserControl
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         headerGrid.Children.Add(new TextBlock
         {
             Text = "输入图片生成提示词",
@@ -1365,56 +1366,43 @@ public partial class ScriptPage : UserControl
         };
         Grid.SetColumn(optimizeBtn, 2);
         headerGrid.Children.Add(optimizeBtn);
+
         Grid.SetRow(headerGrid, 0);
         Grid.SetColumnSpan(headerGrid, 3);
         grid.Children.Add(headerGrid);
 
-        // 提示词输入框（加大字号、统一背景与圆角，四角带阴影）
-        var promptBox = new TextBox
+        // 提示词输入框（支持 @ 提及参考图 + 图像名称自动匹配 + 内置水印）
+        var promptBox = new PromptMentionBox
         {
-            Text = "",
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            FontSize = 13.5, FontFamily = new System.Windows.Media.FontFamily("Microsoft YaHei UI"),
-            Foreground = (Brush)FindResource("TextPrimaryBrush"),
-            Background = (Brush)FindResource("CardBackgroundBrush"),
-            BorderBrush = (Brush)FindResource("BorderBrush"),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(12, 10, 12, 10),
-            VerticalContentAlignment = VerticalAlignment.Top
+            Watermark = "在此输入提示词…"
         };
+
+        // 「提示词设置」按钮（在优化提示词右侧，内含中英文切换 + 实时自动匹配）
+        var settingsBtn = ViewHelpers.BuildGenSettingsButton(promptBox, msg => ShowCopyToast(msg));
+        Grid.SetColumn(settingsBtn, 3);
+        headerGrid.Children.Add(settingsBtn);
 
         // ===== 参考图区域（0 张=文生图，1 张=图生图，多张=多图编辑） =====
         var refImages = new List<string>(); // Data URI Base64
         var refPaths = new List<string>();  // 与 refImages 对应的源文件路径（用于历史记录回填）
-        var refPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 2) };
-        var addRefBtn = new Button
+        var refStrip = new MaterialStrip("参考图", "可添加 1 张（图生图）或多张（多图编辑）参考图", "🖼️");
+        var refPanel = refStrip.ContentPanel;
+        var addRefBtn = refStrip.AddButton("添加参考图", "选择本地图片作为参考：1 张=图生图，多张=多图编辑/合成（在提示词中说明组合方式）");
+        var clearRefBtn = refStrip.AddButton("✕ 清除", "清除参考图");
+        clearRefBtn.Visibility = Visibility.Collapsed;
+        var refHintText = refStrip.HintText;
+
+        // ===== 右侧边栏：项目资产（点击按顺序编号，作为参考图顺序） =====
+        var assetPaths = _currentNovel != null
+            ? ViewHelpers.CollectProjectImagePaths(App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder)
+            : new List<string>();
+        var assetPanel = new AssetPanel("项目资产", assetPaths, maxCount: 6);
+        // 参考图缩略图被 ✕ 删除时：同步移除右侧栏对应选中项（保留其余顺序与编号），并刷新 @ 提及候选
+        void RemoveSelectedRef(string p)
         {
-            Content = "🖼️ 添加参考图", FontSize = 11,
-            Padding = new Thickness(10, 4, 10, 4),
-            Margin = new Thickness(0, 0, 6, 0),
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            ToolTip = "选择本地图片作为参考：1 张=图生图，多张=多图编辑/合成（在提示词中说明组合方式）"
-        };
-        refPanel.Children.Add(addRefBtn);
-        var clearRefBtn = new Button
-        {
-            Content = "✕ 清除", FontSize = 11,
-            Padding = new Thickness(8, 4, 8, 4),
-            Margin = new Thickness(0, 0, 8, 0),
-            Visibility = Visibility.Collapsed,
-            Style = (Style)FindResource("SecondaryButtonStyle")
-        };
-        refPanel.Children.Add(clearRefBtn);
-        var refHintText = new TextBlock
-        {
-            Text = "可添加 1 张（图生图）或多张（多图编辑）参考图",
-            FontSize = 10.5,
-            Foreground = (Brush)FindResource("TextTertiaryBrush"),
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        refPanel.Children.Add(refHintText);
+            assetPanel.RemoveSelected(p);
+            SyncMentions();
+        }
 
         addRefBtn.Click += (_, _) =>
         {
@@ -1428,14 +1416,10 @@ public partial class ScriptPage : UserControl
             if (dlg.ShowDialog(win) != true) return;
             ViewHelpers.AddReferenceThumbsAsync(refPanel, dlg.FileNames, refImages,
                 () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                refPaths: refPaths);
+                refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         };
-        // ===== 右侧边栏：项目资产（点击按顺序编号，作为参考图顺序） =====
-        var assetPaths = _currentNovel != null
-            ? ViewHelpers.CollectProjectImagePaths(App.WorkRoot, _currentNovel.Id, _currentNovel.MediaFolder)
-            : new List<string>();
-        var assetPanel = new AssetPanel("项目资产", assetPaths, maxCount: 6);
 
         void RemoveRefThumbs()
         {
@@ -1451,8 +1435,9 @@ public partial class ScriptPage : UserControl
             RemoveRefThumbs();
             ViewHelpers.AddReferenceThumbsAsync(refPanel, assetPanel.SelectedOrder, refImages,
                 () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                refPaths: refPaths);
+                refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         }
         assetPanel.SelectionChanged = RebuildRefsFromAssets;
         // 清除参考图（同时清空右侧栏资产选择）
@@ -1463,19 +1448,16 @@ public partial class ScriptPage : UserControl
             refPaths.Clear();
             RemoveRefThumbs();
             ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+            SyncMentions();
         };
 
         var refRow = new Grid();
-        refRow.Children.Add(refPanel);
+        refRow.Children.Add(refStrip.Root);
 
         // ===== 左侧边栏：文本导入/编辑/选区加入/导出 + 默认提示词 =====
-        void AppendPromptText(string t)
-        {
-            var cur = promptBox.Text;
-            promptBox.Text = string.IsNullOrWhiteSpace(cur) ? t : cur.TrimEnd() + "\n" + t;
-            promptBox.CaretIndex = promptBox.Text.Length;
-            promptBox.Focus();
-        }
+        // 参考图（路径）变化时同步 @ 提及候选与名称自动匹配
+        void SyncMentions() => promptBox.SetRefImages(refPaths);
+        void AppendPromptText(string t) => promptBox.AppendText(t);
         var promptPanel = new PromptPanel(win, "Image")
         {
             AppendToPrompt = AppendPromptText
@@ -1486,13 +1468,14 @@ public partial class ScriptPage : UserControl
         center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         center.RowDefinitions.Add(new RowDefinition { Height = new GridLength(10) });
         center.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        Grid.SetRow(promptBox, 0);
-        center.Children.Add(promptBox);
+        var promptHost = promptBox;
+        Grid.SetRow(promptHost, 0);
+        center.Children.Add(promptHost);
         Grid.SetRow(refRow, 2);
         center.Children.Add(refRow);
 
         // 三栏布局（左右栏可拖拽调整宽度并持久化）：左栏（提示词素材） | 中央（提示词+参考图） | 右栏（项目资产）
-        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel.Root, center, assetPanel.Root);
+        var bodyRow = GenPanelLayout.CreateThreeColumn(win, promptPanel, center, assetPanel);
         Grid.SetRow(bodyRow, 2);
         Grid.SetColumnSpan(bodyRow, 3);
         grid.Children.Add(bodyRow);
@@ -1593,6 +1576,7 @@ public partial class ScriptPage : UserControl
             Margin = new Thickness(0, 0, 8, 0),
             Style = (Style)FindResource("SecondaryButtonStyle")
         };
+        ViewHelpers.AttachQueueBadge(queueBtn);
         queueBtn.Click += (_, _) => OpenQueueWindow();
         btnPanel.Children.Add(queueBtn);
 
@@ -1630,8 +1614,9 @@ public partial class ScriptPage : UserControl
                     if (!ordered.Contains(p) && System.IO.File.Exists(p)) ordered.Add(p);
                 ViewHelpers.AddReferenceThumbsAsync(refPanel, ordered, refImages,
                     () => ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn),
-                    refPaths: refPaths);
+                    refPaths: refPaths, onRefRemoved: RemoveSelectedRef);
                 ViewHelpers.UpdateReferenceHint(refImages, refHintText, clearRefBtn);
+                SyncMentions();
                 ShowCopyToast("✓ 已从历史回填");
             }
             catch (Exception ex) { ShowCopyToast($"⚠ 历史回填失败：{ex.Message}"); }
@@ -1681,15 +1666,20 @@ public partial class ScriptPage : UserControl
                 bool hasRef = refImages.Count > 0;
 
                 // 使用用户自定义的优化 Skill（设置 → AI 生成 Skill 中编辑）
+                var optPrompt = ViewHelpers.ResolveRefMentions(rawPrompt, refImages);   // @名 → (参考图N)
                 var (sys, userMsg) = ViewHelpers.BuildOptimizePrompt(
-                    config.ImageOptimizeSkill, rawPrompt, hasRef, refImages.Count, subject: "图像");
+                    config.ImageOptimizeSkill, optPrompt, hasRef, refImages.Count, subject: "图像",
+                    language: FileService.LoadConfig(App.WorkRoot).OptimizePromptLanguage);
 
                 // 有参考图时，将参考图作为视觉输入一起交给模型；否则仅用文本
+                var cfg = config.TextApi;
+                PromptMentionBox.Dbg($"OPT start2 hasRef={hasRef} txtCfg={{url={(cfg?.BaseUrl is null ? "NULL" : "set")}, key={(string.IsNullOrEmpty(cfg?.ApiKey) ? "∅" : "set")}, model={(cfg?.ModelId ?? "NULL")}}}");
                 var result = hasRef
                     ? await ApiService.ChatWithImagesAsync(
-                        config.ApiEndpoint, config.ApiKey, config.ApiModel, sys, userMsg, refImages)
+                        config.TextApi.BaseUrl, config.TextApi.ApiKey, config.TextApi.ModelId, sys, userMsg, refImages)
                     : await ApiService.ChatAsync(
-                        config.ApiEndpoint, config.ApiKey, config.ApiModel, sys, userMsg);
+                        config.TextApi.BaseUrl, config.TextApi.ApiKey, config.TextApi.ModelId, sys, userMsg);
+                PromptMentionBox.Dbg($"OPT result-len={(result?.Length ?? -1)} head={(result?.Substring(0, Math.Min(60, result.Length)) ?? "NULL")}");
 
                 if (!string.IsNullOrWhiteSpace(result))
                 {
@@ -1697,8 +1687,8 @@ public partial class ScriptPage : UserControl
                     ShowCopyToast(hasRef ? "✓ 提示词已结合参考图优化" : "✓ 提示词已优化");
                 }
             }
-            catch (ApiException ex) { ShowCopyToast($"⚠ {ex.Message}"); }
-            catch (Exception ex) { ShowCopyToast($"⚠ 优化失败：{ex.Message}"); }
+            catch (ApiException ex) { ShowCopyToast($"⚠ {ex.Message}"); PromptMentionBox.Dbg($"OPT ApiException:{ex.Message}"); }
+            catch (Exception ex) { ShowCopyToast($"⚠ 优化失败：{ex.Message}"); PromptMentionBox.Dbg($"OPT Exception:{ex.GetType().Name}:{ex.Message}"); }
             finally
             {
                 optimizeBtn.IsEnabled = true;
@@ -1709,7 +1699,8 @@ public partial class ScriptPage : UserControl
         // 生成按钮：创建任务并入队后立即关闭窗口，生成交给后台队列串行执行
         genBtn.Click += (_, _) =>
         {
-            var prompt = ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Image");
+            var prompt = ViewHelpers.ResolveRefMentions(
+                ViewHelpers.AppendEnabledDefaultPrompts(promptBox.Text.Trim(), "Image"), refImages);
             if (string.IsNullOrWhiteSpace(prompt))
             {
                 ShowCopyToast("⚠ 请输入提示词");
@@ -1719,14 +1710,14 @@ public partial class ScriptPage : UserControl
             bool useComfy = config.DefaultImageProvider == "ComfyUI";
 
             // 在线 API 引擎需要 API Key；ComfyUI 引擎需要已配置服务地址
-            if (!useComfy && (string.IsNullOrWhiteSpace(config.ApiKey) || string.IsNullOrWhiteSpace(config.ApiEndpoint)))
+            if (!useComfy && !config.ImageApi.IsConfigured)
             {
-                ShowCopyToast("⚠ 使用在线 API 需先在「设置→AI 模型配置」中填入 API 地址和密钥");
+                ShowCopyToast("⚠ 使用在线 API 需先在「AI 接口配置」窗口中配置图片接口地址和密钥");
                 return;
             }
             if (useComfy && (string.IsNullOrWhiteSpace(config.ComfyUiEndpoint) || string.IsNullOrWhiteSpace(config.ComfyUiWorkflowFile)))
             {
-                ShowCopyToast("⚠ 使用本地 ComfyUI 需先在「设置→AI 模型配置」中配置 ComfyUI 地址和工作流文件");
+                ShowCopyToast("⚠ 使用本地 ComfyUI 需先在「AI 接口配置」窗口中配置 ComfyUI 地址和工作流文件");
                 return;
             }
 
@@ -1749,9 +1740,10 @@ public partial class ScriptPage : UserControl
                     ? $"ComfyUI·{size}" + (refImages.Count > 0 ? $"·参考图×{refImages.Count}" : "")
                     : (refImages.Count > 0 ? $"参考图×{refImages.Count}·{size}" : size),
                 ReferenceImages = refImages.Count > 0 ? new List<string>(refImages) : null,
-                ApiEndpoint = useComfy ? config.ComfyUiEndpoint : config.ApiEndpoint,
-                ApiKey = config.ApiKey,
-                Model = config.ImageModel,
+                ApiEndpoint = useComfy ? config.ComfyUiEndpoint : config.ImageApi.BaseUrl,
+                ApiKey = config.ImageApi.ApiKey,
+                Model = config.ImageApi.ModelId,
+                ApiProvider = config.ImageApi.Provider,
                 ComfyWorkflowFile = config.ComfyUiWorkflowFile,
                 TargetDir = FileService.ChapterImagesPath(App.WorkRoot, novel!.MediaFolder, chapter!.FolderName),
                 FileNameBase = $"AI_{DateTime.Now:yyyyMMdd_HHmmss_fff}",
@@ -1975,6 +1967,7 @@ public partial class ScriptPage : UserControl
                     else
                         ViewHelpers.ShowImageViewer(imgPath, Window.GetWindow(this));
                 };
+                card.ContextMenu = ViewHelpers.BuildAssetContextMenu(imgPath, () => ViewHelpers.ShowImageViewer(imgPath, Window.GetWindow(this)));
 
                 columnPanels[targetCol].Children.Add(card);
             }
@@ -2212,8 +2205,8 @@ public partial class ScriptPage : UserControl
         _isOriginalExpanded = !_isOriginalExpanded;
         if (_isOriginalExpanded)
         {
-            double w = _savedOriginalWidth > 200 ? _savedOriginalWidth : 300;
-            OriginalCol.Width = new GridLength(w, GridUnitType.Pixel);
+            // 展开用星号列：自动铺满整行，避免右侧留空白
+            OriginalCol.Width = new GridLength(1, GridUnitType.Star);
             OriginalCol.MinWidth = 200;
             OriginalPanel.Visibility = Visibility.Visible;
             Splitter1.Visibility = Visibility.Visible;
@@ -2230,7 +2223,6 @@ public partial class ScriptPage : UserControl
         }
         OriginalContentGrid.Visibility = Visibility.Visible;
         OriginalCollapsedView.Visibility = Visibility.Collapsed;
-        FitColumnsToContainer();
     }
 
     private void ToggleScript_Click(object sender, RoutedEventArgs e)
@@ -2238,8 +2230,8 @@ public partial class ScriptPage : UserControl
         _isScriptExpanded = !_isScriptExpanded;
         if (_isScriptExpanded)
         {
-            double w = _savedScriptWidth > 200 ? _savedScriptWidth : 300;
-            ScriptCol.Width = new GridLength(w, GridUnitType.Pixel);
+            // 展开用星号列：自动铺满整行，避免右侧留空白
+            ScriptCol.Width = new GridLength(1, GridUnitType.Star);
             ScriptCol.MinWidth = 200;
             ScriptPanel.Visibility = Visibility.Visible;
             Splitter2.Visibility = Visibility.Visible;
@@ -2256,7 +2248,6 @@ public partial class ScriptPage : UserControl
         }
         ScriptContentGrid.Visibility = Visibility.Visible;
         ScriptCollapsedView.Visibility = Visibility.Collapsed;
-        FitColumnsToContainer();
     }
 
     private void ToggleImage_Click(object sender, RoutedEventArgs e)
@@ -2264,11 +2255,10 @@ public partial class ScriptPage : UserControl
         _isImageExpanded = !_isImageExpanded;
         if (_isImageExpanded)
         {
-            double w = _savedImageWidth > 220 ? _savedImageWidth : 300;
-            ImageCol.Width = new GridLength(w, GridUnitType.Pixel);
+            // 展开用星号列：自动铺满整行，避免右侧留空白
+            ImageCol.Width = new GridLength(1, GridUnitType.Star);
             ImageCol.MinWidth = 220;
             ImagePanel.Visibility = Visibility.Visible;
-            Splitter3.Visibility = Visibility.Visible;
         }
         else
         {
@@ -2277,191 +2267,28 @@ public partial class ScriptPage : UserControl
             ImageCol.MinWidth = 0;
             ImageContentGrid.Visibility = Visibility.Collapsed;
             ImageCollapsedView.Visibility = Visibility.Visible;
-            Splitter3.Visibility = Visibility.Collapsed;
             return;
         }
         ImageContentGrid.Visibility = Visibility.Visible;
         ImageCollapsedView.Visibility = Visibility.Collapsed;
-        FitColumnsToContainer();
     }
 
     /// <summary>
-    /// 按当前容器宽度，将已保存的列宽等比压缩到不溢出
-    /// </summary>
-    private void FitColumnsToContainer()
-    {
-        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
-            () => ClampColumnsNow());
-    }
-
-    /// <summary>
-    /// 窗口大小变化时硬约束：三列总宽决不超过书籍列表左边界
+    /// 窗口尺寸变化：展开的列全部是 Star 星号列，由 Grid 自动铺满整行，
+    /// 不产生右侧空白，也无需手动换算像素宽度。
     /// </summary>
     private void ContentGrid_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        ClampColumnsNow();
     }
 
     /// <summary>
-    /// 窗口缩放时：仅当三列总宽即将溢出时等比压缩，不主动扩展
-    /// </summary>
-    private void ClampColumnsNow()
-    {
-        double total = GetContentAvailableWidth();
-        if (total <= 0) return;
-        int visible = (_isOriginalExpanded ? 1 : 0) + (_isScriptExpanded ? 1 : 0) + (_isImageExpanded ? 1 : 0);
-        if (visible == 0) return;
-        double collapsed = (3 - visible) * 40;
-        // splitter 宽度：每个展开的面板间有 1 个 splitter（共 2 个内部），图像右侧还有 1 个
-        int splitterCount = (_isOriginalExpanded && _isScriptExpanded ? 1 : 0)
-            + (_isScriptExpanded && _isImageExpanded ? 1 : 0)
-            + (_isImageExpanded ? 1 : 0);
-        double available = total - collapsed - splitterCount * 4;
-        // 各面板最小宽度：小说/剧本200，图像220
-        double minTotal = (_isOriginalExpanded ? 200.0 : 0)
-            + (_isScriptExpanded ? 200.0 : 0) + (_isImageExpanded ? 220.0 : 0);
-        if (available < minTotal) return;
-
-        double[] saved = { _savedOriginalWidth, _savedScriptWidth, _savedImageWidth };
-        bool[] show = { _isOriginalExpanded, _isScriptExpanded, _isImageExpanded };
-        double savedSum = 0;
-        for (int j = 0; j < 3; j++) if (show[j]) savedSum += saved[j];
-        if (savedSum <= 0) return;
-
-        // 用已保存宽度判断是否溢出，避免 ActualWidth 未刷新导致误判
-        if (savedSum <= available + 2) return;
-
-        double ratio = available / savedSum;
-        if (_isOriginalExpanded)
-            OriginalCol.Width = new GridLength(Math.Max(200, saved[0] * ratio), GridUnitType.Pixel);
-        if (_isScriptExpanded)
-            ScriptCol.Width = new GridLength(Math.Max(200, saved[1] * ratio), GridUnitType.Pixel);
-        if (_isImageExpanded)
-            ImageCol.Width = new GridLength(Math.Max(220, saved[2] * ratio), GridUnitType.Pixel);
-    }
-
-    /// <summary>计算三列内容区可用总宽度（窗口级，不受子列溢出影响）</summary>
-    private double GetContentAvailableWidth()
-    {
-        double w = ActualWidth - NovelListCol.ActualWidth - 24;
-        return w > 0 ? w : 800;
-    }
-
-    /// <summary>
-    /// 拖拽 Splitter1 时：不让脚本列缩到 200 以下，也不让图像列被挤出边界
-    /// </summary>
-    private void Splitter1_DragDelta(object sender, DragDeltaEventArgs e)
-    {
-        double newOriginalW = OriginalCol.ActualWidth + e.HorizontalChange;
-        double newScriptW = ScriptCol.ActualWidth - e.HorizontalChange;
-        // 脚本列最小 200
-        if (newScriptW < 200) { e.Handled = true; return; }
-        // 图像列不能被挤出：必须保留至少 220
-        double collapsed = 0;
-        if (!_isScriptExpanded) collapsed += 40;
-        if (!_isImageExpanded) collapsed += 40;
-        double total = GetContentAvailableWidth();
-        double targetImgW = total - newOriginalW - newScriptW - collapsed - 8;
-        if (_isImageExpanded && targetImgW < 220) { e.Handled = true; return; }
-        // 约束图像列不溢出（设置 MaxWidth 防止实际渲染溢出）
-        if (_isImageExpanded && targetImgW > 0)
-            ImageCol.MaxWidth = targetImgW;
-    }
-
-    /// <summary>
-    /// 拖拽 Splitter2 时：图像列不超出容器，脚本列也不缩到 200 以下
-    /// </summary>
-    private void Splitter2_DragDelta(object sender, DragDeltaEventArgs e)
-    {
-        double newScriptW = ScriptCol.ActualWidth - e.HorizontalChange;
-        // 脚本列最小 200
-        if (newScriptW < 200) { e.Handled = true; return; }
-        // 图像列不超出右边界
-        double collapsed = 0;
-        if (!_isOriginalExpanded) collapsed += 40;
-        double origW = _isOriginalExpanded ? OriginalCol.ActualWidth : 40;
-        double total = GetContentAvailableWidth();
-        double maxImg = total - origW - newScriptW - collapsed - 8;
-        if (_isImageExpanded && ImageCol.ActualWidth + e.HorizontalChange > maxImg)
-            e.Handled = true;
-        // 约束图像列不溢出
-        if (_isImageExpanded && maxImg > 220)
-            ImageCol.MaxWidth = maxImg;
-    }
-
-    private void Splitter_DragCompleted(object sender, DragCompletedEventArgs e)
-    {
-        // 清除拖拽中设置的 MaxWidth 约束，让 ClampColumnsNow 统一管理
-        ImageCol.ClearValue(ColumnDefinition.MaxWidthProperty);
-        if (OriginalCol.ActualWidth > 200) _savedOriginalWidth = OriginalCol.ActualWidth;
-        if (ScriptCol.ActualWidth > 200) _savedScriptWidth = ScriptCol.ActualWidth;
-        if (ImageCol.ActualWidth > 220) _savedImageWidth = ImageCol.ActualWidth;
-        // 拖拽完成后做一次等比压缩，确保不溢出
-        ClampColumnsNow();
-    }
-
-    /// <summary>
-    /// 拖拽 Splitter3（图像面板右边界）时：完全手动控制列宽，阻止 GridSplitter 默认行为
-    /// </summary>
-    private void Splitter3_DragDelta(object sender, DragDeltaEventArgs e)
-    {
-        e.Handled = true; // 阻止 GridSplitter 默认列宽调整
-        if (!_isImageExpanded) return;
-        double newImgW = ImageCol.ActualWidth + e.HorizontalChange;
-        // 计算最大可用宽度
-        double collapsed = 0;
-        if (!_isOriginalExpanded) collapsed += 40;
-        if (!_isScriptExpanded) collapsed += 40;
-        double origW = _isOriginalExpanded ? OriginalCol.ActualWidth : 40;
-        double scriptW = _isScriptExpanded ? ScriptCol.ActualWidth : 40;
-        double total = GetContentAvailableWidth();
-        // splitter 宽度：Splitter1(4) + Splitter2(4) + Splitter3(4) = 12
-        double maxImgW = total - origW - scriptW - collapsed - 12;
-        // 钳制到 [220, maxImgW] 范围
-        if (newImgW < 220) newImgW = 220;
-        if (newImgW > maxImgW) newImgW = maxImgW;
-        ImageCol.Width = new GridLength(newImgW, GridUnitType.Pixel);
-    }
-
-    private void Splitter3_DragCompleted(object sender, DragCompletedEventArgs e)
-    {
-        ImageCol.ClearValue(ColumnDefinition.MaxWidthProperty);
-        if (_isImageExpanded && ImageCol.ActualWidth > 220)
-            _savedImageWidth = ImageCol.ActualWidth;
-        ClampColumnsNow();
-    }
-
-    /// <summary>
-    /// 双击任意边界 → 将三个面板等分可用空间
+    /// 双击任意边界 → 将展开的面板等分剩余空间（全部设为相等星号权重，自动铺满）
     /// </summary>
     private void Splitter_DoubleClick(object sender, MouseButtonEventArgs e)
     {
-        int visible = (_isOriginalExpanded ? 1 : 0) + (_isScriptExpanded ? 1 : 0) + (_isImageExpanded ? 1 : 0);
-        if (visible == 0) return;
-        double total = GetContentAvailableWidth();
-        double collapsed = (3 - visible) * 40;
-        // splitter 数量：每个展开面板间 1 个 + 图像右侧 1 个（若展开）
-        int sc = (_isOriginalExpanded && _isScriptExpanded ? 1 : 0)
-               + (_isScriptExpanded && _isImageExpanded ? 1 : 0)
-               + (_isImageExpanded ? 1 : 0);
-        double available = total - collapsed - sc * 4;
-        double each = Math.Floor(available / visible);
-
-        if (_isOriginalExpanded)
-        {
-            OriginalCol.Width = new GridLength(each, GridUnitType.Pixel);
-            _savedOriginalWidth = each;
-        }
-        if (_isScriptExpanded)
-        {
-            ScriptCol.Width = new GridLength(each, GridUnitType.Pixel);
-            _savedScriptWidth = each;
-        }
-        if (_isImageExpanded)
-        {
-            ImageCol.Width = new GridLength(each, GridUnitType.Pixel);
-            _savedImageWidth = each;
-        }
+        if (_isOriginalExpanded) OriginalCol.Width = new GridLength(1, GridUnitType.Star);
+        if (_isScriptExpanded) ScriptCol.Width = new GridLength(1, GridUnitType.Star);
+        if (_isImageExpanded) ImageCol.Width = new GridLength(1, GridUnitType.Star);
         e.Handled = true;
     }
 

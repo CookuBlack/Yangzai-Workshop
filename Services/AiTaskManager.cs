@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using YangzaiWorkshop.Models;
 
 namespace YangzaiWorkshop.Services;
 
@@ -82,6 +83,8 @@ public class AiTask : INotifyPropertyChanged
     public string ApiEndpoint { get; init; } = "";
     public string ApiKey { get; init; } = "";
     public string Model { get; init; } = "";
+    /// <summary>API 服务商（图片/视频接口按服务商适配请求格式）</summary>
+    public ApiProvider ApiProvider { get; init; } = ApiProvider.Agnes;
     public string TargetDir { get; init; } = "";
     /// <summary>生成的文件名模板（不含扩展名）</summary>
     public string FileNameBase { get; init; } = "";
@@ -105,9 +108,44 @@ public class AiTask : INotifyPropertyChanged
     public int VideoSeconds { get; init; } = 5;
     /// <summary>参考视频（Data URI Base64 列表）：reference 模式 videos，仅 agnes-video-2.5（非 Flash）支持</summary>
     public List<string>? ReferenceVideos { get; init; }
+    /// <summary>参考音频（Data URI Base64 列表）：reference 模式 audios，agnes-video-2.5-flash 最多 3 段</summary>
+    public List<string>? ReferenceAudios { get; init; }
+    /// <summary>首帧（keyframe 首尾帧模式 first_frame，Data URI Base64）</summary>
+    public string? FirstFrame { get; init; }
+    /// <summary>尾帧（keyframe 首尾帧模式 last_frame，Data URI Base64）</summary>
+    public string? LastFrame { get; init; }
     public string NovelName { get; init; } = "";
     /// <summary>章节/角色名（展示用）</summary>
     public string ScopeName { get; init; } = "";
+
+    /// <summary>用与原任务完全相同的参数构造一个新任务（新 Id、新取消源、状态复位为排队），用于「重新生成」。</summary>
+    public static AiTask CreateRetry(AiTask src) => new()
+    {
+        Type = src.Type,
+        Prompt = src.Prompt,
+        Detail = src.Detail,
+        ApiEndpoint = src.ApiEndpoint,
+        ApiKey = src.ApiKey,
+        Model = src.Model,
+        ApiProvider = src.ApiProvider,
+        TargetDir = src.TargetDir,
+        FileNameBase = src.FileNameBase,
+        ImageSize = src.ImageSize,
+        ImageLevel = src.ImageLevel,
+        ImageRatio = src.ImageRatio,
+        Provider = src.Provider,
+        ComfyWorkflowFile = src.ComfyWorkflowFile,
+        ReferenceImages = src.ReferenceImages,
+        VideoSize = src.VideoSize,
+        VideoRatio = src.VideoRatio,
+        VideoSeconds = src.VideoSeconds,
+        ReferenceVideos = src.ReferenceVideos,
+        ReferenceAudios = src.ReferenceAudios,
+        FirstFrame = src.FirstFrame,
+        LastFrame = src.LastFrame,
+        NovelName = src.NovelName,
+        ScopeName = src.ScopeName
+    };
 
     public CancellationTokenSource Cts { get; } = new();
 
@@ -193,6 +231,18 @@ public static class AiTaskManager
         return null;
     }
 
+    /// <summary>重新生成已完成/失败的任务：用相同参数新建一个任务并重新入队（移除原条目）。</summary>
+    public static void Retry(Guid id)
+    {
+        AiTask? src = null;
+        foreach (var t in Tasks) { if (t.Id == id) { src = t; break; } }
+        if (src == null) return;
+        if (src.Status is not (AiTaskStatus.Completed or AiTaskStatus.Failed or AiTaskStatus.Cancelled)) return;
+        var clone = AiTask.CreateRetry(src);
+        Tasks.Remove(src);
+        Enqueue(clone);
+    }
+
     /// <summary>串行执行队列：取下一个排队任务并运行，直到队列为空</summary>
     private static async Task RunNextAsync()
     {
@@ -265,6 +315,7 @@ public static class AiTaskManager
             {
                 var imageUrl = await ApiService.GenerateImageAsync(
                     t.ApiEndpoint, t.ApiKey, t.Prompt, t.Model,
+                    provider: t.ApiProvider,
                     size: string.IsNullOrEmpty(t.ImageLevel) ? t.ImageSize : t.ImageLevel,
                     referenceImages: t.ReferenceImages,
                     ratio: t.ImageRatio,
@@ -275,18 +326,27 @@ public static class AiTaskManager
         }
         else
         {
-            // 有参考图或参考视频 → reference 模式，否则 text 模式（agnes-video 2.5 系列）
-            var mode = (t.ReferenceImages is { Count: > 0 } || t.ReferenceVideos is { Count: > 0 })
-                ? "reference" : "text";
+            // 首尾帧 → keyframe 模式；否则有参考图/参考视频/参考音频 → reference 模式，否则 text 模式（agnes-video 2.5 系列）
+            var hasKeyframes = !string.IsNullOrWhiteSpace(t.FirstFrame) || !string.IsNullOrWhiteSpace(t.LastFrame);
+            var hasAnyMedia = t.ReferenceImages is { Count: > 0 }
+                              || t.ReferenceVideos is { Count: > 0 }
+                              || t.ReferenceAudios is { Count: > 0 };
+            var mode = hasKeyframes
+                ? "keyframe"
+                : hasAnyMedia ? "reference" : "text";
             var videoId = await ApiService.CreateVideoTaskAsync(
                 t.ApiEndpoint, t.ApiKey, t.Model, t.Prompt,
                 mode: mode,
                 seconds: t.VideoSeconds,
                 size: t.VideoSize,
                 aspectRatio: t.VideoRatio,
+                firstFrame: t.FirstFrame,
+                lastFrame: t.LastFrame,
                 referenceImages: t.ReferenceImages,
+                referenceAudios: t.ReferenceAudios,
                 referenceVideos: t.ReferenceVideos?
                     .Select(v => new VideoReference { Url = v }).ToList(),
+                provider: t.ApiProvider,
                 cancel: t.Cts.Token);
 
             var progress = new Progress<string>(msg =>
@@ -295,7 +355,9 @@ public static class AiTaskManager
                 NotifyChanged(t);
             });
             var videoUrl = await ApiService.PollVideoResultAsync(
-                t.ApiEndpoint, t.ApiKey, videoId, t.Model, progress, t.Cts.Token);
+                t.ApiEndpoint, t.ApiKey, videoId, t.Model, progress,
+                provider: t.ApiProvider,
+                cancel: t.Cts.Token);
             var videoBytes = await ApiService.DownloadVideoAsync(videoUrl, t.Cts.Token);
             await SaveAsync(t, videoBytes, ".mp4");
         }

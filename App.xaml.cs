@@ -16,7 +16,7 @@ public partial class App : Application
     public static string AvatarDir => FileService.AssetsAvatarPath;
 
     private const string GitHubRepo = "CookuBlack/Yangzai-Workshop";
-    private const string CurrentVersion = "4.3.0";
+    private const string CurrentVersion = "4.4.0";
     public static string AppVersion => CurrentVersion;
 
     /// <summary>版本信息 JSON 地址（GitHub Raw 优先确保实时性，CDN 作为加速备用）</summary>
@@ -504,9 +504,10 @@ public partial class App : Application
         // 方案：先启动 msiexec 安装（Windows 会弹出 UAC），再关闭当前应用
         // 这样安装进程独立于应用进程，不会随应用退出而中断
 
-        // 清理脚本和 MSI 都放系统 Temp（不在 AppBasePath），
+        // 清理脚本、MSI 与安装日志都放系统 Temp（不在 AppBasePath），
         // 避免 MajorUpgrade 卸载旧版时把安装包/脚本一并删掉
         var cleanupBat = Path.Combine(Path.GetTempPath(), "_update_cleanup.bat");
+        var installLog = Path.Combine(Path.GetTempPath(), $"YangzaiWorkshop_Update_{newTag}.log");
         var installPath = FileService.AppBasePath.TrimEnd('\\', '/');
         var exePath = Path.Combine(FileService.AppBasePath, "YangzaiWorkshop.exe");
         var currentPid = Environment.ProcessId;
@@ -517,7 +518,9 @@ public partial class App : Application
         //    而安装后启动的仍是旧位置 exe，表现为“更新后还是老版本”。
         // 2) msiexec 结束后需额外轮询等待其真正退出：UAC 提权下非提权的
         //    msiexec 包装进程会立即返回，若不等待，可能在新版尚未写盘时
-        //    就启动旧 exe。
+        //    就启动旧 exe。等待时按命令行过滤只匹配本次更新的 msiexec，
+        //    避免与其它软件的安装进程混淆导致误等或卡住。
+        // 3) 追加 /l*v 安装日志，安装失败时可通过日志快速定位原因。
         File.WriteAllText(cleanupBat,
             "@echo off\r\n" +
             "echo Waiting for old process to exit...\r\n" +
@@ -528,21 +531,25 @@ public partial class App : Application
             "    goto waitloop\r\n" +
             ")\r\n" +
             $"echo Installing Yangzai Workshop v{newTag} to {installPath}...\r\n" +
-            $"msiexec /i \"{tempFile}\" INSTALLFOLDER=\"{installPath}\" /qb!- /norestart\r\n" +
+            $"msiexec /i \"{tempFile}\" INSTALLFOLDER=\"{installPath}\" /qb!- /norestart /l*v \"{installLog}\"\r\n" +
             "if errorlevel 1 goto :fail\r\n" +
             "echo Waiting for installer to finish...\r\n" +
             ":waitmsi\r\n" +
             "timeout /t 1 /nobreak >nul\r\n" +
-            "tasklist /fi \"IMAGENAME eq msiexec.exe\" 2>nul | find /i \"msiexec.exe\" >nul\r\n" +
+            "powershell -NoProfile -Command \"if (Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'msiexec.exe' -and $_.CommandLine -like '*YangzaiWorkshop_Update_*' }) { exit 0 } else { exit 1 }\" >nul 2>nul\r\n" +
             "if not errorlevel 1 goto waitmsi\r\n" +
+            "echo Verifying installation...\r\n" +
+            $"if not exist \"{exePath}\" goto :fail\r\n" +
             "echo Starting Yangzai Workshop...\r\n" +
             $"start \"\" \"{exePath}\"\r\n" +
             ":cleanup\r\n" +
             $"del /f /q \"{tempFile}\" 2>nul\r\n" +
+            $"del /f /q \"{installLog}\" 2>nul\r\n" +
             $"del /f /q \"%~f0\" 2>nul\r\n" +
             "exit /b 0\r\n" +
             ":fail\r\n" +
-            "echo Installation failed! Check the installer log.\r\n" +
+            $"echo Installation failed! Log: {installLog}\r\n" +
+            "echo The log file is kept for troubleshooting.\r\n" +
             "pause\r\n" +
             "goto :cleanup\r\n",
             GetGbkEncoding());

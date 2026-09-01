@@ -54,25 +54,26 @@ public sealed class PromptPanel
         var useSelBtn = SmallBtn("✂️ 选区加入");
         var presetBtn = SmallBtn("⭐ 默认");
 
-        var btnRow1 = new StackPanel { Orientation = Orientation.Horizontal };
-        btnRow1.Children.Add(importBtn);
-        btnRow1.Children.Add(exportBtn);
-        var btnRow2 = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
-        btnRow2.Children.Add(useSelBtn);
-        btnRow2.Children.Add(presetBtn);
+        // 四个按钮用 2×2 等宽网格铺满左侧栏宽度，整齐美观
+        var btnGrid = new System.Windows.Controls.Primitives.UniformGrid
+        {
+            Rows = 2, Columns = 2, Margin = new Thickness(0, 0, 0, 6)
+        };
+        foreach (var b in new[] { importBtn, exportBtn, useSelBtn, presetBtn })
+        {
+            b.HorizontalAlignment = HorizontalAlignment.Stretch;
+            b.Margin = new Thickness(0, 0, 4, 4);
+            btnGrid.Children.Add(b);
+        }
 
         // 文本框占满剩余高度（自带垂直滚动），避免左侧栏下方留白
         var body = new Grid();
-        body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 0 按钮行1
-        body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });                    // 1 间距
-        body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 2 按钮行2
-        body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });                    // 3 间距
-        body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });  // 4 文本编辑区
-        Grid.SetRow(btnRow1, 0);
-        Grid.SetRow(btnRow2, 2);
-        Grid.SetRow(textBox, 4);
-        body.Children.Add(btnRow1);
-        body.Children.Add(btnRow2);
+        body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });                       // 0 按钮区
+        body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(8) });                    // 1 间距
+        body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });  // 2 文本编辑区
+        Grid.SetRow(btnGrid, 0);
+        Grid.SetRow(textBox, 2);
+        body.Children.Add(btnGrid);
         body.Children.Add(textBox);
 
         // 导入文本文件到文本框
@@ -186,6 +187,20 @@ public sealed class PromptPanel
         Root = root;
     }
 
+    /// <summary>把折叠/展开按钮放进面板标题栏右侧（代替浮在面板上方的独立按钮）。</summary>
+    public void SetCollapseToggle(Button toggle)
+    {
+        if (Root is not Border border || border.Child is not DockPanel dock) return;
+        var titleRow = dock.Children.OfType<Grid>().FirstOrDefault();
+        if (titleRow == null) return;
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        toggle.HorizontalAlignment = HorizontalAlignment.Center;
+        toggle.VerticalAlignment = VerticalAlignment.Center;
+        toggle.Margin = new Thickness(6, 0, 0, 0);
+        Grid.SetColumn(toggle, titleRow.ColumnDefinitions.Count - 1);
+        titleRow.Children.Add(toggle);
+    }
+
     private static Button SmallBtn(string text) => new()
     {
         Content = text, FontSize = 11, Padding = new Thickness(8, 4, 8, 4),
@@ -293,6 +308,20 @@ public sealed class AssetPanel
             Child = body
         };
         UpdateCountText();
+    }
+
+    /// <summary>把折叠/展开按钮放进面板标题栏右侧（代替浮在面板上方的独立按钮）。</summary>
+    public void SetCollapseToggle(Button toggle)
+    {
+        if (Root is not Border border || border.Child is not DockPanel body) return;
+        var titleRow = body.Children.OfType<Grid>().FirstOrDefault();
+        if (titleRow == null) return;
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        toggle.HorizontalAlignment = HorizontalAlignment.Center;
+        toggle.VerticalAlignment = VerticalAlignment.Center;
+        toggle.Margin = new Thickness(6, 0, 0, 0);
+        Grid.SetColumn(toggle, titleRow.ColumnDefinitions.Count - 1);
+        titleRow.Children.Add(toggle);
     }
 
     /// <summary>加入资产路径（去重），并开始分批加载缩略图</summary>
@@ -421,9 +450,13 @@ public sealed class AssetPanel
             CornerRadius = new CornerRadius(6),
             Cursor = Cursors.Hand,
             Tag = path,
-            Child = inner
+            Child = inner,
+            // 右键菜单：查看图片 / 在文件夹中显示
+            ContextMenu = ViewHelpers.BuildAssetContextMenu(path, () => ViewHelpers.ShowImageViewer(path))
         };
         card.MouseLeftButtonUp += (_, _) => ToggleSelect(path);
+        // 鼠标悬停显示原图放大预览（复用参考图缩略图的悬停预览浮层）
+        ViewHelpers.AttachLargePreview(card, path, null);
         _orderBadges[path] = orderBadge;
         return card;
     }
@@ -484,6 +517,18 @@ public sealed class AssetPanel
         SelectionChanged?.Invoke();
     }
 
+    /// <summary>从已选中移除某张图片（保留其余顺序与编号），用于参考图 ✕ 删除时保持右侧资产栏同步。
+    /// 不触发 SelectionChanged：参考图缩略图与 refImages 已由删除方直接移除，避免重建清空本地手动添加的参考图。</summary>
+    public void RemoveSelected(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        if (_selectedOrder.Remove(path))
+        {
+            UpdateOrderBadges();
+            UpdateCountText();
+        }
+    }
+
     private void UpdateOrderBadges()
     {
         foreach (var kv in _cards)
@@ -525,6 +570,142 @@ public sealed class AssetPanel
         Margin = new Thickness(0, 0, 4, 0),
         Style = Style("SecondaryButtonStyle")
     };
+
+    private static Brush Brush(string key) =>
+        Application.Current.TryFindResource(key) as Brush ?? Brushes.Gray;
+    private static Style? Style(string key) =>
+        Application.Current.TryFindResource(key) as Style;
+}
+
+/// <summary>
+/// 素材区（参考图 / 参考视频 / 参考音频）统一版式：
+/// 顶部一行 = 左侧标题 + 数量角标，右侧操作按钮；
+/// 支持两种布局：
+///  - 普通模式：标题/按钮一行，其下为缩略图/标签流（ContentPanel），最底部为提示文字；
+///  - 内联模式（contentInline=true）：标题 + 按钮 + 缩略图全部挤在同一「扁」行内，缩略图直接排在按钮右侧，
+///    仅占地占位少，适合为提示词输入框省出纵向空间（视频生成为主）。
+/// 底部提示文字 <see cref="HintText"/> 两种模式都保留。
+/// </summary>
+public sealed class MaterialStrip
+{
+    private static readonly Brush _badgeBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x90, 0xE2));
+
+    private readonly TextBlock _countBadge;
+    private readonly TextBlock _hintText;
+    private readonly WrapPanel _buttonsWrap;
+
+    /// <summary>缩略图 / 标签流（参考图缩略图、参考视频名称、参考音频 chip 放入此面板）。</summary>
+    public WrapPanel ContentPanel { get; }
+
+    /// <summary>底部提示文字块（随内容变化由宿主更新）。</summary>
+    public TextBlock HintText => _hintText;
+
+    /// <summary>整个素材区根元素。</summary>
+    public FrameworkElement Root { get; }
+
+    /// <param name="title">素材区标题，如「参考图」。</param>
+    /// <param name="defaultHint">默认提示文字。</param>
+    /// <param name="icon">标题前的图标（emoji）。</param>
+    public MaterialStrip(string title, string defaultHint, string? icon = "📷")
+        : this(title, defaultHint, icon, contentInline: false) { }
+
+    /// <param name="contentInline">true=缩略图就地排在按钮右侧（扁行，纵向省空间）；false=缩略图在按钮下一行。</param>
+    public MaterialStrip(string title, string defaultHint, string? icon, bool contentInline)
+    {
+        _countBadge = new TextBlock
+        {
+            FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Brushes.White,
+            Background = _badgeBrush, Padding = new Thickness(6, 1, 6, 1),
+            Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Center, Visibility = Visibility.Collapsed
+        };
+        var titleText = new TextBlock
+        {
+            Text = $"{icon} {title}", FontSize = 12, FontWeight = FontWeights.SemiBold,
+            Foreground = Brush("TextPrimaryBrush"), VerticalAlignment = VerticalAlignment.Center
+        };
+        var titleWrap = new StackPanel { Orientation = Orientation.Horizontal };
+        titleWrap.Children.Add(titleText);
+        titleWrap.Children.Add(_countBadge);
+
+        _buttonsWrap = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
+
+        // 头部：标题 | 按钮（| 内联内容，仅 contentInline 时存在）
+        var header = new Grid();
+        ContentPanel = new WrapPanel { VerticalAlignment = contentInline ? VerticalAlignment.Center : VerticalAlignment.Top };
+        if (contentInline)
+        {
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            Grid.SetColumn(titleWrap, 0);
+            Grid.SetColumn(_buttonsWrap, 1);
+            Grid.SetColumn(ContentPanel, 2);
+        }
+        else
+        {
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetColumn(titleWrap, 0);
+            Grid.SetColumn(_buttonsWrap, 1);
+        }
+        header.Children.Add(titleWrap);
+        header.Children.Add(_buttonsWrap);
+        if (contentInline) header.Children.Add(ContentPanel);
+
+        _hintText = new TextBlock
+        {
+            Text = defaultHint, FontSize = 10.5, Foreground = Brush("TextTertiaryBrush"),
+            TextWrapping = TextWrapping.Wrap
+        };
+
+        var root = new Grid();
+        if (contentInline)
+        {
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });    // 0 头部（含内联内容）
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(3) });  // 1 间距
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });    // 2 提示
+            Grid.SetRow(header, 0);
+            Grid.SetRow(_hintText, 2);
+            root.Children.Add(header);
+            root.Children.Add(_hintText);
+        }
+        else
+        {
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });    // 0 标题行
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });  // 1 间距
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });    // 2 内容流
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(4) });  // 3 间距
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });    // 4 提示
+            Grid.SetRow(header, 0);
+            Grid.SetRow(ContentPanel, 2);
+            Grid.SetRow(_hintText, 4);
+            root.Children.Add(header);
+            root.Children.Add(ContentPanel);
+            root.Children.Add(_hintText);
+        }
+        Root = root;
+    }
+
+    /// <summary>在标题行右侧追加一个操作按钮（等高标准）。</summary>
+    public Button AddButton(string label, string tooltip, string? style = null)
+    {
+        var b = new Button
+        {
+            Content = label, FontSize = 11, Padding = new Thickness(10, 4, 10, 4),
+            Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+            Style = Style(style ?? "SecondaryButtonStyle"), ToolTip = tooltip
+        };
+        _buttonsWrap.Children.Add(b);
+        return b;
+    }
+
+    /// <summary>更新标题行右侧的数量角标（0 或以下时隐藏）。</summary>
+    public void SetCount(int count)
+    {
+        _countBadge.Text = count > 0 ? count.ToString() : "";
+        _countBadge.Visibility = count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private static Brush Brush(string key) =>
         Application.Current.TryFindResource(key) as Brush ?? Brushes.Gray;
@@ -836,32 +1017,84 @@ public sealed class PromptEditDialog : Window
 
 /// <summary>
 /// 生成窗口三栏布局辅助：左栏（提示词素材）| 中央 | 右栏（项目资产）。
-/// 左右栏宽度可通过 GridSplitter 拖拽调整，关闭窗口时把宽度持久化到配置，下次打开恢复。
+/// 左右栏宽度可通过 GridSplitter 拖拽调整，关闭窗口时把宽度持久化到配置，下次打开恢复；
+/// 左右栏还支持一键折叠/展开（折叠后栏宽收敛为窄条，再次展开恢复折叠前宽度，即“宽度记忆”）。
 /// </summary>
 public static class GenPanelLayout
 {
     public const double LeftMin = 215;
     public const double RightMin = 280;
     public const double CenterMin = 360;
+    /// <summary>折叠后的窄条宽度</summary>
+    public const double CollapsedStrip = 26;
+
+    /// <summary>单个侧边栏的折叠状态与记忆宽度</summary>
+    private sealed class SideState
+    {
+        public bool Collapsed;
+        public GridLength ExpandedWidth = new(1, GridUnitType.Star);
+        public double ExpandedPx;
+        public double MinWidth;
+    }
 
     public static Grid CreateThreeColumn(Window win,
-        FrameworkElement left, FrameworkElement center, FrameworkElement right)
+        PromptPanel? left, FrameworkElement center, AssetPanel? right)
     {
         var config = FileService.LoadConfig(App.WorkRoot);
         // 三列都用 Star 权重（按保存的实际宽度比例），随窗口伸缩，永不溢出
         var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(config.GenLeftPanelWidth, GridUnitType.Star), MinWidth = LeftMin });   // 0 左栏
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                                                                  // 1 分割线
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(config.GenCenterPanelWidth, GridUnitType.Star), MinWidth = CenterMin }); // 2 中央
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                                                                  // 3 分割线
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(config.GenRightPanelWidth, GridUnitType.Star), MinWidth = RightMin }); // 4 右栏
+        var leftCol = new ColumnDefinition { Width = new GridLength(config.GenLeftPanelWidth, GridUnitType.Star), MinWidth = LeftMin };   // 0 左栏
+        var centerCol = new ColumnDefinition { Width = new GridLength(config.GenCenterPanelWidth, GridUnitType.Star), MinWidth = CenterMin }; // 2 中央
+        var rightCol = new ColumnDefinition { Width = new GridLength(config.GenRightPanelWidth, GridUnitType.Star), MinWidth = RightMin }; // 4 右栏
+        grid.ColumnDefinitions.Add(leftCol);                                                                                               // 0 左栏
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                                                      // 1 分割线
+        grid.ColumnDefinitions.Add(centerCol);                                                                                             // 2 中央
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                                                      // 3 分割线
+        grid.ColumnDefinitions.Add(rightCol);                                                                                              // 4 右栏
 
-        Grid.SetColumn(left, 0);
+        // 折叠/展开按钮放在面板标题栏内部；折叠时面板隐藏，由窄条上的同步按钮恢复
+        var leftState = new SideState { MinWidth = LeftMin };
+        var rightState = new SideState { MinWidth = RightMin };
+
+        var leftToggle = MakeToggle();
+        var leftStrip = MakeStrip(isLeft: true, out var leftStripBtn);
+        if (left != null)
+        {
+            left.SetCollapseToggle(leftToggle);
+            WireCollapse(leftToggle, leftStripBtn, leftCol, leftState, left.Root, leftStrip, isLeft: true);
+        }
+
+        var rightToggle = MakeToggle();
+        var rightStrip = MakeStrip(isLeft: false, out var rightStripBtn);
+        if (right != null)
+        {
+            right.SetCollapseToggle(rightToggle);
+            WireCollapse(rightToggle, rightStripBtn, rightCol, rightState, right.Root, rightStrip, isLeft: false);
+        }
+
+        var leftDock = new Grid();
+        if (left != null)
+        {
+            Grid.SetColumn(leftStrip, 0);
+            Grid.SetRowSpan(leftStrip, 2);
+            leftDock.Children.Add(left.Root);
+            leftDock.Children.Add(leftStrip);
+        }
+        var rightDock = new Grid();
+        if (right != null)
+        {
+            Grid.SetColumn(rightStrip, 0);
+            Grid.SetRowSpan(rightStrip, 2);
+            rightDock.Children.Add(right.Root);
+            rightDock.Children.Add(rightStrip);
+        }
+
+        Grid.SetColumn(leftDock, 0);
         Grid.SetColumn(center, 2);
-        Grid.SetColumn(right, 4);
-        grid.Children.Add(left);
+        Grid.SetColumn(rightDock, 4);
+        grid.Children.Add(leftDock);
         grid.Children.Add(center);
-        grid.Children.Add(right);
+        grid.Children.Add(rightDock);
 
         var s1 = MakeSplitter();
         Grid.SetColumn(s1, 1);
@@ -870,20 +1103,92 @@ public static class GenPanelLayout
         grid.Children.Add(s1);
         grid.Children.Add(s2);
 
-        // 关闭窗口时保存三栏当前宽度（下次按比例恢复）
+        // 关闭窗口时保存三栏当前宽度（折叠时保存折叠前的展开宽度，保证“宽度记忆”）
         win.Closed += (_, _) =>
         {
             try
             {
                 var cfg = FileService.LoadConfig(App.WorkRoot);
-                cfg.GenLeftPanelWidth = Math.Max(LeftMin, grid.ColumnDefinitions[0].ActualWidth);
-                cfg.GenCenterPanelWidth = Math.Max(CenterMin, grid.ColumnDefinitions[2].ActualWidth);
-                cfg.GenRightPanelWidth = Math.Max(RightMin, grid.ColumnDefinitions[4].ActualWidth);
+                cfg.GenLeftPanelWidth = Math.Max(LeftMin, leftState.Collapsed ? leftState.ExpandedPx : leftCol.ActualWidth);
+                cfg.GenCenterPanelWidth = Math.Max(CenterMin, centerCol.ActualWidth);
+                cfg.GenRightPanelWidth = Math.Max(RightMin, rightState.Collapsed ? rightState.ExpandedPx : rightCol.ActualWidth);
                 FileService.SaveConfig(App.WorkRoot, cfg);
             }
             catch { /* 保存失败不影响使用 */ }
         };
         return grid;
+    }
+
+    /// <summary>创建折叠/展开小按钮（放进面板标题栏内）。</summary>
+    private static Button MakeToggle() => new()
+    {
+        Width = 22, Height = 22, Padding = new Thickness(0),
+        FontSize = 9, Style = Application.Current.TryFindResource("SecondaryButtonStyle") as Style,
+        Cursor = Cursors.Hand
+    };
+
+    /// <summary>创建折叠后的窄条（26px 宽，内含同步按钮，点击恢复展开）。</summary>
+    private static Border MakeStrip(bool isLeft, out Button stripBtn)
+    {
+        stripBtn = new Button
+        {
+            Width = 22, Height = 22, Padding = new Thickness(0),
+            FontSize = 9, Style = Application.Current.TryFindResource("SecondaryButtonStyle") as Style,
+            Cursor = Cursors.Hand,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 8, 0, 0)
+        };
+        return new Border
+        {
+            Width = CollapsedStrip,
+            Background = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF)),
+            BorderBrush = (Brush)(Application.Current.TryFindResource("BorderBrush") ?? Brushes.Gray),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Visibility = Visibility.Collapsed,
+            Child = stripBtn
+        };
+    }
+
+    /// <summary>绑定折叠/展开：切换栏宽并记忆展开宽度（标题栏按钮与窄条按钮同步）。</summary>
+    private static void WireCollapse(Button headerToggle, Button stripBtn, ColumnDefinition col,
+        SideState state, FrameworkElement panel, Border strip, bool isLeft)
+    {
+        string closeGlyph = isLeft ? "◀" : "▶";   // 展开时：左栏向左收，右栏向右收
+        string openGlyph = isLeft ? "▶" : "◀";    // 折叠时：点击恢复展开
+        headerToggle.Content = closeGlyph;
+        stripBtn.Content = openGlyph;
+        headerToggle.ToolTip = isLeft ? "折叠 / 展开左侧提示词素材栏" : "折叠 / 展开右侧项目资产栏";
+        stripBtn.ToolTip = isLeft ? "展开左侧提示词素材栏" : "展开右侧项目资产栏";
+
+        void Toggle()
+        {
+            if (!state.Collapsed)
+            {
+                state.ExpandedWidth = col.Width;
+                state.ExpandedPx = Math.Max(1, col.ActualWidth);
+                col.MinWidth = 0;
+                col.Width = new GridLength(CollapsedStrip);
+                panel.Visibility = Visibility.Collapsed;
+                strip.Visibility = Visibility.Visible;
+                headerToggle.Content = openGlyph;
+                stripBtn.Content = closeGlyph;
+                state.Collapsed = true;
+            }
+            else
+            {
+                col.MinWidth = state.MinWidth;
+                col.Width = state.ExpandedWidth;
+                panel.Visibility = Visibility.Visible;
+                strip.Visibility = Visibility.Collapsed;
+                headerToggle.Content = closeGlyph;
+                stripBtn.Content = openGlyph;
+                state.Collapsed = false;
+            }
+        }
+        headerToggle.Click += (_, _) => Toggle();
+        stripBtn.Click += (_, _) => Toggle();
     }
 
     private static GridSplitter MakeSplitter() => new()
