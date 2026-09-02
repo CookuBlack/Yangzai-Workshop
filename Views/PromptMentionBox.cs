@@ -969,7 +969,7 @@ public sealed class PromptMentionBox : Grid
     }
 
     /// <summary>键盘焦点是否落在某 Popup 的内容子树内（下拉框/预览浮层本身）。</summary>
-    private static bool IsFocusOnPopup(Popup popup)
+    private static bool IsFocusOnPopup(Popup? popup)
     {
         if (popup?.Child == null) return false;
         if (Keyboard.FocusedElement is not DependencyObject fo) return false;

@@ -80,5 +80,20 @@ public partial class AiGenHistoryWindow : Window
         else SelectedText.Text = "请先点击选择一条历史记录";
     }
 
+    /// <summary>清除全部历史记录（确认后删除历史文件并清空列表）。</summary>
+    private void ClearHistory_Click(object sender, RoutedEventArgs e)
+    {
+        var owner = Owner ?? this;
+        if (!MessageDialog.Confirm("清除历史", "确定要删除全部 AI 生成历史记录吗？\n此操作不可恢复。"))
+            return;
+        AiGenHistory.Clear(App.WorkRoot);
+        _items.Clear();
+        _rows.Clear();
+        HistoryList.ItemsSource = null;
+        _selected = null;
+        CountText.Text = "暂无历史记录（生成后会在此展示）。";
+        SelectedText.Text = "历史记录已清除";
+    }
+
     private void Cancel_Click(object sender, RoutedEventArgs e) => DialogResult = false;
 }

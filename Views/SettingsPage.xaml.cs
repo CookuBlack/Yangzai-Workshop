@@ -67,6 +67,8 @@ public partial class SettingsPage : UserControl
         // 生成调色板
         GenerateColorPalette();
 
+        // 音乐目录被实时监听，目录变化时同步刷新设置页音乐列表
+        MusicPlayerService.Instance.PlaylistChanged += RefreshSettingsMusicList;
         RefreshSettings();
 
         if (_config.FollowSystemTheme)
@@ -79,6 +81,7 @@ public partial class SettingsPage : UserControl
     private void OnUnloaded(object sender, RoutedEventArgs e)
     {
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        MusicPlayerService.Instance.PlaylistChanged -= RefreshSettingsMusicList;
     }
 
     private void LoadAboutIcon()
@@ -128,6 +131,7 @@ public partial class SettingsPage : UserControl
         WorkPathText.ToolTip = App.WorkRoot;
 
         // 通用设置
+        AutoStartCheck.IsChecked = _config.AutoStart;
         AutoSaveCheck.IsChecked = _config.AutoSaveScript;
         FontSizeSlider.Value = _config.FontSize;
         FontSizeInput.Text = _config.FontSize.ToString();
@@ -139,6 +143,13 @@ public partial class SettingsPage : UserControl
         BackupIntervalInput.Text = _config.BackupIntervalHours.ToString("F0");
         HistoryCountSlider.Value = _config.TextHistoryMaxCount;
         HistoryCountInput.Text = _config.TextHistoryMaxCount.ToString("F0");
+
+        // 视频生成失败自动重试
+        VideoRetryCheck.IsChecked = _config.VideoRetryEnabled;
+        RetryAttemptSlider.Value = _config.VideoRetryMaxAttempts;
+        RetryAttemptInput.Text = _config.VideoRetryMaxAttempts.ToString("F0");
+        RetryIntervalSlider.Value = _config.VideoRetryIntervalSeconds;
+        RetryIntervalInput.Text = _config.VideoRetryIntervalSeconds.ToString("F0");
 
         // AI 接口配置概览（完整配置在独立的「AI 接口配置」窗口管理）
         UpdateAiConfigSummary();
@@ -159,6 +170,9 @@ public partial class SettingsPage : UserControl
     // ===== 滚轮 =====
     private void SettingsScroller_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        // 鼠标悬浮在音乐列表内时，把滚轮交给内层列表滚动条，外层不接管
+        if (e.OriginalSource is DependencyObject d && MusicListScroller.IsAncestorOf(d))
+            return;
         var sv = (ScrollViewer)sender;
         sv.ScrollToVerticalOffset(sv.VerticalOffset - e.Delta / 3);
         e.Handled = true;
@@ -503,6 +517,16 @@ public partial class SettingsPage : UserControl
         HistoryCountInput.Text = TextHistoryService.DefaultMaxHistory.ToString();
         TextHistoryService.Instance.MaxHistory = TextHistoryService.DefaultMaxHistory;
 
+        // 视频生成失败自动重试（恢复默认：开启、共 3 次、间隔 60 秒）
+        _config.VideoRetryEnabled = true;
+        VideoRetryCheck.IsChecked = true;
+        _config.VideoRetryMaxAttempts = 3;
+        RetryAttemptSlider.Value = 3;
+        RetryAttemptInput.Text = "3";
+        _config.VideoRetryIntervalSeconds = 60;
+        RetryIntervalSlider.Value = 60;
+        RetryIntervalInput.Text = "60";
+
         // ComfyUI 本地生图
         _config.ComfyUiEndpoint = "http://127.0.0.1:8188";
         _config.ComfyUiWorkflowFile = "";
@@ -523,6 +547,35 @@ public partial class SettingsPage : UserControl
         if (_isLoading || !IsLoaded) return;
         _config.AutoSaveScript = AutoSaveCheck.IsChecked == true;
         SaveConfig();
+    }
+
+    // ---------- 开机自启动（注册表 HKCU\...\Run） ----------
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string StartupValueName = "YangzaiWorkshop";
+
+    private void AutoStartCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        bool enable = AutoStartCheck.IsChecked == true;
+        _config.AutoStart = enable;
+        SaveConfig();
+        SetAutoStartRegistry(enable);
+    }
+
+    private static void SetAutoStartRegistry(bool enable)
+    {
+        try
+        {
+            var exePath = Environment.ProcessPath
+                ?? Process.GetCurrentProcess().MainModule?.FileName;
+            if (string.IsNullOrEmpty(exePath)) return;
+            using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath);
+            if (enable)
+                key?.SetValue(StartupValueName, $"\"{exePath}\"");
+            else
+                key?.DeleteValue(StartupValueName, false);
+        }
+        catch { /* 注册表写入失败不影响程序运行 */ }
     }
 
     private void FontSizeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -589,9 +642,34 @@ public partial class SettingsPage : UserControl
     private void RefreshSettingsMusicList()
     {
         var svc = MusicPlayerService.Instance;
-        var items = svc.Playlist.Select(f => new { Path = f, Name = Path.GetFileName(f) }).ToList();
-        SettingsMusicList.ItemsSource = items;
-        SettingsMusicCount.Text = items.Count > 0 ? $"共 {items.Count} 首曲目" : "暂无音乐文件";
+        var full = svc.Playlist.Select(f => new { Path = f, Name = Path.GetFileName(f) }).ToList();
+        // 设置页内紧凑滚动展示全部曲目（超出固定高度后滚轮查看），也可通过「查看全部音乐」打开独立窗口管理
+        SettingsMusicList.ItemsSource = full;
+        SettingsMusicCount.Text = full.Count > 0 ? $"共 {full.Count} 首曲目" : "暂无音乐文件";
+        SettingsMusicManageAllBtn.Visibility = full.Count > 0
+            ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void MusicListScroll_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (sender is not ScrollViewer sv) return;
+        var atTopAndUp = e.Delta > 0 && sv.VerticalOffset <= 0;
+        var atBottomAndDown = e.Delta < 0 && sv.VerticalOffset >= sv.ScrollableHeight;
+        // 列表已到顶/到底时，继续滚动则显式交给全局滚动条接管（不依赖事件冒泡）
+        if (atTopAndUp || atBottomAndDown)
+        {
+            SettingsScroller.ScrollToVerticalOffset(SettingsScroller.VerticalOffset - e.Delta);
+            e.Handled = true;
+            return;
+        }
+        sv.ScrollToVerticalOffset(sv.VerticalOffset - e.Delta);
+        e.Handled = true;
+    }
+
+    private void SettingsMusicManageAll_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new MusicManagerWindow(Window.GetWindow(this));
+        dlg.ShowDialog();
     }
 
     private void MusicAutoPlayCheck_Changed(object sender, RoutedEventArgs e)
@@ -655,6 +733,33 @@ public partial class SettingsPage : UserControl
         TextHistoryService.Instance.MaxHistory = _config.TextHistoryMaxCount;
     }
 
+    // ===== 视频生成失败自动重试 =====
+
+    private void VideoRetryCheck_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.VideoRetryEnabled = VideoRetryCheck.IsChecked == true;
+        SaveConfig();
+    }
+
+    private void RetryAttemptSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.VideoRetryMaxAttempts = (int)e.NewValue;
+        if (!RetryAttemptInput.IsKeyboardFocusWithin)
+            RetryAttemptInput.Text = _config.VideoRetryMaxAttempts.ToString("F0");
+        SaveConfig();
+    }
+
+    private void RetryIntervalSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_isLoading || !IsLoaded) return;
+        _config.VideoRetryIntervalSeconds = (int)e.NewValue;
+        if (!RetryIntervalInput.IsKeyboardFocusWithin)
+            RetryIntervalInput.Text = _config.VideoRetryIntervalSeconds.ToString("F0");
+        SaveConfig();
+    }
+
     // ===== 滑块数值输入与步进微调 =====
 
     private static double Clamp(double v, double min, double max)
@@ -687,6 +792,12 @@ public partial class SettingsPage : UserControl
             case "historycount":
                 HistoryCountSlider.Value = Clamp(HistoryCountSlider.Value + delta, 10, 200);
                 break;
+            case "retryattempt":
+                RetryAttemptSlider.Value = Clamp(RetryAttemptSlider.Value + delta, 1, 10);
+                break;
+            case "retryinterval":
+                RetryIntervalSlider.Value = Clamp(RetryIntervalSlider.Value + delta, 5, 600);
+                break;
         }
     }
 
@@ -716,6 +827,12 @@ public partial class SettingsPage : UserControl
             case "HistoryCountInput":
                 HistoryCountSlider.Value = Clamp(val, 10, 200);
                 break;
+            case "RetryAttemptInput":
+                RetryAttemptSlider.Value = Clamp(val, 1, 10);
+                break;
+            case "RetryIntervalInput":
+                RetryIntervalSlider.Value = Clamp(val, 5, 600);
+                break;
         }
     }
 
@@ -743,6 +860,12 @@ public partial class SettingsPage : UserControl
                 break;
             case "HistoryCountInput":
                 expected = Clamp(HistoryCountSlider.Value, 10, 200).ToString("F0");
+                break;
+            case "RetryAttemptInput":
+                expected = Clamp(RetryAttemptSlider.Value, 1, 10).ToString("F0");
+                break;
+            case "RetryIntervalInput":
+                expected = Clamp(RetryIntervalSlider.Value, 5, 600).ToString("F0");
                 break;
             default: return;
         }

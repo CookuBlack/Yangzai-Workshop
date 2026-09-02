@@ -262,16 +262,69 @@ public static class AiTaskManager
                 next.StartedAt = DateTime.Now;
                 NotifyChanged(next);
 
+                // 读取视频重试配置（仅视频任务失败后自动重试，参数可在设置中修改）
+                int maxAttempts = 1;
+                int retryIntervalSec = 60;
+                bool retryEnabled = false;
+                if (next.Type == AiTaskType.Video)
+                {
+                    try
+                    {
+                        var cfg = FileService.LoadConfig(App.WorkRoot);
+                        retryEnabled = cfg.VideoRetryEnabled;
+                        maxAttempts = Math.Max(1, cfg.VideoRetryMaxAttempts);
+                        retryIntervalSec = Math.Max(0, cfg.VideoRetryIntervalSeconds);
+                    }
+                    catch { }
+                }
+
+                Exception? lastError = null;
                 try
                 {
-                    await ExecuteAsync(next);
-                    next.Status = AiTaskStatus.Completed;
-                    next.StatusText = "已完成";
-                    next.MarkFinished();
-                    NotifyChanged(next);
-                    Ui(() => MainWindow.Notify(
-                        $"✓ {(next.Type == AiTaskType.Image ? "图片" : "视频")}已生成并保存：{next.ResultFileName}"));
-                    RefreshCurrentPage(next);
+                    for (int attempt = 1; attempt <= maxAttempts; attempt++)
+                    {
+                        try
+                        {
+                            await ExecuteAsync(next);
+                            lastError = null;
+                            break;
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            lastError = ex;
+                            if (!retryEnabled || attempt >= maxAttempts) break;
+                            // 失败后等待间隔再自动重试，状态文本提示剩余次数
+                            next.Error = ex.Message;
+                            next.StatusText = $"失败，{retryIntervalSec} 秒后自动重试（第 {attempt}/{maxAttempts} 次）…";
+                            NotifyChanged(next);
+                            try { await Task.Delay(TimeSpan.FromSeconds(retryIntervalSec), next.Cts.Token); }
+                            catch (OperationCanceledException) { throw; }
+                            next.StatusText = $"重试中（第 {attempt + 1}/{maxAttempts} 次）…";
+                            NotifyChanged(next);
+                        }
+                    }
+
+                    if (lastError == null)
+                    {
+                        next.Status = AiTaskStatus.Completed;
+                        next.StatusText = "已完成";
+                        next.MarkFinished();
+                        NotifyChanged(next);
+                        Ui(() => MainWindow.Notify(
+                            $"✓ {(next.Type == AiTaskType.Image ? "图片" : "视频")}已生成并保存：{next.ResultFileName}"));
+                        RefreshCurrentPage(next);
+                    }
+                    else
+                    {
+                        next.Status = AiTaskStatus.Failed;
+                        next.StatusText = "失败";
+                        next.Error = lastError.Message;
+                        next.MarkFinished();
+                        NotifyChanged(next);
+                        Ui(() => MainWindow.Notify(
+                            $"⚠ {(next.Type == AiTaskType.Image ? "图片" : "视频")}生成失败：{lastError.Message}", success: false));
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -279,16 +332,6 @@ public static class AiTaskManager
                     next.StatusText = "已取消";
                     next.MarkFinished();
                     NotifyChanged(next);
-                }
-                catch (Exception ex)
-                {
-                    next.Status = AiTaskStatus.Failed;
-                    next.StatusText = "失败";
-                    next.Error = ex.Message;
-                    next.MarkFinished();
-                    NotifyChanged(next);
-                    Ui(() => MainWindow.Notify(
-                        $"⚠ {(next.Type == AiTaskType.Image ? "图片" : "视频")}生成失败：{ex.Message}", success: false));
                 }
                 finally
                 {

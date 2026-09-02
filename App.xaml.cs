@@ -16,18 +16,32 @@ public partial class App : Application
     public static string AvatarDir => FileService.AssetsAvatarPath;
 
     private const string GitHubRepo = "CookuBlack/Yangzai-Workshop";
-    private const string CurrentVersion = "4.4.0";
+    private const string CurrentVersion = "4.5.0";
     public static string AppVersion => CurrentVersion;
 
     /// <summary>版本信息 JSON 地址（GitHub Raw 优先确保实时性，CDN 作为加速备用）</summary>
     private static string[] GetVersionInfoUrls()
     {
-        // GitHub Raw 直连：版本文件推送后几分钟内生效，确保更新检测实时性
         var t = DateTime.UtcNow.Ticks;
-        var raw = $"https://raw.githubusercontent.com/CookuBlack/Yangzai-Workshop/main/version.json?t={t}";
-        // jsDelivr CDN：国内加速访问，GitHub 被墙时备用（有 12h 服务器缓存，不适合首选用）
-        var cdn = $"https://cdn.jsdelivr.net/gh/CookuBlack/Yangzai-Workshop@main/version.json?t={t}";
-        return new[] { raw, cdn };
+        // GitHub Raw 直连：版本文件推送后几分钟内生效，确保更新检测实时性
+        var raw = $"https://raw.githubusercontent.com/{GitHubRepo}/main/version.json?t={t}";
+        // github.com 域名下的 raw 路径：国内网络有时比 raw.githubusercontent 更可达
+        var githubRaw = $"https://github.com/{GitHubRepo}/raw/main/version.json?t={t}";
+        // jsDelivr CDN：国内加速，但有较长边缘缓存（默认约 12h），需先 purge 才能拿到最新
+        var cdn = $"https://cdn.jsdelivr.net/gh/{GitHubRepo}@main/version.json?t={t}";
+        return new[] { raw, githubRaw, cdn };
+    }
+
+    /// <summary>清空 jsDelivr 对 version.json 的边缘缓存，确保国内 CDN 读取到最新版本</summary>
+    private static async Task PurgeJsDelivrCacheAsync()
+    {
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            using var resp = await client.GetAsync(
+                $"https://purge.jsdelivr.net/gh/{GitHubRepo}@main/version.json");
+        }
+        catch { }
     }
 
     // 缓存：避免频繁启动时耗尽 API 速率
@@ -136,6 +150,14 @@ public partial class App : Application
 
         // 初始化桌面宠物桥接（把宠物的音乐/AI/队列/资源回调节点接到主程序）
         PetService.Initialize();
+
+        // 「打开软件时自动打开宠物」：用户在宠物设置中开启后，主程序启动时自动显示宠物
+        try
+        {
+            if (DesktopPet.PetSettings.Load().AutoOpenPet)
+                PetService.ShowPet();
+        }
+        catch (Exception ex) { Debug.WriteLine($"[自动打开宠物] {ex.Message}"); }
 
         // 清理上次更新残留的安装包
         CleanupUpdateFiles();
@@ -272,8 +294,12 @@ public partial class App : Application
         string? msiUrl = null;
         string tag = "";
         string htmlUrl = "";
+        string? mirrorUrl = null;
 
         // ---- 第一步：多源获取版本信息 ----
+        // 先清 jsDelivr 缓存，避免 CDN 返回过期 version.json
+        await PurgeJsDelivrCacheAsync();
+
         var errors = new System.Collections.Generic.List<string>();
         foreach (var url in GetVersionInfoUrls())
         {
@@ -290,24 +316,29 @@ public partial class App : Application
                 using var doc = JsonDocument.Parse(json);
                 var root = doc.RootElement;
 
-                tag = root.TryGetProperty("latest", out var vp)
+                var cand = root.TryGetProperty("latest", out var vp)
                     ? vp.GetString()?.TrimStart('v', 'V') ?? "" : "";
-                htmlUrl = root.TryGetProperty("release_url", out var hp)
+                if (string.IsNullOrEmpty(cand)) continue;
+
+                var candHtml = root.TryGetProperty("release_url", out var hp)
                     ? hp.GetString() ?? "" : "";
-                // MSI 地址：若未指定则自动拼接 GitHub Release 下载链接
                 var rawMsi = root.TryGetProperty("msi", out var mp)
                     ? mp.GetString() : null;
-                msiUrl = !string.IsNullOrEmpty(rawMsi)
-                    ? rawMsi
-                    : $"https://github.com/{GitHubRepo}/releases/download/v{tag}/YangzaiWorkshop-windows-x64-v{tag}.msi";
-
-                // 镜像地址：可指定更快下载源（如云盘、自建 CDN）
-                var rawMirror = root.TryGetProperty("msi_mirror", out var mrp)
+                var candMirror = root.TryGetProperty("msi_mirror", out var mrp)
                     ? mrp.GetString() : null;
-                _msiMirrorUrl = !string.IsNullOrEmpty(rawMirror) ? rawMirror : null;
 
-                if (!string.IsNullOrEmpty(tag))
-                    break;
+                // 多源取最高版本：避免某个源（如 jsDelivr 缓存过期）返回旧版本，盖过已发布的新版本。
+                // 只有候选版本比当前记录更新时才覆盖，否则忽略该源。
+                if (tag.Length == 0 || CompareVersions(cand, tag) > 0)
+                {
+                    tag = cand;
+                    htmlUrl = candHtml;
+                    // MSI 地址：若未指定则自动拼接 GitHub Release 下载链接
+                    msiUrl = !string.IsNullOrEmpty(rawMsi)
+                        ? rawMsi
+                        : $"https://github.com/{GitHubRepo}/releases/download/v{tag}/YangzaiWorkshop-windows-x64-v{tag}.msi";
+                    mirrorUrl = !string.IsNullOrEmpty(candMirror) ? candMirror : null;
+                }
             }
             catch (Exception ex)
             {
@@ -322,6 +353,7 @@ public partial class App : Application
                 : "版本信息文件不存在（请将 version.json 推送至 GitHub）";
             return UpdateCheckResult.NetworkError;
         }
+        _msiMirrorUrl = mirrorUrl;
 
         // 版本比较：不大于当前版本 → 无更新
         if (CompareVersions(tag, CurrentVersion) <= 0)

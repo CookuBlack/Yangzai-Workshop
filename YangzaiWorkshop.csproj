@@ -9,8 +9,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>YangzaiWorkshop</AssemblyName>
     <ApplicationIcon>Assets\Icon\Yangzai.ico</ApplicationIcon>
-    <AssemblyVersion>4.3.0.0</AssemblyVersion>
-    <FileVersion>4.3.0.0</FileVersion>
+    <AssemblyVersion>4.5.0.0</AssemblyVersion>
+    <FileVersion>4.5.0.0</FileVersion>
+    <!-- 关闭 NuGet 包漏洞审计（NU1900）：离线/受限网络无法加载 nuget.org 审计源时不再产生告警 -->
+    <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
 
   <ItemGroup>

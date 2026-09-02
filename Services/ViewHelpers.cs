@@ -350,6 +350,93 @@ public static class ViewHelpers
     }
 
     /// <summary>
+    /// 拖拽媒体文件到生成窗口：图片自动导入资产目录（复制）后回调；视频/音频以原路径回调，
+    /// 由宿主按类型归类（如视频窗口的图片→参考图、视频→参考视频、音频→参考音频）。
+    /// </summary>
+    public static void EnableMediaDrop(
+        System.Windows.FrameworkElement host, string assetImportDir,
+        Action<string> onImageImported,
+        Action<string>? onVideoImported = null,
+        Action<string>? onAudioImported = null,
+        Action? onInvalid = null)
+    {
+        host.AllowDrop = true;
+        host.PreviewDragOver += (_, e) =>
+        {
+            e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop)
+                ? DragDropEffects.Copy : DragDropEffects.None;
+            e.Handled = true;
+        };
+        host.PreviewDrop += (_, e) =>
+        {
+            e.Handled = true;
+            if (!(e.Data.GetData(DataFormats.FileDrop) is string[] files)) return;
+            foreach (var f in files)
+            {
+                var ext = System.IO.Path.GetExtension(f).ToLowerInvariant();
+                if (ext is ".png" or ".jpg" or ".jpeg" or ".webp" or ".bmp" or ".gif")
+                {
+                    if (!IsSupportedImageFile(f)) { onInvalid?.Invoke(); continue; }
+                    var imported = ImportImageIntoAsset(f, assetImportDir);
+                    if (imported != null) onImageImported(imported);
+                    else onInvalid?.Invoke();
+                }
+                else if (IsVideoFile(f))
+                    onVideoImported?.Invoke(f);
+                else if (ext is ".mp3" or ".wav" or ".m4a" or ".aac" or ".flac" or ".ogg" or ".wma")
+                    onAudioImported?.Invoke(f);
+                else onInvalid?.Invoke();
+            }
+        };
+    }
+
+    /// <summary>
+    /// 给元素挂载「按住左键拖出复制」能力：可把该文件拖到桌面/资源管理器等位置复制。
+    /// 可选 onClick：仅在「按下后未发生拖动、松开左键」时回调（即普通点击），
+    /// 避免卡片用 MouseLeftButtonDown 在按下时打开查看器导致拖不动。
+    /// </summary>
+    public static void AttachDragCopy(System.Windows.FrameworkElement el, string filePath, Action? onClick = null)
+    {
+        Point start = default;
+        bool pressed = false;
+        bool dragged = false;
+        el.PreviewMouseLeftButtonDown += (_, e) =>
+        {
+            pressed = true;
+            dragged = false;
+            start = e.GetPosition(el);
+        };
+        el.PreviewMouseMove += (_, e) =>
+        {
+            if (!pressed || e.LeftButton != MouseButtonState.Pressed) return;
+            var pos = e.GetPosition(el);
+            if (Math.Abs(pos.X - start.X) > SystemParameters.MinimumHorizontalDragDistance ||
+                Math.Abs(pos.Y - start.Y) > SystemParameters.MinimumVerticalDragDistance)
+            {
+                pressed = false;
+                dragged = true;
+                try
+                {
+                    DragDrop.DoDragDrop(el,
+                        new DataObject(DataFormats.FileDrop, new[] { filePath }),
+                        DragDropEffects.Copy);
+                }
+                catch { /* 拖拽取消/失败静默 */ }
+            }
+        };
+        // 仅在「未拖动的普通点击」松开时触发点击动作，避免按下即打开挡住拖拽
+        el.PreviewMouseLeftButtonUp += (_, _) =>
+        {
+            if (pressed)
+            {
+                pressed = false;
+                if (!dragged) onClick?.Invoke();
+            }
+        };
+        el.MouseLeave += (_, _) => pressed = false;
+    }
+
+    /// <summary>
     /// 添加参考图缩略图到 WrapPanel（立即渲染，UI 不卡顿）。
     /// base64 压缩放到后台线程异步完成，完成后按缩略图顺序追加到 refImages/refPaths。
     /// 每个缩略图为带 ✕ 的 44px 圆角图块，点击 ✕ 移除并同步删除对应数据。
@@ -604,6 +691,7 @@ public static class ViewHelpers
 
     /// <summary>
     /// 为资产构建右键菜单：「查看图片」（可选）与「在文件夹中显示」。
+    /// 外观由全局隐式样式统一（圆角、跟随主题、无默认白色竖条）。
     /// </summary>
     public static System.Windows.Controls.ContextMenu BuildAssetContextMenu(string path, Action? openView = null)
     {
@@ -1237,31 +1325,21 @@ public static class ViewHelpers
             notify?.Invoke(mAuto.IsChecked ? "✓ 已开启实时自动匹配" : "○ 已暂停实时自动匹配（可点右下角「一键匹配」）");
         };
 
-        // 统一深色风格，符合应用整体配色
-        var itemStyle = new Style(typeof(System.Windows.Controls.MenuItem));
-        itemStyle.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(Color.FromRgb(0xE8, 0xE8, 0xEE))));
-        itemStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(12, 6, 12, 6)));
-        itemStyle.Setters.Add(new Setter(Control.HorizontalContentAlignmentProperty, HorizontalAlignment.Left));
-        var hoverT = new System.Windows.Trigger { Property = System.Windows.Controls.MenuItem.IsHighlightedProperty, Value = true };
-        hoverT.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromRgb(0x3A, 0x3A, 0x46))));
-        itemStyle.Triggers.Add(hoverT);
-
-        var menu = new System.Windows.Controls.ContextMenu
+        // 菜单外观由全局隐式样式统一（圆角、跟随主题、无默认白色竖条）
+        var menu = new System.Windows.Controls.ContextMenu();
+        // 标题：主色 + 加粗，非禁用（不拦截鼠标事件，避免置灰）
+        var mTitle = new System.Windows.Controls.MenuItem
         {
-            Background = new SolidColorBrush(Color.FromRgb(0x2C, 0x2C, 0x36)),
-            Foreground = new SolidColorBrush(Color.FromRgb(0xE8, 0xE8, 0xEE)),
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x4A, 0x4A, 0x58)),
-            BorderThickness = new Thickness(1),
-            Padding = new Thickness(4)
+            Header = "⚙ 提示词设置",
+            FontWeight = FontWeights.SemiBold,
+            IsHitTestVisible = false
         };
-        mZh.Style = itemStyle; mEn.Style = itemStyle; mAuto.Style = itemStyle;
-        var mTitle = new System.Windows.Controls.MenuItem { Header = "⚙ 提示词设置", IsEnabled = false, Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0xAA)) };
-        mTitle.FontWeight = FontWeights.SemiBold;
+        mTitle.SetResourceReference(Control.ForegroundProperty, "PrimaryBrush");
         menu.Items.Add(mTitle);
-        menu.Items.Add(new System.Windows.Controls.Separator { Background = new SolidColorBrush(Color.FromRgb(0x4A, 0x4A, 0x58)), Margin = new Thickness(6, 2, 6, 2) });
+        menu.Items.Add(new System.Windows.Controls.Separator());
         menu.Items.Add(mZh);
         menu.Items.Add(mEn);
-        menu.Items.Add(new System.Windows.Controls.Separator { Background = new SolidColorBrush(Color.FromRgb(0x4A, 0x4A, 0x58)), Margin = new Thickness(6, 2, 6, 2) });
+        menu.Items.Add(new System.Windows.Controls.Separator());
         menu.Items.Add(mAuto);
 
         var btn = new System.Windows.Controls.Button

@@ -69,6 +69,10 @@
         </ListView>
 
         <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="🗑 清除历史" FontSize="12" Padding="14,5" Margin="0,0,8,0"
+                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                    Style="{DynamicResource SecondaryButtonStyle}" Click="ClearHistory_Click"
+                    ToolTip="删除全部 AI 生成历史记录（图片与视频）"/>
             <TextBlock x:Name="SelectedText" FontSize="11" Margin="0,0,14,0"
                        VerticalAlignment="Center"
                        Foreground="{DynamicResource TextTertiaryBrush}" Text="点击选择一条记录"/>

@@ -455,6 +455,8 @@ public sealed class AssetPanel
             ContextMenu = ViewHelpers.BuildAssetContextMenu(path, () => ViewHelpers.ShowImageViewer(path))
         };
         card.MouseLeftButtonUp += (_, _) => ToggleSelect(path);
+        // 按住左键拖出复制（可拖到资源管理器/其他应用释放以复制该资产文件）
+        ViewHelpers.AttachDragCopy(card, path);
         // 鼠标悬停显示原图放大预览（复用参考图缩略图的悬停预览浮层）
         ViewHelpers.AttachLargePreview(card, path, null);
         _orderBadges[path] = orderBadge;

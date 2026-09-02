@@ -22,8 +22,8 @@ namespace DesktopPet
         public event Action<int>? HerdCountChanged;
         /// <summary>时间显示选项改变事件（是否显示秒、是否 24 小时制）。</summary>
         public event Action<bool, bool>? TimeOptionsChanged;
-        /// <summary>开机自启动选项改变事件（参数为是否开启）。</summary>
-        public event Action<bool>? AutoStartChanged;
+        /// <summary>打开软件时自动打开宠物选项改变事件（参数为是否开启）。</summary>
+        public event Action<bool>? AutoOpenPetChanged;
 
         public SettingsWindow()
         {
@@ -32,7 +32,7 @@ namespace DesktopPet
         }
 
         // 批量初始化所有滑条/复选框值，抑制事件回传，避免逐个 Set 时触发其它滑条的默认值回传
-        public void InitValues(double size, double speed, int herdCount, bool showSeconds, bool use24Hour, bool autoStart)
+        public void InitValues(double size, double speed, int herdCount, bool showSeconds, bool use24Hour, bool autoOpenPet)
         {
             _ready = false;
             SizeSlider.Value = size;
@@ -41,7 +41,7 @@ namespace DesktopPet
             ShowSecondsCheck.IsChecked = showSeconds;
             Use24hRadio.IsChecked = use24Hour;
             Use12hRadio.IsChecked = !use24Hour;
-            AutoStartCheck.IsChecked = autoStart;
+            AutoOpenPetCheck.IsChecked = autoOpenPet;
             _ready = true;
             UpdateSizeLabel();
             UpdateSpeedLabel();
@@ -54,7 +54,7 @@ namespace DesktopPet
         public int CurrentHerdCount => (int)Math.Round(HerdSlider.Value);
         public bool CurrentShowSeconds => ShowSecondsCheck.IsChecked == true;
         public bool CurrentUse24Hour => Use24hRadio.IsChecked == true;
-        public bool CurrentAutoStart => AutoStartCheck.IsChecked == true;
+        public bool CurrentAutoOpenPet => AutoOpenPetCheck.IsChecked == true;
 
         private void SizeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
         {
@@ -145,9 +145,9 @@ namespace DesktopPet
             TimeOptionsChanged?.Invoke(showSeconds, use24);
         }
 
-        private void AutoStart_Changed(object sender, RoutedEventArgs e)
+        private void AutoOpenPet_Changed(object sender, RoutedEventArgs e)
         {
-            if (_ready) AutoStartChanged?.Invoke(CurrentAutoStart);
+            if (_ready) AutoOpenPetChanged?.Invoke(CurrentAutoOpenPet);
         }
 
         private void Window_KeyDown(object sender, KeyEventArgs e)

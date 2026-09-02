@@ -129,6 +129,8 @@ public partial class MainWindow : Window
         MusicPlayerService.Instance.Initialize(MusicMedia);
         MusicPlayerService.Instance.LoadSettings(_configCache);
         MusicPlayerService.Instance.LoadPlaylist(FileService.MusicPath(App.WorkRoot));
+        // 实时监听音乐目录：用户直接把音乐放进/移出文件夹时自动刷新
+        MusicPlayerService.Instance.StartWatching(FileService.MusicPath(App.WorkRoot));
         MusicPlayerService.Instance.StateChanged += UpdateMusicUI;
 
         // 音量保存去抖动：拖拽停止 600ms 后才写入磁盘

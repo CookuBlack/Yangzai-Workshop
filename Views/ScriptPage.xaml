@@ -21,6 +21,7 @@
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <ScrollViewer x:Name="ChapterTabsScroller" Grid.Column="0"
                                   HorizontalScrollBarVisibility="Hidden"
@@ -28,8 +29,15 @@
                                   PreviewMouseWheel="ChapterTabsScroller_PreviewMouseWheel">
                         <StackPanel x:Name="ChapterTabsPanel" Orientation="Horizontal"/>
                     </ScrollViewer>
+                    <!-- 新章节按钮（固定不随章节滚动） -->
+                    <Button Grid.Column="1" Content="＋ 新章节"
+                            FontSize="12" FontWeight="Bold"
+                            MinWidth="72" MinHeight="28" Padding="10,0"
+                            Margin="4,0,0,0"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Click="AddChapter_Click" ToolTip="新建章节"/>
                     <!-- 展开按钮 -->
-                    <Button x:Name="ChapterExpandBtn" Grid.Column="1"
+                    <Button x:Name="ChapterExpandBtn" Grid.Column="2"
                             Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
                             FontSize="13" MinWidth="28" MinHeight="28"
                             Margin="4,0,0,0" Padding="0"
@@ -273,9 +281,14 @@
                                                    Foreground="{DynamicResource TextPrimaryBrush}"
                                                    VerticalAlignment="Center"/>
                                     </StackPanel>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                               VerticalAlignment="Center">
+                                        <Button x:Name="ImageSortBtn" Content="⇅ 排序" FontSize="11"
+                                                Padding="8,3" Margin="0,0,4,0"
+                                                Style="{StaticResource SecondaryButtonStyle}"
+                                                Click="ImageSortBtn_Click" ToolTip="排序方式"/>
                                         <Button x:Name="MultiSelectToggleBtn" Content="☐ 多选"
-                                                FontSize="11" Padding="6,3" Margin="0,0,4,0"
+                                                FontSize="11" Padding="8,3" Margin="0,0,4,0"
                                                 Style="{StaticResource SecondaryButtonStyle}"
                                                 Click="ToggleMultiSelect_Click" ToolTip="开启多选模式"/>
                                         <Button x:Name="CopySelectedBtn" Content="📋 复制选中"
@@ -283,31 +296,70 @@
                                                 Style="{StaticResource SecondaryButtonStyle}"
                                                 Click="CopySelected_Click" ToolTip="复制选中的素材"
                                                 Visibility="Collapsed"/>
-                                        <Button x:Name="AiImageBtn" Content="🤖 AI 生图"
-                                                FontSize="11" Padding="6,3" Margin="0,0,4,0"
+                                        <Button x:Name="AiImageBtn" Content="🤖 生图"
+                                                FontSize="11" Padding="8,3" Margin="0,0,4,0"
                                                 Style="{StaticResource SecondaryButtonStyle}"
                                                 Click="AiGenerateImage_Click" ToolTip="AI 生成图片"/>
-                                        <Button Content="+ 添加" FontFamily="Microsoft YaHei UI"
-                                                FontSize="11" Padding="6,3" Margin="0,0,6,0"
-                                                Style="{StaticResource SecondaryButtonStyle}"
-                                                Click="AddImage_Click" ToolTip="添加图像素材"/>
                                         <Button Content="&#xE76C;" FontFamily="Segoe MDL2 Assets"
                                                 FontSize="12" Padding="4,2"
                                                 Style="{StaticResource SecondaryButtonStyle}"
                                                 Click="ToggleImage_Click" ToolTip="收起/展开"/>
                                     </StackPanel>
+
+                                    <!-- 排序弹出菜单 -->
+                                    <Popup x:Name="ImageSortPopup"
+                                           PlacementTarget="{Binding ElementName=ImageSortBtn}"
+                                           Placement="Bottom" StaysOpen="False"
+                                           AllowsTransparency="True" PopupAnimation="Fade">
+                                        <Border x:Name="ImageSortPopupBorder" CornerRadius="8"
+                                                Background="{DynamicResource CardBackgroundBrush}"
+                                                BorderBrush="{DynamicResource BorderBrush}"
+                                                BorderThickness="1" Padding="8" MinWidth="168">
+                                            <StackPanel x:Name="ImageSortPopupList">
+                                                <TextBlock Text="排序方式" FontSize="11" FontWeight="Bold"
+                                                           Foreground="{DynamicResource TextPrimaryBrush}"
+                                                           Margin="2,0,0,6"/>
+                                                <RadioButton Content="按名称" GroupName="ImgSort"
+                                                             FontSize="11" Margin="2,3" Foreground="{DynamicResource TextPrimaryBrush}"
+                                                             IsChecked="True" Tag="0" Checked="ImageSortOption_Checked"/>
+                                                <RadioButton Content="按修改时间" GroupName="ImgSort"
+                                                             FontSize="11" Margin="2,3" Foreground="{DynamicResource TextPrimaryBrush}"
+                                                             Tag="1" Checked="ImageSortOption_Checked"/>
+                                                <RadioButton Content="按创建时间" GroupName="ImgSort"
+                                                             FontSize="11" Margin="2,3" Foreground="{DynamicResource TextPrimaryBrush}"
+                                                             Tag="2" Checked="ImageSortOption_Checked"/>
+                                                <RadioButton Content="按文件大小" GroupName="ImgSort"
+                                                             FontSize="11" Margin="2,3" Foreground="{DynamicResource TextPrimaryBrush}"
+                                                             Tag="3" Checked="ImageSortOption_Checked"/>
+                                                <Separator Margin="0,6"/>
+                                                <Button x:Name="ImageSortDirToggle" Content="↑ 升序"
+                                                          FontSize="11" Padding="10,4" HorizontalAlignment="Left"
+                                                          Style="{StaticResource SecondaryButtonStyle}"
+                                                          Click="ImageSortDirToggle_Click" ToolTip="切换升序 / 降序"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </Popup>
                                 </Grid>
                             </Border>
-                            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
-                                          AllowDrop="True"
+                            <Grid Grid.Row="1">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                              AllowDrop="True"
+                                              Drop="ImageGrid_Drop" DragOver="ImageGrid_DragOver">
+                                    <Grid x:Name="ImageGrid" AllowDrop="True"
                                           Drop="ImageGrid_Drop" DragOver="ImageGrid_DragOver">
-                                <Grid x:Name="ImageGrid" AllowDrop="True"
-                                      Drop="ImageGrid_Drop" DragOver="ImageGrid_DragOver">
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="*"/>
-                                    </Grid.RowDefinitions>
-                                </Grid>
-                            </ScrollViewer>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                    </Grid>
+                                </ScrollViewer>
+                                <!-- 悬浮「+ 添加」按钮：固定在图像素材区右下角，避免占用头部空间 -->
+                                <Button Content="＋ 添加" FontSize="12" FontWeight="Bold"
+                                        MinWidth="68" MinHeight="30" Padding="12,4"
+                                        HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                        Margin="0,0,10,10"
+                                        Style="{StaticResource PrimaryButtonStyle}"
+                                        Click="AddImage_Click" ToolTip="添加图像素材"/>
+                            </Grid>
                         </Grid>
 
                         <!-- 收起状态：干净竖条 -->

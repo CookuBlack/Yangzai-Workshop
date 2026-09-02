@@ -28,6 +28,7 @@ public class MusicPlayerService
 
     private MediaElement? _media;
     private DispatcherTimer? _timer;
+    private FileSystemWatcher? _watcher;
 
     public IReadOnlyList<string> Playlist => _playlist.AsReadOnly();
     public int CurrentIndex => _currentIndex;
@@ -134,6 +135,44 @@ public class MusicPlayerService
 
         PlaylistChanged?.Invoke();
         StateChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// 开启对音乐目录的实时监听：用户直接把音乐文件放进/移出该目录时，
+    /// 播放列表会自动刷新，无需手动「上传/导入」，设置页与播放器实时同步。
+    /// </summary>
+    public void StartWatching(string musicDir)
+    {
+        try
+        {
+            _watcher?.Dispose();
+            _watcher = null;
+            if (!Directory.Exists(musicDir)) return;
+
+            var watcher = new FileSystemWatcher(musicDir)
+            {
+                IncludeSubdirectories = false,
+                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite
+            };
+            // 在 UI 线程上重载，避免与播放器状态产生跨线程竞争
+            Action reload = () =>
+            {
+                try { LoadPlaylist(musicDir); } catch { }
+            };
+            watcher.Created += (_, _) => Application.Current?.Dispatcher.BeginInvoke(reload);
+            watcher.Deleted += (_, _) => Application.Current?.Dispatcher.BeginInvoke(reload);
+            watcher.Renamed += (_, _) => Application.Current?.Dispatcher.BeginInvoke(reload);
+            watcher.EnableRaisingEvents = true;
+            _watcher = watcher;
+        }
+        catch { }
+    }
+
+    /// <summary>停止目录监听并释放资源</summary>
+    public void StopWatching()
+    {
+        try { _watcher?.Dispose(); } catch { }
+        _watcher = null;
     }
 
     /// <summary>添加音乐文件</summary>

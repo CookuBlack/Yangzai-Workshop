@@ -16,6 +16,7 @@ public class AppConfig
     public int BannerIntervalSeconds { get; set; } = 5;
     public bool AutoBackup { get; set; } = false;
     public int BackupIntervalHours { get; set; } = 24;
+    public bool AutoStart { get; set; } = false;
     // ====== 分体式 AI 接口配置（文本 / 图片 / 视频 各自独立） ======
     // 说明：以下三个通道各自独立管理「服务商 + 地址 + 密钥 + 模型」，
     // 可在独立的「AI 接口配置」窗口中编辑。旧版扁平配置字段（ApiEndpoint 等）保留用于迁移。
@@ -121,6 +122,14 @@ public class AppConfig
     public string OptimizePromptLanguage { get; set; } = "zh";
     /// <summary>生成窗口提示词「实时自动匹配」开关（true=输入时按图名实时高亮；false=暂停，点一键匹配再关联）。</summary>
     public bool AutoMatchEnabled { get; set; } = true;
+
+    // ====== 视频生成失败自动重试 ======
+    /// <summary>视频生成失败后是否自动重试（默认开启）</summary>
+    public bool VideoRetryEnabled { get; set; } = true;
+    /// <summary>视频生成总尝试次数（含首次，默认 3 次）</summary>
+    public int VideoRetryMaxAttempts { get; set; } = 3;
+    /// <summary>视频失败后重试间隔（秒，默认 60）</summary>
+    public int VideoRetryIntervalSeconds { get; set; } = 60;
 
     /// <summary>图片提示词优化 Skill 默认模板</summary>
     public const string DefaultImageOptimizeSkill =

@@ -73,4 +73,14 @@ public static class AiGenHistory
         }
         catch { /* 历史记录失败不影响生成主流程 */ }
     }
+
+    /// <summary>清空全部历史记录（删除历史文件）。</summary>
+    public static void Clear(string workRoot)
+    {
+        try
+        {
+            if (File.Exists(HistoryFile(workRoot))) File.Delete(HistoryFile(workRoot));
+        }
+        catch { /* 清空失败不影响主流程 */ }
+    }
 }

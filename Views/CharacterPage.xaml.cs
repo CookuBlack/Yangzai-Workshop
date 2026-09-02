@@ -818,64 +818,16 @@ public partial class CharacterPage : UserControl
                         me.Handled = true; // 阻止冒泡到卡片层打开查看器
                     }
                 };
-                card.MouseLeftButtonDown += (_, _) =>
+                card.ContextMenu = BuildCharacterContextMenu(ip);
+                // 按住左键拖出复制（可拖到桌面/资源管理器复制该图片文件）；
+                // onClick 在「未拖动的普通点击」松开时触发，避免按下即打开查看器挡住拖拽
+                ViewHelpers.AttachDragCopy(card, ip, () =>
                 {
                     if (!_multiSelectMode)
                         ViewHelpers.ShowImageViewer(ip, Window.GetWindow(this));
-                };
-                card.ContextMenu = ViewHelpers.BuildAssetContextMenu(ip, () => ViewHelpers.ShowImageViewer(ip, Window.GetWindow(this)));
+                });
                 ia.Children.Add(charImg);
                 ia.Children.Add(selOverlay);
-
-                var tb = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Bottom,
-                    Margin = new Thickness(0, 0, 0, 4), Opacity = 0
-                };
-                tb.Children.Add(ImgBtn("复制", () =>
-                {
-                    try
-                    {
-                        var data = File.ReadAllBytes(ip);
-                        var full = new BitmapImage();
-                        full.BeginInit();
-                        using var msCopy = new MemoryStream(data);
-                        full.StreamSource = msCopy;
-                        full.CacheOption = BitmapCacheOption.OnLoad;
-                        full.EndInit();
-                        Clipboard.SetImage(full);
-                        Toast("✓ 已复制");
-                    }
-                    catch { Toast("✗ 复制失败"); }
-                }));
-                tb.Children.Add(ImgBtn("改名", () =>
-                {
-                    var d = new InputDialog("重命名", "名称（不含扩展名）：",
-                        Path.GetFileNameWithoutExtension(ip))
-                    { Owner = Window.GetWindow(this) };
-                    d.Confirmed += name =>
-                    {
-                        if (string.IsNullOrWhiteSpace(name)) return;
-                        var np2 = Path.Combine(Path.GetDirectoryName(ip)!,
-                            name.Trim() + Path.GetExtension(ip));
-                        if (!string.Equals(ip, np2, StringComparison.OrdinalIgnoreCase))
-                        {
-                            if (File.Exists(np2)) FileService.DeleteFile(np2);
-                            File.Move(ip, np2);
-                            RefreshCharacterImages();
-                            Toast("✓ 已改名");
-                        }
-                    };
-                    d.Show();
-                }));
-                tb.Children.Add(ImgBtn("删除", () =>
-                {
-                    try { FileService.DeleteFile(ip); RefreshCharacterImages(); Toast("✓ 已删除"); }
-                    catch { Toast("✗ 删除失败"); }
-                }));
-                ia.Children.Add(tb);
                 cs.Children.Add(ia);
                 cs.Children.Add(new TextBlock
                 {
@@ -886,30 +838,74 @@ public partial class CharacterPage : UserControl
                     Margin = new Thickness(0, 4, 0, 0), MaxWidth = 160
                 });
                 card.Child = cs;
-                card.MouseEnter += (_, _) => tb.Opacity = 1;
-                card.MouseLeave += (_, _) => tb.Opacity = 0;
                 CharImagePanel.Children.Add(card);
             }
             catch { }
         }
     }
 
-    private static Button ImgBtn(string text, Action click)
+    /// <summary>角色图片右键菜单：查看 / 定位 / 复制 / 改名 / 删除（外观由全局隐式样式统一）。</summary>
+    private ContextMenu BuildCharacterContextMenu(string path)
     {
-        var b = new Button
+        var menu = new ContextMenu();
+        var viewItem = new MenuItem { Header = "🖼️ 查看图片" };
+        viewItem.Click += (_, _) => ViewHelpers.ShowImageViewer(path, Window.GetWindow(this));
+        menu.Items.Add(viewItem);
+        var locItem = new MenuItem { Header = "📂 在文件夹中显示" };
+        locItem.Click += (_, _) => ViewHelpers.OpenInExplorer(path);
+        menu.Items.Add(locItem);
+        menu.Items.Add(new Separator());
+        var copyItem = new MenuItem { Header = "📋 复制" };
+        copyItem.Click += (_, _) =>
         {
-            Content = text, FontSize = 10,
-            Width = 36, Height = 22, Padding = new Thickness(0),
-            Margin = new Thickness(1, 0, 1, 0), Cursor = Cursors.Hand,
-            Background = new SolidColorBrush(Color.FromArgb(0xD0, 0x33, 0x33, 0x33)),
-            Foreground = Brushes.White, BorderThickness = new Thickness(0)
+            try
+            {
+                var data = File.ReadAllBytes(path);
+                var full = new BitmapImage();
+                full.BeginInit();
+                using var msCopy = new MemoryStream(data);
+                full.StreamSource = msCopy;
+                full.CacheOption = BitmapCacheOption.OnLoad;
+                full.EndInit();
+                Clipboard.SetImage(full);
+                Toast("✓ 已复制");
+            }
+            catch { Toast("✗ 复制失败"); }
         };
-        b.Click += (_, _) => click();
-        b.MouseEnter += (s, _) => ((Button)s).Background =
-            new SolidColorBrush(Color.FromArgb(0xF0, 0x55, 0x55, 0x55));
-        b.MouseLeave += (s, _) => ((Button)s).Background =
-            new SolidColorBrush(Color.FromArgb(0xD0, 0x33, 0x33, 0x33));
-        return b;
+        menu.Items.Add(copyItem);
+        var renameItem = new MenuItem { Header = "✏️ 改名" };
+        renameItem.Click += (_, _) =>
+        {
+            var d = new InputDialog("重命名", "名称（不含扩展名）：",
+                Path.GetFileNameWithoutExtension(path))
+            { Owner = Window.GetWindow(this) };
+            d.Confirmed += name =>
+            {
+                if (string.IsNullOrWhiteSpace(name)) return;
+                var np2 = Path.Combine(Path.GetDirectoryName(path)!,
+                    name.Trim() + Path.GetExtension(path));
+                if (!string.Equals(path, np2, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (File.Exists(np2)) FileService.DeleteFile(np2);
+                    File.Move(path, np2);
+                    RefreshCharacterImages();
+                    Toast("✓ 已改名");
+                }
+            };
+            d.Show();
+        };
+        menu.Items.Add(renameItem);
+        var delItem = new MenuItem { Header = "🗑 删除" };
+        delItem.Click += (_, _) =>
+        {
+            if (!MessageDialog.Confirm("删除素材",
+                $"确定要删除图片「{Path.GetFileName(path)}」吗？\n此操作不可恢复。"))
+                return;
+            try { FileService.DeleteFile(path); RefreshCharacterImages(); Toast("✓ 已删除"); }
+            catch { Toast("✗ 删除失败"); }
+        };
+        menu.Items.Add(delItem);
+        return menu;
     }
 
     private void UploadImage_Click(object sender, RoutedEventArgs e)
@@ -1439,7 +1435,13 @@ public partial class CharacterPage : UserControl
 
     private void CharAiGenerateImage_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentNovel == null || _currentCharacter == null) return;
+        if (_currentNovel == null || _currentCharacter == null)
+        {
+            Toast(_currentNovel == null
+                ? "⚠ 请先导入或创建小说，才能生成图片"
+                : "⚠ 请先选择小说并选中一个角色，才能生成图片");
+            return;
+        }
 
         var config = FileService.LoadConfig(App.WorkRoot);
         // 默认生图引擎（全局设置）：ComfyUI 本地生图 或 云端 API

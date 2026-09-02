@@ -257,17 +257,17 @@
                          Checked="TimeOption_Changed" />
         </StackPanel>
 
-        <!-- 开机自启动 -->
+        <!-- 打开软件时自动打开宠物 -->
         <TextBlock Text="启动"
                    Foreground="#9A8266"
                    FontSize="12"
                    FontWeight="Bold"
                    Margin="0,18,0,4" />
-        <CheckBox x:Name="AutoStartCheck"
-                  Content="开机自启动"
+        <CheckBox x:Name="AutoOpenPetCheck"
+                  Content="打开软件时自动打开宠物"
                   Style="{StaticResource OptionCheck}"
-                  Checked="AutoStart_Changed"
-                  Unchecked="AutoStart_Changed" />
+                  Checked="AutoOpenPet_Changed"
+                  Unchecked="AutoOpenPet_Changed" />
 
         <Button Content="关闭"
                 Style="{StaticResource CloseBtn}"

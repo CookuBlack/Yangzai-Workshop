@@ -6,7 +6,7 @@
 [![WPF](https://img.shields.io/badge/UI-WPF-blue)](https://github.com/dotnet/wpf)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2B-lightgrey)]()
-[![Release](https://img.shields.io/badge/release-v4.4.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
+[![Release](https://img.shields.io/badge/release-v4.5.0-C07040)](https://github.com/CookuBlack/Yangzai-Workshop/releases)
 
 ![front](./README.assets/front.png)
 
@@ -260,6 +260,20 @@ WorkData/
 | `ShadowColor` | `#35000000` | `#40000000` | 窗口投影 |
 
 ![last](./README.assets/last.png)
+
+---
+
+## 📌 更新日志
+
+### v4.5.0（2026-09-02）
+- 视频与图片支持「按住拖出复制」：可直接拖到桌面 / 资源管理器复制原文件
+- 图片 / 视频播放器双击全屏切换，切换时不重置播放进度、不暂停
+- 图片 / 视频新增排序：按名称 / 修改时间 / 创建时间 / 文件大小（升序 / 降序）
+- 复制 / 改名 / 删除统一收纳到右键菜单，删除资产增加确认提示
+- 视频加载大幅提速：首帧封面持久化缓存 + 受限并行动态补全，首屏秒开
+- 视频生成失败自动重试（间隔 / 次数 / 开关可在设置中调整）
+- 音乐列表支持滚轮滚动与边界接管，音乐文件夹实时监听、即放即识别
+- 自动更新多源对比 + CDN 缓存清除，新版本检测更可靠
 
 ---
 

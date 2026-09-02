@@ -74,6 +74,17 @@
                 </ScrollViewer>
 
                 <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,8,0,0">
+                    <TextBlock Text="排序" FontSize="11"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <ComboBox x:Name="VideoSortBox" Width="112" Height="26" FontSize="11"
+                              VerticalAlignment="Center" Margin="0,0,6,0"
+                              Style="{StaticResource ModernComboBoxStyle}"
+                              SelectionChanged="VideoSortBox_SelectionChanged"/>
+                    <Button x:Name="VideoSortDirBtn" Content="↑ 升序" FontSize="11" Padding="8,5"
+                            Margin="0,0,10,0"
+                            Style="{StaticResource SecondaryButtonStyle}"
+                            Click="VideoSortDir_Click" ToolTip="切换升序 / 降序"/>
                     <Button x:Name="VideoMultiSelectBtn" Content="☐ 多选"
                             FontSize="11" Padding="8,5" Margin="0,0,6,0"
                             Style="{StaticResource SecondaryButtonStyle}"

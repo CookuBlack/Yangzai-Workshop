@@ -451,6 +451,16 @@
                     <TextBlock Text="编辑器与播放器行为偏好" FontSize="11"
                                Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,12"/>
 
+                    <CheckBox x:Name="AutoStartCheck" Margin="0,0,0,10"
+                              FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
+                              Checked="AutoStartCheck_Changed" Unchecked="AutoStartCheck_Changed">
+                        <TextBlock>
+                            <Run Text="开机自启动"/><LineBreak/>
+                            <Run Text="登录 Windows 时自动启动本程序" FontSize="10"
+                                 Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        </TextBlock>
+                    </CheckBox>
+
                     <CheckBox x:Name="AutoSaveCheck" Margin="0,0,0,10"
                               FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
                               Checked="AutoSaveCheck_Changed" Unchecked="AutoSaveCheck_Changed">
@@ -588,40 +598,48 @@
                                 Click="SettingsMusicAdd_Click"/>
                         <Button Content="打开音乐文件夹" FontSize="12"
                                 Style="{StaticResource SecondaryButtonStyle}"
-                                Padding="12,4"
+                                Padding="12,4" Margin="0,0,12,0"
                                 Click="SettingsOpenMusicDir_Click"/>
+                        <Button x:Name="SettingsMusicManageAllBtn" Content="查看全部音乐 ›" FontSize="12"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                Padding="12,4" Visibility="Collapsed"
+                                Click="SettingsMusicManageAll_Click"/>
                     </StackPanel>
 
-                    <!-- 音乐列表 -->
+                    <!-- 音乐列表（音乐较多时仅展示预览，全部曲目在独立窗口管理） -->
                     <TextBlock x:Name="SettingsMusicCount" Text="暂无音乐文件"
                                FontSize="12" Foreground="{DynamicResource TextTertiaryBrush}"
                                Margin="0,10,0,6"/>
-                    <ItemsControl x:Name="SettingsMusicList" Background="Transparent">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Margin="0,2" Padding="8,6" CornerRadius="6"
-                                        Background="{DynamicResource WindowBackgroundBrush}">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Column="0" Text="{Binding Name}"
-                                                   FontSize="12" VerticalAlignment="Center"
-                                                   Foreground="{DynamicResource TextPrimaryBrush}"
-                                                   TextTrimming="CharacterEllipsis"/>
-                                        <Button Grid.Column="1" Content="&#xE74D;"
-                                                FontFamily="Segoe MDL2 Assets" FontSize="12"
-                                                Width="24" Height="24" Padding="0"
-                                                Background="Transparent"
-                                                Foreground="{DynamicResource TextSecondaryBrush}"
-                                                BorderThickness="0" Cursor="Hand"
-                                                Click="SettingsMusicDelete_Click" ToolTip="删除"/>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                    <ScrollViewer x:Name="MusicListScroller" VerticalScrollBarVisibility="Auto"
+                                  PreviewMouseWheel="MusicListScroll_PreviewMouseWheel"
+                                  MaxHeight="220">
+                        <ItemsControl x:Name="SettingsMusicList" Background="Transparent">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,2" Padding="8,6" CornerRadius="6"
+                                            Background="{DynamicResource WindowBackgroundBrush}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Name}"
+                                                       FontSize="12" VerticalAlignment="Center"
+                                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <Button Grid.Column="1" Content="&#xE74D;"
+                                                    FontFamily="Segoe MDL2 Assets" FontSize="12"
+                                                    Width="24" Height="24" Padding="0"
+                                                    Background="Transparent"
+                                                    Foreground="{DynamicResource TextSecondaryBrush}"
+                                                    BorderThickness="0" Cursor="Hand"
+                                                    Click="SettingsMusicDelete_Click" ToolTip="删除"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
                 </StackPanel>
             </Border>
 
@@ -804,6 +822,87 @@
                         </StackPanel>
                     </Button>
                 </Grid>
+            </Border>
+
+            <!-- ===== 视频生成失败自动重试 ===== -->
+            <Border Style="{StaticResource CardStyle}" Padding="20" Margin="0,0,0,12">
+                <StackPanel>
+                    <TextBlock FontSize="16" FontWeight="Bold"
+                               Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,4">
+                        <Run Text="🎬" /><Run Text=" 视频生成失败自动重试"/>
+                    </TextBlock>
+                    <TextBlock Text="视频生成失败后按设定间隔自动重试，避免偶发失败需要手动重新生成" FontSize="11"
+                               Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,12"/>
+                    <CheckBox x:Name="VideoRetryCheck" Margin="0,0,0,10"
+                              FontSize="13" Foreground="{DynamicResource TextPrimaryBrush}"
+                              Checked="VideoRetryCheck_Changed" Unchecked="VideoRetryCheck_Changed">
+                        <TextBlock>
+                            <Run Text="启用自动重试"/><LineBreak/>
+                            <Run Text="失败后等待设定间隔自动重新尝试" FontSize="10"
+                                 Foreground="{DynamicResource TextSecondaryBrush}"/>
+                        </TextBlock>
+                    </CheckBox>
+
+                    <Border Background="{DynamicResource CardBackgroundBrush}"
+                            CornerRadius="6" Padding="14,10" Margin="0,0,0,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="尝试次数" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       VerticalAlignment="Center" Width="80"/>
+                            <Slider x:Name="RetryAttemptSlider" Grid.Column="1"
+                                    Minimum="1" Maximum="10" Margin="8,0"
+                                    ValueChanged="RetryAttemptSlider_ValueChanged"/>
+                            <Button Grid.Column="2" Content="−" Width="28" Height="28" FontSize="14" Margin="4,0,0,0" Style="{StaticResource StepButtonStyle}"
+                                    Click="StepBtn_Click" Tag="retryattempt,-"/>
+                            <TextBox Grid.Column="3" x:Name="RetryAttemptInput" Width="46"
+                                     Height="26" FontSize="11" TextAlignment="Center"
+                                     Margin="4,0,0,0" VerticalContentAlignment="Center"
+                                     TextChanged="NumericInput_TextChanged"
+                                     LostFocus="NumericInput_LostFocus"/>
+                            <Button Grid.Column="4" Content="+" Width="28" Height="28" FontSize="14" Margin="4,0,0,0" Style="{StaticResource StepButtonStyle}"
+                                    Click="StepBtn_Click" Tag="retryattempt,+"/>
+                        </Grid>
+                    </Border>
+
+                    <Border Background="{DynamicResource CardBackgroundBrush}"
+                            CornerRadius="6" Padding="14,10">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="重试间隔" FontSize="12"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"
+                                       VerticalAlignment="Center" Width="80"/>
+                            <Slider x:Name="RetryIntervalSlider" Grid.Column="1"
+                                    Minimum="5" Maximum="600" Margin="8,0"
+                                    ValueChanged="RetryIntervalSlider_ValueChanged"/>
+                            <Button Grid.Column="2" Content="−" Width="28" Height="28" FontSize="14" Margin="4,0,0,0" Style="{StaticResource StepButtonStyle}"
+                                    Click="StepBtn_Click" Tag="retryinterval,-"/>
+                            <TextBox Grid.Column="3" x:Name="RetryIntervalInput" Width="46"
+                                     Height="26" FontSize="11" TextAlignment="Center"
+                                     Margin="4,0,0,0" VerticalContentAlignment="Center"
+                                     TextChanged="NumericInput_TextChanged"
+                                     LostFocus="NumericInput_LostFocus"/>
+                            <Button Grid.Column="4" Content="+" Width="28" Height="28" FontSize="14" Margin="4,0,0,0" Style="{StaticResource StepButtonStyle}"
+                                    Click="StepBtn_Click" Tag="retryinterval,+"/>
+                            <TextBlock Grid.Column="5" Text="秒" FontSize="11"
+                                       Foreground="{DynamicResource TextSecondaryBrush}"
+                                       VerticalAlignment="Center" Margin="6,0,0,0"/>
+                        </Grid>
+                    </Border>
+                </StackPanel>
             </Border>
 
             <!-- ===== AI 生成 Skill ===== -->

@@ -44,6 +44,10 @@ public partial class ScriptPage : UserControl
     // 小说封面缓存：key 为 "novelId|lastWriteTime"，避免每次进入页面重复读盘解码封面
     private static readonly ConcurrentDictionary<string, BitmapSource> _coverCache = new();
 
+    // ===== 图片素材排序状态：0=名称 1=最后修改时间 2=创建时间 3=文件大小，false=升序 true=降序 =====
+    private int _imageSortKey;
+    private bool _imageSortDescending;
+
     // ===== 撤销/重做 + 历史记录 =====
     private readonly TextHistoryService _history = TextHistoryService.Instance;
     private DispatcherTimer? _historyMergeTimer;
@@ -186,6 +190,13 @@ public partial class ScriptPage : UserControl
 
         if (_loaded) return;
         _loaded = true;
+
+        // 首页默认按名称升序，同步排序弹出菜单的选中态
+        ImageSortPopup.IsOpen = false;
+        ImageSortDirToggle.Content = "↑ 升序";
+        _imageSortKey = 0;
+        _imageSortDescending = false;
+        SyncImageSortRadios();
 
         // 延迟到渲染后再加载小说列表，避免阻塞页面首次显示（封面/图片均已异步解码）
         Dispatcher.BeginInvoke(new Action(() =>
@@ -931,16 +942,6 @@ public partial class ScriptPage : UserControl
             };
             ChapterTabsPanel.Children.Add(btn);
         }
-
-        var addBtn = new Button
-        {
-            Content = "+",
-            Style = (Style)FindResource("SecondaryButtonStyle"),
-            Width = 36, Height = 30, Margin = new Thickness(4, 0, 0, 0),
-            FontSize = 18, FontWeight = FontWeights.Bold, Padding = new Thickness(0)
-        };
-        addBtn.Click += AddChapter_Click;
-        ChapterTabsPanel.Children.Add(addBtn);
     }
 
     private void ToggleChapterComplete(Chapter chapter)
@@ -1043,35 +1044,29 @@ public partial class ScriptPage : UserControl
     private bool _isScriptMode = true;
     private bool _toggling;
 
-    private void ToggleScriptMode()
+    private async void ToggleScriptMode()
     {
         if (_toggling || _currentChapter == null) return;
         _toggling = true;
 
-        // 切换前提交未完成的历史变动，并同步字段
-        FlushHistory();
-        if (_isScriptMode)
+        try
         {
-            _scriptText = ScriptEditBox.Text;
-            _currentChapter.ScriptContent = _scriptText;
-        }
-        else
-        {
-            _promptText = ScriptEditBox.Text;
-            _currentChapter.ScriptPrompt = _promptText;
-        }
+            // 切换前提交未完成的历史变动，并同步字段
+            FlushHistory();
+            if (_isScriptMode)
+            {
+                _scriptText = ScriptEditBox.Text;
+                _currentChapter.ScriptContent = _scriptText;
+            }
+            else
+            {
+                _promptText = ScriptEditBox.Text;
+                _currentChapter.ScriptPrompt = _promptText;
+            }
 
-        // 翻转动画：缩小 → 切换内容 → 放大
-        var shrinkAnim = new System.Windows.Media.Animation.DoubleAnimation(
-            1.0, 0.0, TimeSpan.FromMilliseconds(120))
-        {
-            EasingFunction = new System.Windows.Media.Animation.CubicEase
-            { EasingMode = System.Windows.Media.Animation.EasingMode.EaseIn }
-        };
+            // 书本翻页缩放动画：先收拢到 0，切换内容后再展开（快速版，避免卡顿）
+            await AnimateScriptPanelScale(1, 0, 80);
 
-        shrinkAnim.Completed += (_, _) =>
-        {
-            // 切换内容
             _isScriptMode = !_isScriptMode;
             if (_isScriptMode)
             {
@@ -1085,19 +1080,25 @@ public partial class ScriptPage : UserControl
             }
             UpdateScriptEditor();
 
-            // 放大动画
-            var growAnim = new System.Windows.Media.Animation.DoubleAnimation(
-                0.0, 1.0, TimeSpan.FromMilliseconds(120))
-            {
-                EasingFunction = new System.Windows.Media.Animation.CubicEase
-                { EasingMode = System.Windows.Media.Animation.EasingMode.EaseOut }
-            };
+            await AnimateScriptPanelScale(0, 1, 120);
+        }
+        finally
+        {
+            _toggling = false;
+        }
+    }
 
-            growAnim.Completed += (_, _) => _toggling = false;
-            ScriptPanelScale.BeginAnimation(ScaleTransform.ScaleXProperty, growAnim);
-        };
-
-        ScriptPanelScale.BeginAnimation(ScaleTransform.ScaleXProperty, shrinkAnim);
+    /// <summary>对剧本面板做均匀缩放动画（X/Y 同步），返回动画完成等待任务。</summary>
+    private Task AnimateScriptPanelScale(double from, double to, int ms)
+    {
+        var tcs = new TaskCompletionSource();
+        var ease = new CubicEase { EasingMode = EasingMode.EaseInOut };
+        var animX = new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease };
+        var animY = new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease };
+        animX.Completed += (_, _) => tcs.TrySetResult();
+        ScriptPanelScale.BeginAnimation(ScaleTransform.ScaleXProperty, animX);
+        ScriptPanelScale.BeginAnimation(ScaleTransform.ScaleYProperty, animY);
+        return tcs.Task;
     }
 
     // ===== 文本区双击切换剧本/提示词模式 =====
@@ -1286,7 +1287,13 @@ public partial class ScriptPage : UserControl
 
     private void AiGenerateImage_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentNovel == null || _currentChapter == null) return;
+        if (_currentNovel == null || _currentChapter == null)
+        {
+            ShowCopyToast(_currentNovel == null
+                ? "⚠ 请先导入或创建小说，才能生成图片"
+                : "⚠ 请先在左侧选择一部小说并进入章节，才能生成图片");
+            return;
+        }
 
         // 不再强制要求 API Key：使用 ComfyUI 本地引擎时无需 API Key，进入对话框后再按引擎校验
         var config = FileService.LoadConfig(App.WorkRoot);
@@ -1804,8 +1811,9 @@ public partial class ScriptPage : UserControl
 
         var chapterPath = FileService.ChapterImagesPath(
             App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
-        var images = FileService.GetFiles(chapterPath, ".png", ".jpg", ".jpeg", ".webp")
-            .OrderBy(f => f, StringComparer.Ordinal).ToList();
+        var images = SortFiles(
+            FileService.GetFiles(chapterPath, ".png", ".jpg", ".jpeg", ".webp"),
+            _imageSortKey, _imageSortDescending).ToList();
 
         if (images.Count == 0)
         {
@@ -1925,24 +1933,11 @@ public partial class ScriptPage : UserControl
 
                 var cardStack = new StackPanel();
 
-                // 图片区域（带悬停工具栏 + 选中角标 + 圆角裁剪）
+                // 图片区域（带选中角标 + 圆角裁剪）
                 var imageArea = new Grid { ClipToBounds = true };
                 img.ClipToBounds = true;
                 imageArea.Children.Add(img);
                 imageArea.Children.Add(selBadge);
-
-                var toolbar = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Bottom,
-                    Margin = new Thickness(0, 0, 0, 6),
-                    Opacity = 0
-                };
-                toolbar.Children.Add(CreateImageBtn("\uE8C8", "复制", () => CopyImageFile(imgPath)));
-                toolbar.Children.Add(CreateImageBtn("\uE8AC", "重命名", () => RenameImageFile(imgPath)));
-                toolbar.Children.Add(CreateImageBtn("\uE74D", "删除", () => DeleteImageFile(imgPath)));
-                imageArea.Children.Add(toolbar);
                 cardStack.Children.Add(imageArea);
 
                 // 图片名称
@@ -1958,20 +1953,65 @@ public partial class ScriptPage : UserControl
                 });
 
                 card.Child = cardStack;
-                card.MouseEnter += (_, _) => toolbar.Opacity = 1;
-                card.MouseLeave += (_, _) => toolbar.Opacity = 0;
-                card.MouseLeftButtonDown += (_, _) =>
+                card.ContextMenu = BuildImageContextMenu(imgPath);
+                // 按住左键拖出复制（可拖到桌面/资源管理器复制该图片文件）；
+                // onClick 在「未拖动的普通点击」松开时触发，避免按下即打开查看器挡住拖拽
+                ViewHelpers.AttachDragCopy(card, imgPath, () =>
                 {
                     if (_multiSelectMode)
                         ToggleFileSelection(imgPath, card, selBadge);
                     else
                         ViewHelpers.ShowImageViewer(imgPath, Window.GetWindow(this));
-                };
-                card.ContextMenu = ViewHelpers.BuildAssetContextMenu(imgPath, () => ViewHelpers.ShowImageViewer(imgPath, Window.GetWindow(this)));
+                });
 
                 columnPanels[targetCol].Children.Add(card);
             }
             catch { /* 单张加载失败不影响其他 */ }
+        }
+    }
+
+    /// <summary>按排序键排序文件列表：0=名称 1=最后修改时间 2=创建时间 3=文件大小。</summary>
+    private static IEnumerable<string> SortFiles(IEnumerable<string> files, int key, bool descending)
+    {
+        var list = files.Select(f => new FileInfo(f)).ToList();
+        IEnumerable<FileInfo> sorted = key switch
+        {
+            1 => list.OrderBy(fi => fi.LastWriteTime),
+            2 => list.OrderBy(fi => fi.CreationTime),
+            3 => list.OrderBy(fi => fi.Length),
+            _ => list.OrderBy(fi => fi.Name, StringComparer.Ordinal)
+        };
+        if (descending) sorted = sorted.Reverse();
+        return sorted.Select(fi => fi.FullName);
+    }
+
+    private void ImageSortBtn_Click(object sender, RoutedEventArgs e)
+        => ImageSortPopup.IsOpen = !ImageSortPopup.IsOpen;
+
+    private void ImageSortOption_Checked(object sender, RoutedEventArgs e)
+    {
+        if (sender is not System.Windows.Controls.RadioButton rb) return;
+        if (int.TryParse(Convert.ToString(rb.Tag), out var key))
+        {
+            _imageSortKey = key;
+            RefreshImageGrid();
+        }
+    }
+
+    private void ImageSortDirToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _imageSortDescending = !_imageSortDescending;
+        ImageSortDirToggle.Content = _imageSortDescending ? "↓ 降序" : "↑ 升序";
+        RefreshImageGrid();
+    }
+
+    /// <summary>按当前排序键同步弹出菜单中对应 RadioButton 的选中态</summary>
+    private void SyncImageSortRadios()
+    {
+        foreach (var child in ImageSortPopupList.Children)
+        {
+            if (child is System.Windows.Controls.RadioButton rb)
+                rb.IsChecked = Convert.ToString(rb.Tag) == _imageSortKey.ToString();
         }
     }
 
@@ -2034,27 +2074,27 @@ public partial class ScriptPage : UserControl
         }, TaskScheduler.Default);
     }
 
-    private Button CreateImageBtn(string icon, string tooltip, Action click)
+    /// <summary>图片素材右键菜单：查看 / 定位 / 复制 / 改名 / 删除（外观由全局隐式样式统一）。</summary>
+    private ContextMenu BuildImageContextMenu(string path)
     {
-        var btn = new Button
-        {
-            Content = icon,
-            FontFamily = new FontFamily("Segoe MDL2 Assets"),
-            FontSize = 11, Width = 26, Height = 26,
-            Padding = new Thickness(0),
-            Margin = new Thickness(2, 0, 2, 0),
-            ToolTip = tooltip,
-            Cursor = Cursors.Hand,
-            Background = new SolidColorBrush(Color.FromArgb(0xD0, 0x33, 0x33, 0x33)),
-            Foreground = Brushes.White,
-            BorderThickness = new Thickness(0)
-        };
-        btn.Click += (_, _) => click();
-        btn.MouseEnter += (s, _) => ((Button)s).Background =
-            new SolidColorBrush(Color.FromArgb(0xF0, 0x55, 0x55, 0x55));
-        btn.MouseLeave += (s, _) => ((Button)s).Background =
-            new SolidColorBrush(Color.FromArgb(0xD0, 0x33, 0x33, 0x33));
-        return btn;
+        var menu = new ContextMenu();
+        var viewItem = new MenuItem { Header = "🖼️ 查看图片" };
+        viewItem.Click += (_, _) => ViewHelpers.ShowImageViewer(path, Window.GetWindow(this));
+        menu.Items.Add(viewItem);
+        var locItem = new MenuItem { Header = "📂 在文件夹中显示" };
+        locItem.Click += (_, _) => ViewHelpers.OpenInExplorer(path);
+        menu.Items.Add(locItem);
+        menu.Items.Add(new Separator());
+        var copyItem = new MenuItem { Header = "📋 复制" };
+        copyItem.Click += (_, _) => CopyImageFile(path);
+        menu.Items.Add(copyItem);
+        var renameItem = new MenuItem { Header = "✏️ 改名" };
+        renameItem.Click += (_, _) => RenameImageFile(path);
+        menu.Items.Add(renameItem);
+        var delItem = new MenuItem { Header = "🗑 删除" };
+        delItem.Click += (_, _) => DeleteImageFile(path);
+        menu.Items.Add(delItem);
+        return menu;
     }
 
     private void CopyImageFile(string path)
@@ -2101,14 +2141,11 @@ public partial class ScriptPage : UserControl
 
     private void DeleteImageFile(string path)
     {
+        if (!MessageDialog.Confirm("删除素材",
+            $"确定要删除图片「{Path.GetFileName(path)}」吗？\n此操作不可恢复。"))
+            return;
         try { FileService.DeleteFile(path); RefreshImageGrid(); }
         catch { }
-    }
-
-    private void Image_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (sender is Image img && img.Tag is string path)
-        { try { System.Diagnostics.Process.Start("explorer.exe", path); } catch { } }
     }
 
     private void ShowImageFullScreen(string path)
@@ -2185,18 +2222,6 @@ public partial class ScriptPage : UserControl
             win.Show();
         }
         catch { }
-    }
-
-    private void Image_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        if (sender is Image img && img.Tag is string path)
-        {
-            var menu = new ContextMenu();
-            var delItem = new MenuItem { Header = "删除素材" };
-            delItem.Click += (s, a) => { FileService.DeleteFile(path); RefreshImageGrid(); };
-            menu.Items.Add(delItem);
-            menu.IsOpen = true;
-        }
     }
 
     // ===== 面板折叠/展开（展开后自动按比例压缩，防止溢出） =====
@@ -2369,7 +2394,24 @@ public partial class ScriptPage : UserControl
         _chapters.Add(newChapter);
         FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
         RefreshChapterTabs();
+        NotifyMediaChaptersChanged();
         SelectChapter(newChapter);
+    }
+
+    /// <summary>章节列表变化后，清理视频/音频页缓存并刷新当前页，使新章节/改名/删除同步生效。</summary>
+    private void NotifyMediaChaptersChanged()
+    {
+        var nav = NavigationService.Instance;
+        nav.ClearPage("Video");
+        nav.ClearPage("Audio");
+        var currentPage = nav.CurrentPageName;
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (currentPage == "Video" && nav.CurrentPage is VideoPage vp)
+                vp.RefreshContent();
+            else if (currentPage == "Audio" && nav.CurrentPage is AudioPage ap)
+                ap.RefreshContent();
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     private void RenameChapter(Chapter chapter)
@@ -2383,6 +2425,7 @@ public partial class ScriptPage : UserControl
             chapter.Title = name.Trim();
             FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
             RefreshChapterTabs();
+            NotifyMediaChaptersChanged();
         };
         dialog.Show();
     }
@@ -2392,6 +2435,7 @@ public partial class ScriptPage : UserControl
         if (_currentNovel == null) return;
         _chapters.Remove(chapter);
         FileService.SaveChapters(App.WorkRoot, _currentNovel.Id, _chapters);
+        NotifyMediaChaptersChanged();
         if (_currentChapter == chapter)
         {
             _currentChapter = _chapters.FirstOrDefault();

@@ -811,14 +811,12 @@ public static class ApiService
 
             if (res.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
             {
-                // 按 3s×n 递增退避（上限 30s），让队列窗口感知到重试中
+                // 触发限流固定等 5s 后重试，让队列窗口感知到重试中
                 rateLimitStreak++;
                 if (rateLimitStreak >= 10)
                     HandleNonSuccess(res, respText, queryUrl, "video");
-                var wait = TimeSpan.FromSeconds(3 * rateLimitStreak);
-                if (wait > TimeSpan.FromSeconds(30)) wait = TimeSpan.FromSeconds(30);
-                progress?.Report($"触发限流，{wait.TotalSeconds:0} 秒后重试…");
-                await Task.Delay(wait, cancel);
+                progress?.Report("触发限流，5 秒后重试…");
+                await Task.Delay(TimeSpan.FromSeconds(5), cancel);
                 continue;
             }
 

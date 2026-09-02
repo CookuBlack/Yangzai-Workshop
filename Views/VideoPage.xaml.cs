@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using YangzaiWorkshop.Models;
 using YangzaiWorkshop.Services;
 
@@ -22,10 +23,49 @@ public partial class VideoPage : UserControl
     private bool _multiSelectMode;
     private readonly HashSet<string> _selectedFiles = new();
 
+    // ===== 视频缩略图性能：受限并行（默认 4 路）worker 池 + 热播放器复用 + 内存缓存（按文件修改时间失效）=====
+    private static readonly int _thumbConcurrency = 4;
+    private static readonly SemaphoreSlim _thumbWorkerSlots = new(_thumbConcurrency, _thumbConcurrency);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (long Stamp, BitmapSource Bmp, TimeSpan Dur)> _thumbCache
+        = new(StringComparer.OrdinalIgnoreCase);
+    // 待提取队列（每页实例，刷新时清空重建；由 worker 池并发消费）
+    private readonly System.Collections.Concurrent.ConcurrentQueue<ThumbJob> _thumbQueue = new();
+
+    /// <summary>一次缩略图提取任务（持有目标控件引用与文件修改时间戳）</summary>
+    private sealed class ThumbJob
+    {
+        public string Path = "";
+        public long Stamp;
+        public Image Img = null!;
+        public Grid Placeholder = null!;
+        public Border? Badge;
+    }
+
+    // ===== 悬停自动播放预览：全页共享单个 MediaElement，避免大量播放器实例卡顿 =====
+    private MediaElement? _hoverPreview;
+    private readonly DispatcherTimer _hoverTimer;
+    private Grid? _previewThumbArea;
+    private string _previewPath = "";
+
+    // ===== 排序状态：0=名称 1=最后修改时间 2=创建时间 3=文件大小，false=升序 true=降序 =====
+    private int _videoSortKey;
+    private bool _videoSortDescending;
+
     public VideoPage()
     {
         InitializeComponent();
         Loaded += OnLoaded;
+        VideoSortBox.Items.Add("按名称");
+        VideoSortBox.Items.Add("按修改时间");
+        VideoSortBox.Items.Add("按创建时间");
+        VideoSortBox.Items.Add("按文件大小");
+        VideoSortBox.SelectedIndex = 0;
+        _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _hoverTimer.Tick += (_, _) =>
+        {
+            _hoverTimer.Stop();
+            ShowHoverPreview();
+        };
     }
 
     /// <summary>外部触发刷新：重新加载小说列表（含封面），保持当前选中状态</summary>
@@ -281,16 +321,24 @@ public partial class VideoPage : UserControl
     // ===== 视频网格 =====
     private void RefreshVideoGrid()
     {
+        // 页面未加载时直接返回：避免构造函数内 SelectedIndex 同步触发 SelectionChanged
+        // 走到这里时 _hoverTimer 尚未初始化（导致 NullReference、界面空白）
+        if (!_loaded) return;
+
+        StopHoverPreview();
         VideoGrid.Children.Clear();
         VideoGrid.ColumnDefinitions.Clear();
         VideoGrid.RowDefinitions.Clear();
+        // 丢弃上一轮尚未消费的缩略图任务，避免旧任务的控件引用占用 worker 槽位
+        _thumbQueue.Clear();
 
         if (_currentNovel == null || _currentChapter == null) return;
 
         var path = FileService.ChapterVideosPath(
             App.WorkRoot, _currentNovel.MediaFolder, _currentChapter.FolderName);
-        var videos = FileService.GetFiles(path, ".mp4", ".mkv", ".avi", ".mov", ".wmv")
-            .OrderBy(f => f, StringComparer.Ordinal).ToList();
+        var videos = SortFiles(
+            FileService.GetFiles(path, ".mp4", ".mkv", ".avi", ".mov", ".wmv"),
+            _videoSortKey, _videoSortDescending).ToList();
 
         if (videos.Count == 0)
         {
@@ -319,6 +367,38 @@ public partial class VideoPage : UserControl
             Grid.SetColumn(card, i % cols);
             VideoGrid.Children.Add(card);
         }
+
+        // 全部卡片建好后启动受限并行 worker 池，消费队列中的缩略图任务
+        EnsureThumbnailWorkersRunning();
+    }
+
+    /// <summary>按排序键排序文件列表：0=名称 1=最后修改时间 2=创建时间 3=文件大小。</summary>
+    private static IEnumerable<string> SortFiles(IEnumerable<string> files, int key, bool descending)
+    {
+        var list = files.Select(f => new FileInfo(f)).ToList();
+        IEnumerable<FileInfo> sorted = key switch
+        {
+            1 => list.OrderBy(fi => fi.LastWriteTime),
+            2 => list.OrderBy(fi => fi.CreationTime),
+            3 => list.OrderBy(fi => fi.Length),
+            _ => list.OrderBy(fi => fi.Name, StringComparer.Ordinal)
+        };
+        if (descending) sorted = sorted.Reverse();
+        return sorted.Select(fi => fi.FullName);
+    }
+
+    private void VideoSortBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (VideoSortBox.SelectedIndex < 0) return;
+        _videoSortKey = VideoSortBox.SelectedIndex;
+        RefreshVideoGrid();
+    }
+
+    private void VideoSortDir_Click(object sender, RoutedEventArgs e)
+    {
+        _videoSortDescending = !_videoSortDescending;
+        VideoSortDirBtn.Content = _videoSortDescending ? "↓ 降序" : "↑ 升序";
+        RefreshVideoGrid();
     }
 
     private Border CreateVideoCard(string videoPath)
@@ -326,250 +406,397 @@ public partial class VideoPage : UserControl
         string vp = videoPath;
         string name = Path.GetFileName(vp);
 
+        // B站风格圆角卡片：圆角封面 + 时长角标 + 居中播放按钮 + 底部信息
         var card = new Border
         {
-            Style = (Style)FindResource("CardStyle"),
-            CornerRadius = new CornerRadius(6),
-            Margin = new Thickness(4), Padding = new Thickness(6),
+            CornerRadius = new CornerRadius(10),
+            Margin = new Thickness(6),
             Cursor = Cursors.Hand, Tag = vp, ClipToBounds = true,
             MaxWidth = 320,
-            HorizontalAlignment = HorizontalAlignment.Center
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Background = (Brush)FindResource("CardBackgroundBrush"),
+            BorderBrush = (Brush)FindResource("BorderBrush"),
+            BorderThickness = new Thickness(1)
         };
-        card.Loaded += (s, e) => ViewHelpers.ApplyRoundedClip(card);
-        card.SizeChanged += (s, e) => ViewHelpers.ApplyRoundedClip(card);
 
         var stack = new StackPanel();
 
-        // 缩略图区（胶卷边框 + 视频首帧）
-        var thumbArea = new Grid();
-        var outerFrame = new Border
+        // ===== 封面区（圆角缩略图） =====
+        var cover = new Border
         {
-            Height = 120, Background = Brushes.Black,
-            CornerRadius = new CornerRadius(4, 4, 0, 0),
+            Height = 130, Background = Brushes.Black,
+            CornerRadius = new CornerRadius(8),
             ClipToBounds = true,
-            Margin = new Thickness(0, 0, 0, 0)
+            Margin = new Thickness(6, 6, 6, 0)
         };
+        cover.Loaded += (s, e) => ViewHelpers.ApplyRoundedClip(cover, 8);
+        cover.SizeChanged += (s, e) => ViewHelpers.ApplyRoundedClip(cover, 8);
+        var coverArea = new Grid();
+        cover.Child = coverArea;
 
-        // 胶卷边条效果（上下黑边 + 齿孔点缀）
-        var filmGrid = new Grid();
-        filmGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
-        filmGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        filmGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
-
-        // 上胶卷边
-        var topFilm = new Border
-        {
-            Background = new SolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22)),
-            Child = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Center
-            }
-        };
-        // 胶卷齿孔（小方块）
-        for (int k = 0; k < 12; k++)
-            ((StackPanel)topFilm.Child).Children.Add(new Border
-            {
-                Width = 4, Height = 4, Margin = new Thickness(6, 1, 6, 1),
-                Background = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44))
-            });
-        filmGrid.Children.Add(topFilm);
-
-        // 视频首帧缩略图（先占位，异步提取）
-        var thumbImage = new Image { Stretch = Stretch.UniformToFill };
-        Grid.SetRow(thumbImage, 1);
-        // 占位：视频图标
-        var placeGrid = new Grid { Background = new SolidColorBrush(Color.FromRgb(0x10, 0x10, 0x10)) };
-        var placeIcon = new TextBlock
+        // 占位：视频图标（缩略图异步提取后替换）
+        var placeGrid = new Grid { Background = new SolidColorBrush(Color.FromRgb(0x14, 0x14, 0x18)) };
+        placeGrid.Children.Add(new TextBlock
         {
             Text = "\uE714", FontFamily = new FontFamily("Segoe MDL2 Assets"),
-            FontSize = 40, Foreground = new SolidColorBrush(Color.FromRgb(0x55, 0x55, 0x55)),
+            FontSize = 34, Foreground = new SolidColorBrush(Color.FromRgb(0x4A, 0x4A, 0x55)),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        coverArea.Children.Add(placeGrid);
+
+        // 视频首帧缩略图
+        var thumbImage = new Image { Stretch = Stretch.UniformToFill };
+
+        // 时长角标（右下角，半透明黑底圆角，B站风格）
+        var durText = new TextBlock { Foreground = Brushes.White, FontSize = 10 };
+        var durBadge = new Border
+        {
+            Background = new SolidColorBrush(Color.FromArgb(0xB0, 0x00, 0x00, 0x00)),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(4, 1, 4, 1),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 6, 6),
+            Visibility = Visibility.Collapsed,
+            Child = durText
+        };
+        coverArea.Children.Add(durBadge);
+
+        // 异步提取真实缩略图
+        BeginExtractThumbnail(vp, thumbImage, placeGrid, durBadge);
+
+        // 居中播放按钮（悬停淡入，圆形半透明）
+        var playBtn = new Border
+        {
+            Width = 46, Height = 46,
+            CornerRadius = new CornerRadius(23),
+            Background = new SolidColorBrush(Color.FromArgb(0x99, 0x00, 0x00, 0x00)),
+            Opacity = 0,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center
         };
-        placeGrid.Children.Add(placeIcon);
-        filmGrid.Children.Add(placeGrid);
-        // 异步提取真实缩略图
-        BeginExtractThumbnail(vp, thumbImage, placeGrid);
-
-        // 下胶卷边
-        var botFilm = new Border
-        {
-            Background = new SolidColorBrush(Color.FromRgb(0x22, 0x22, 0x22)),
-            Child = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Center
-            }
-        };
-        Grid.SetRow(botFilm, 2);
-        for (int k = 0; k < 12; k++)
-            ((StackPanel)botFilm.Child).Children.Add(new Border
-            {
-                Width = 4, Height = 4, Margin = new Thickness(6, 1, 6, 1),
-                Background = new SolidColorBrush(Color.FromRgb(0x44, 0x44, 0x44))
-            });
-        filmGrid.Children.Add(botFilm);
-
-        outerFrame.Child = filmGrid;
-        thumbArea.Children.Add(outerFrame);
-
-        // 播放按钮覆盖层
-        var playOverlay = new Border
-        {
-            Background = new SolidColorBrush(Color.FromArgb(0x50, 0, 0, 0)),
-            CornerRadius = new CornerRadius(4, 4, 0, 0), Opacity = 0
-        };
-        playOverlay.Child = new TextBlock
+        playBtn.Child = new TextBlock
         {
             Text = "\uE768", FontFamily = new FontFamily("Segoe MDL2 Assets"),
-            FontSize = 32, Foreground = Brushes.White,
+            FontSize = 22, Foreground = Brushes.White,
             HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(2, 0, 0, 0)
         };
-        thumbArea.Children.Add(playOverlay);
-        stack.Children.Add(thumbArea);
+        Panel.SetZIndex(playBtn, 10);
+        coverArea.Children.Add(playBtn);
 
-        // 文件名
+        stack.Children.Add(cover);
+
+        // 文件名（底部信息）
         stack.Children.Add(new TextBlock
         {
-            Text = name, FontSize = 10,
+            Text = name, FontSize = 11,
             Foreground = (Brush)FindResource("TextPrimaryBrush"),
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Margin = new Thickness(0, 4, 0, 6)
+            Margin = new Thickness(8, 5, 8, 0),
+            ToolTip = name
         });
-
-        // 悬停操作栏
-        var toolbar = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Center, Opacity = 0
-        };
-        toolbar.Children.Add(VideoBtn("复制", () => CopyVideo(vp)));
-        toolbar.Children.Add(VideoBtn("改名", () => RenameVideo(vp)));
-        toolbar.Children.Add(VideoBtn("删除", () => DeleteVideo(vp)));
-        stack.Children.Add(toolbar);
 
         card.Child = stack;
 
-        // 选中遮罩
+        // 选中遮罩（覆盖封面）
         var selOverlay = new Border
         {
-            Background = new SolidColorBrush(Color.FromArgb(0x40, 0x4A, 0x90, 0xE2)),
+            Background = new SolidColorBrush(Color.FromArgb(0x50, 0x4A, 0x90, 0xE2)),
             BorderBrush = (Brush)FindResource("PrimaryBrush"),
-            BorderThickness = new Thickness(3),
-            CornerRadius = new CornerRadius(4),
+            BorderThickness = new Thickness(2),
+            CornerRadius = new CornerRadius(8),
             Visibility = _selectedFiles.Contains(vp) ? Visibility.Visible : Visibility.Collapsed,
+            IsHitTestVisible = false,
             Child = new TextBlock
             {
                 Text = "\uE73E", FontFamily = new FontFamily("Segoe MDL2 Assets"),
-                FontSize = 28, Foreground = (Brush)FindResource("PrimaryBrush"),
+                FontSize = 24, Foreground = Brushes.White,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
             }
         };
-        thumbArea.Children.Add(selOverlay);
+        Panel.SetZIndex(selOverlay, 20);
+        coverArea.Children.Add(selOverlay);
 
-        card.MouseEnter += (_, _) => { playOverlay.Opacity = 0.7; toolbar.Opacity = 1; };
-        card.MouseLeave += (_, _) => { playOverlay.Opacity = 0; toolbar.Opacity = 0; };
-        card.MouseLeftButtonDown += (_, _) =>
+        card.MouseEnter += (_, _) =>
+        {
+            playBtn.Opacity = 1;
+            StartHoverPreview(coverArea, vp);
+        };
+        card.MouseLeave += (_, _) =>
+        {
+            playBtn.Opacity = 0;
+            StopHoverPreview();
+        };
+        // 右键菜单：在文件夹中显示 / 播放 / 复制 / 改名 / 删除
+        var menu = new ContextMenu();
+        foreach (var (header, act) in new (string, Action)[]
+        {
+            ("📂 在文件夹中显示", () => ViewHelpers.OpenInExplorer(vp)),
+            ("▶ 播放", () => PlayVideoInline(vp)),
+            ("📋 复制", () => CopyVideo(vp)),
+            ("✏️ 改名", () => RenameVideo(vp)),
+            ("🗑 删除", () => DeleteVideo(vp))
+        })
+        {
+            var mi = new MenuItem { Header = header };
+            mi.Click += (_, _) => act();
+            menu.Items.Add(mi);
+        }
+        card.ContextMenu = menu;
+        // 按住左键拖出复制（可拖到资源管理器/桌面复制该视频文件）；
+        // onClick 在「未拖动的普通点击」松开时触发，避免按下即打开播放器挡住拖拽
+        ViewHelpers.AttachDragCopy(card, vp, () =>
         {
             if (_multiSelectMode)
                 ToggleVideoSelection(vp, selOverlay);
             else
                 PlayVideoInline(vp);
-        };
+        });
 
         return card;
     }
 
-    private Button VideoBtn(string text, Action act)
+    /// <summary>
+    /// 将缩略图提取任务加入队列。已命中的缓存立即在线程上回填，无需解码。
+    /// 未命中项由 worker 池并发处理（每个 worker 复用一个"热"播放器，共享解码管线）。
+    /// </summary>
+    private void BeginExtractThumbnail(string path, Image target, Grid placeholder, Border? durBadge = null)
     {
-        var b = new Button
+        long stamp;
+        try { stamp = File.GetLastWriteTimeUtc(path).Ticks; }
+        catch { stamp = 0; }
+
+        // 1) 内存缓存命中：直接回填，跳过解码与磁盘读取
+        if (_thumbCache.TryGetValue(path, out var cached) && cached.Stamp == stamp)
         {
-            Content = text, FontSize = 10, Padding = new Thickness(5, 2, 5, 2),
-            Margin = new Thickness(2, 0, 2, 0), Cursor = Cursors.Hand,
-            Background = new SolidColorBrush(Color.FromArgb(0xD0, 0x33, 0x33, 0x33)),
-            Foreground = Brushes.White, BorderThickness = new Thickness(0)
-        };
-        b.Click += (_, _) => act();
-        b.MouseEnter += (s, _) => ((Button)s).Background =
-            new SolidColorBrush(Color.FromArgb(0xF0, 0x55, 0x55, 0x55));
-        b.MouseLeave += (s, _) => ((Button)s).Background =
-            new SolidColorBrush(Color.FromArgb(0xD0, 0x33, 0x33, 0x33));
-        return b;
+            var bmp = cached.Bmp; var dur = cached.Dur;
+            Dispatcher.BeginInvoke(() =>
+            {
+                ApplyThumb(target, placeholder, bmp);
+                SetDurationBadge(durBadge, dur);
+            });
+            return;
+        }
+
+        // 2) 持久化封面命中：仅快速解码 JPEG，即秒开（无需解码视频）
+        if (TryLoadPersistedCover(path, stamp, out var pbmp, out var pdur) && pbmp != null)
+        {
+            _thumbCache[path] = (stamp, pbmp, pdur); // 提升到内存缓存，避免重复读盘
+            var bmp = pbmp; var dur = pdur;
+            Dispatcher.BeginInvoke(() =>
+            {
+                ApplyThumb(target, placeholder, bmp);
+                SetDurationBadge(durBadge, dur);
+            });
+            return;
+        }
+
+        // 3) 均未命中：入队由 worker 池解码，解码后回填并落盘持久化封面
+        _thumbQueue.Enqueue(new ThumbJob
+        {
+            Path = path, Stamp = stamp,
+            Img = target, Placeholder = placeholder, Badge = durBadge
+        });
+    }
+
+    /// <summary>启动受限并行的 worker 池，消费队列中所有待提取任务。已在运行则不再重复启动。</summary>
+    private void EnsureThumbnailWorkersRunning()
+    {
+        if (_thumbQueue.IsEmpty) return;
+        // 非阻塞尝试获取并行槽位：空闲则开 worker，槽位满则停止新增（既有 worker 会继续消费共享队列）。
+        while (!_thumbQueue.IsEmpty && _thumbWorkerSlots.Wait(0))
+            Task.Run(ThumbnailWorkerLoop);
     }
 
     /// <summary>
-    /// 后台提取视频首帧缩略图（MediaPlayer + 阻塞渲染）
+    /// 单个 worker：持有一个"热"MediaPlayer 串行处理它领取到的多个视频，共享解码管线。
+    /// 相比串行 1 路，N 路并行让首屏缩略图同时解码填充，明显加速首次加载。
     /// </summary>
-    private async void BeginExtractThumbnail(string path, Image target, Grid placeholder)
-    {
-        try
-        {
-            var bmp = await Task.Run(() => ExtractThumbnailCore(path, 320, 180));
-            if (bmp != null)
-            {
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    target.Source = bmp;
-                    if (placeholder.Parent is Panel p)
-                    {
-                        p.Children.Remove(placeholder);
-                        if (!p.Children.Contains(target))
-                            p.Children.Add(target);
-                    }
-                });
-            }
-        }
-        catch { }
-    }
-
-    private static BitmapSource? ExtractThumbnailCore(string path, int w, int h)
-    {
-        // 尝试多个时间点：10% -> 1% -> 50% -> 30%
-        double[] seekRatios = { 0.10, 0.01, 0.50, 0.30 };
-        foreach (var ratio in seekRatios)
-        {
-            var result = TryExtractAtPosition(path, w, h, ratio);
-            if (result != null) return result;
-        }
-        return null;
-    }
-
-    private static BitmapSource? TryExtractAtPosition(string path, int w, int h, double ratio)
+    private void ThumbnailWorkerLoop()
     {
         System.Windows.Media.MediaPlayer? player = null;
         try
         {
-            player = new System.Windows.Media.MediaPlayer
+            player = new System.Windows.Media.MediaPlayer { ScrubbingEnabled = true, Volume = 0 };
+            while (_thumbQueue.TryDequeue(out var job))
             {
-                ScrubbingEnabled = true,
-                Volume = 0
-            };
+                if (job.Img.Dispatcher == null) continue;
+                var res = ExtractThumbnailCore(player, job.Path, 320, 180);
+                if (res.Bmp == null) continue;
+                // 落盘持久化封面：下次进入该章节直接秒开，无需再次解码视频
+                SavePersistedCover(job.Path, res.Bmp, res.Dur);
+                // 缓存有上限：超限时丢弃较早的条目，控制内存占用
+                if (_thumbCache.Count >= 150)
+                    _thumbCache.Clear();
+                _thumbCache[job.Path] = (job.Stamp, res.Bmp, res.Dur);
+                var bmp = res.Bmp; var dur = res.Dur;
+                job.Img.Dispatcher.BeginInvoke(() =>
+                {
+                    ApplyThumb(job.Img, job.Placeholder, bmp);
+                    SetDurationBadge(job.Badge, dur);
+                });
+            }
+        }
+        catch { }
+        finally
+        {
+            player?.Close();
+            _thumbWorkerSlots.Release();
+        }
+    }
+
+    // ===== 持久化封面：首帧落盘 JPEG + 时长 sidecar，首次加载无需解码视频，秒开 =====
+
+    /// <summary>持久化封面目录（与视频同级 .video_thumbs 隐藏缓存文件夹，避免污染素材目录）</summary>
+    private static string GetCoverDir(string videoPath)
+        => Path.Combine(Path.GetDirectoryName(videoPath) ?? "", ".video_thumbs");
+    private static string GetCoverFile(string videoPath)
+        => Path.Combine(GetCoverDir(videoPath), Path.GetFileNameWithoutExtension(videoPath) + ".jpg");
+    private static string GetCoverMetaFile(string videoPath)
+        => Path.Combine(GetCoverDir(videoPath), Path.GetFileNameWithoutExtension(videoPath) + ".txt");
+
+    /// <summary>
+    /// 尝试读取已持久化的首帧封面。仅当封面文件存在且时间戳不早于视频源文件时才有效；
+    /// 可保证与源视频当前内容一致（导入后封面即生成，之后一直命中，无需解码视频）。
+    /// </summary>
+    private static bool TryLoadPersistedCover(string videoPath, long videoStamp,
+        out BitmapSource? bmp, out TimeSpan dur)
+    {
+        bmp = null; dur = TimeSpan.Zero;
+        var coverFile = GetCoverFile(videoPath);
+        var metaFile = GetCoverMetaFile(videoPath);
+        try
+        {
+            if (!File.Exists(coverFile) || !File.Exists(metaFile)) return false;
+            // 封面早于源视频：源视频被修改过，需重新生成
+            if (File.GetLastWriteTimeUtc(coverFile).Ticks < videoStamp) return false;
+
+            var bi = new BitmapImage();
+            bi.BeginInit();
+            using (var ms = new MemoryStream(File.ReadAllBytes(coverFile)))
+            {
+                bi.StreamSource = ms;
+                bi.DecodePixelWidth = 320;
+                bi.CacheOption = BitmapCacheOption.OnLoad;
+                bi.EndInit();
+            }
+            bi.Freeze();
+            bmp = bi;
+            if (double.TryParse(File.ReadAllText(metaFile).Trim(),
+                    System.Globalization.CultureInfo.InvariantCulture, out var secs) && secs > 0)
+                dur = TimeSpan.FromSeconds(secs);
+            return true;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>把首帧封面 JPEG 及时长 sidecar 落盘，供下次快速加载（后台线程调用，线程安全）。</summary>
+    private static void SavePersistedCover(string videoPath, BitmapSource bmp, TimeSpan dur)
+    {
+        try
+        {
+            var dir = GetCoverDir(videoPath);
+            Directory.CreateDirectory(dir);
+
+            var encoder = new JpegBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bmp));
+            using var fs = File.Create(GetCoverFile(videoPath));
+            encoder.Save(fs);
+            // 设置封面文件时间为当前时间，确保比源视频新
+            try { File.SetLastWriteTimeUtc(GetCoverFile(videoPath), DateTime.UtcNow); } catch { }
+            File.WriteAllText(GetCoverMetaFile(videoPath),
+                dur.TotalSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+        catch { }
+    }
+
+    private static void SetDurationBadge(Border? durBadge, TimeSpan dur)
+    {
+        if (durBadge == null) return;
+        if (dur <= TimeSpan.Zero || dur.TotalSeconds < 0.5)
+        {
+            durBadge.Visibility = Visibility.Collapsed;
+            return;
+        }
+        if (durBadge.Child is TextBlock tb)
+            tb.Text = dur.TotalHours >= 1
+                ? $"{(int)dur.TotalHours:00}:{dur.Minutes:00}:{dur.Seconds:00}"
+                : $"{(int)dur.TotalMinutes:00}:{dur.Seconds:00}";
+        durBadge.Visibility = Visibility.Visible;
+    }
+
+    private static void ApplyThumb(Image target, Grid placeholder, BitmapSource bmp)
+    {
+        target.Source = bmp;
+        if (placeholder.Parent is Panel p)
+        {
+            p.Children.Remove(placeholder);
+            if (!p.Children.Contains(target))
+                p.Children.Add(target);
+        }
+    }
+
+    /// <summary>
+    /// 后台提取视频首帧缩略图并返回时长。
+    /// 性能优化：热播放器复用 + 受限并行 worker 池 + 内存缓存，多路同时解码加速首次加载。
+    /// </summary>
+    private static (BitmapSource? Bmp, TimeSpan Dur) ExtractThumbnailCore(
+        System.Windows.Media.MediaPlayer player, string path, int w, int h)
+    {
+        try
+        {
             player.Open(new Uri(path));
 
             // 轮询等待解码器初始化（最多 5 秒）
             var sw = System.Diagnostics.Stopwatch.StartNew();
             while (!player.NaturalDuration.HasTimeSpan && sw.ElapsedMilliseconds < 5000)
-                System.Threading.Thread.Sleep(100);
+                System.Threading.Thread.Sleep(50);
 
-            if (!player.NaturalDuration.HasTimeSpan) return null;
+            if (!player.NaturalDuration.HasTimeSpan) return (null, TimeSpan.Zero);
 
             var dur = player.NaturalDuration.TimeSpan;
-            if (dur.TotalSeconds < 0.1) return null;
+            if (dur.TotalSeconds < 0.1) return (null, dur);
 
-            // 跳到指定比例位置
-            var pos = TimeSpan.FromSeconds(dur.TotalSeconds * ratio);
+            // 按时间比采样多个点位，提高命中非黑帧的概率：
+            // 先试广覆盖的 8 个点，若仍全黑再在 1%~95% 匀步长扫描，确保尽量拿到一帧有效封面
+            double[] seekRatios = { 0.10, 0.25, 0.50, 0.75, 0.90, 0.05, 0.01, 0.02 };
+            int wait = 180; // 首次定位等待稍长，后续复用热播放器大幅缩短
+            foreach (var ratio in seekRatios)
+            {
+                if (TrySeekFrame(player, ratio, dur, w, h, wait, out var hit)) return (hit, dur);
+                wait = 90;
+            }
+            // 兜底：从 3% 到 95% 匀步长扫描，直到找到非黑帧
+            for (double p = 0.03; p <= 0.95; p += 0.06)
+            {
+                if (TrySeekFrame(player, p, dur, w, h, 90, out var hit)) return (hit, dur);
+            }
+            return (null, dur);
+        }
+        catch { return (null, TimeSpan.Zero); }
+        // 不在此 Close：播放器由 worker 复用并统一在循环结束后关闭，保持解码管线热复用
+    }
+
+    /// <summary>跳到指定时间比并尝试渲染一帧；成功则返回冻结的位图。</summary>
+    private static bool TrySeekFrame(System.Windows.Media.MediaPlayer player, double ratio,
+        TimeSpan dur, int w, int h, int wait, out BitmapSource? bmp)
+    {
+        bmp = null;
+        try
+        {
+            var pos = TimeSpan.FromSeconds(Math.Clamp(
+                dur.TotalSeconds * ratio, 0, Math.Max(0, dur.TotalSeconds - 0.03)));
             player.Position = pos;
             player.Pause();
 
-            // 等待解码器渲染（增加时间）
-            System.Threading.Thread.Sleep(600);
+            System.Threading.Thread.Sleep(wait);
 
             // 检查是否成功定位
-            if (Math.Abs((player.Position - pos).TotalSeconds) > 1.0)
-                return null;
+            if (Math.Abs((player.Position - pos).TotalSeconds) > 1.0) return false;
 
             var dv = new DrawingVisual();
             using (var dc = dv.RenderOpen())
@@ -578,16 +805,15 @@ public partial class VideoPage : UserControl
             var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(dv);
 
-            // 检查是否获取到有效帧（简单像素检测）
             if (rtb.Width > 1 && rtb.Height > 1 && !IsFrameAllBlack(rtb))
             {
                 rtb.Freeze();
-                return rtb;
+                bmp = rtb;
+                return true;
             }
-            return null;
+            return false;
         }
-        catch { return null; }
-        finally { player?.Close(); }
+        catch { return false; }
     }
 
     private static bool IsFrameAllBlack(RenderTargetBitmap bmp)
@@ -608,6 +834,85 @@ public partial class VideoPage : UserControl
             return r < 15 && g < 15 && b < 15;
         }
         catch { return false; }
+    }
+
+    // ===== 悬停自动播放预览 =====
+
+    private void StartHoverPreview(Grid thumbArea, string path)
+    {
+        if (!ViewHelpers.IsVideoFile(path)) return;
+        _previewThumbArea = thumbArea;
+        _previewPath = path;
+        _hoverTimer.Stop();
+        _hoverTimer.Start();
+    }
+
+    private void StopHoverPreview()
+    {
+        if (_hoverTimer != null) _hoverTimer.Stop();
+        _previewPath = "";
+        _previewThumbArea = null;
+        // 保留共享播放器实例并暂停（不 Close），再次悬停同一视频时无需重新解码，更丝滑
+        if (_hoverPreview != null)
+        {
+            if (_hoverPreview.Parent is Panel p2)
+                p2.Children.Remove(_hoverPreview);
+            try { _hoverPreview.Pause(); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// 彻底释放悬停预览共享播放器的文件句柄（设为 null 并 Close）。
+    /// 用于转内嵌播放前调用：避免同一视频被页面共享播放器与内嵌播放器同时打开导致黑屏。
+    /// </summary>
+    private void ReleaseHoverPreview()
+    {
+        StopHoverPreview();
+        if (_hoverPreview == null) return;
+        try { _hoverPreview.Source = null; } catch { }
+        try { _hoverPreview.Close(); } catch { }
+        // 关闭后该播放器需重新设置 Source 才能再播，直接丢弃，下次新建
+        _hoverPreview = null;
+    }
+
+    private void ShowHoverPreview()
+    {
+        if (_previewThumbArea == null || string.IsNullOrEmpty(_previewPath)) return;
+        // 移除旧预览（若还在树中）
+        if (_hoverPreview != null && _hoverPreview.Parent is Panel old)
+            old.Children.Remove(_hoverPreview);
+
+        if (_hoverPreview == null)
+        {
+            _hoverPreview = new MediaElement
+            {
+                LoadedBehavior = MediaState.Manual,
+                UnloadedBehavior = MediaState.Stop,
+                Stretch = Stretch.UniformToFill,
+                Volume = 0,
+                IsMuted = true
+            };
+            // 循环播放
+            _hoverPreview.MediaEnded += (_, _) =>
+            {
+                try { _hoverPreview.Position = TimeSpan.Zero; _hoverPreview.Play(); } catch { }
+            };
+        }
+
+        try
+        {
+            // 同一视频再次悬停时不重复设置 Source，避免重新解码
+            if (_hoverPreview.Source == null ||
+                !string.Equals(_hoverPreview.Source.OriginalString, _previewPath, StringComparison.OrdinalIgnoreCase))
+                _hoverPreview.Source = new Uri(_previewPath);
+            Grid.SetRow(_hoverPreview, 0);
+            Grid.SetColumn(_hoverPreview, 0);
+            Panel.SetZIndex(_hoverPreview, 30);
+            _previewThumbArea.Children.Add(_hoverPreview);
+            _hoverPreview.Position = TimeSpan.Zero;
+            _hoverPreview.Play();
+        }
+        catch { }
     }
 
     // ===== 多选模式 =====
@@ -689,6 +994,9 @@ public partial class VideoPage : UserControl
 
     private void DeleteVideo(string path)
     {
+        if (!MessageDialog.Confirm("删除视频",
+            $"确定要删除视频「{Path.GetFileName(path)}」吗？\n此操作不可恢复。"))
+            return;
         try { FileService.DeleteFile(path); RefreshVideoGrid(); Toast("✓ 已删除"); }
         catch { Toast("✗ 删除失败"); }
     }
@@ -698,6 +1006,9 @@ public partial class VideoPage : UserControl
     /// </summary>
     private void PlayVideoInline(string path)
     {
+        // 先彻底释放悬停自动预览的文件句柄，避免同一视频文件被页面共享播放器与内嵌播放器同时打开（易导致后打开者黑屏）
+        ReleaseHoverPreview();
+
         var name = Path.GetFileName(path);
         var win = new Window
         {
@@ -895,19 +1206,73 @@ public partial class VideoPage : UserControl
                 curLabel.Text = FormatTime(TimeSpan.FromSeconds(slider.Value));
         };
 
-        // 双击全屏（使用 WorkArea 避免覆盖任务栏）
+        // 双击全屏 / 再次双击退出全屏（使用 WorkArea 避免覆盖任务栏）。
+        // 用延迟的单击定时器区分「单击暂停/播放」与「双击全屏」，避免触发双击时被单击逻辑抢先暂停。
+        bool isFullScreen = false;
+        double fsLeft = 0, fsTop = 0, fsWidth = 0, fsHeight = 0;
+        var singleClickTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(250),
+            Tag = "scrub"
+        };
+        singleClickTimer.Tick += (_, _) =>
+        {
+            singleClickTimer.Stop();
+            ppBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        };
         me.MouseLeftButtonDown += (_, e) =>
         {
             if (e.ClickCount == 2)
             {
-                win.WindowStyle = WindowStyle.None;
-                var wa = SystemParameters.WorkArea;
-                win.Left = wa.Left; win.Top = wa.Top;
-                win.Width = wa.Width; win.Height = wa.Height;
-                win.ResizeMode = ResizeMode.NoResize;
+                singleClickTimer.Stop(); // 取消本次双击产生的第一次「单击」暂停
+
+                // 切换全屏会改变窗口样式，可能导致 MediaElement 重载而从头播放。
+                // 先记录当前位置与播放状态，切换后再恢复，保证双击放大/缩小不从开头重播、也不被暂停。
+                var prePos = me.Position;
+                bool prePlaying = isPlaying;
+
+                if (!isFullScreen)
+                {
+                    fsLeft = win.Left; fsTop = win.Top;
+                    fsWidth = win.Width; fsHeight = win.Height;
+                    win.WindowStyle = WindowStyle.None;
+                    var wa = SystemParameters.WorkArea;
+                    win.Left = wa.Left; win.Top = wa.Top;
+                    win.Width = wa.Width; win.Height = wa.Height;
+                    win.ResizeMode = ResizeMode.NoResize;
+                    isFullScreen = true;
+                }
+                else
+                {
+                    win.WindowStyle = WindowStyle.SingleBorderWindow;
+                    win.ResizeMode = ResizeMode.CanResizeWithGrip;
+                    win.Left = fsLeft; win.Top = fsTop;
+                    win.Width = fsWidth; win.Height = fsHeight;
+                    isFullScreen = false;
+                }
+
+                // 等窗口布局重算完成后，恢复播放位置；若之前在播放则继续播
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (prePos < me.NaturalDuration) me.Position = prePos;
+                    if (prePlaying)
+                    {
+                        me.Play();
+                        ppBtn.Content = "\uE769";
+                        isPlaying = true;
+                        if (!timer.IsEnabled) timer.Start();
+                    }
+                    else if (isAtEnd) return;
+                    slider.Value = me.Position.TotalSeconds;
+                    curLabel.Text = FormatTime(me.Position);
+                }), System.Windows.Threading.DispatcherPriority.Render);
             }
             else
-                ppBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            {
+                // 单击：延迟执行，若 250ms 内收到第二次点击则取消，避免双击切换全屏时被暂停
+                singleClickTimer.Stop();
+                singleClickTimer.Start();
+            }
         };
 
         // 空格键暂停/播放
@@ -959,7 +1324,13 @@ public partial class VideoPage : UserControl
 
     private void AiGenerateVideo_Click(object sender, RoutedEventArgs e)
     {
-        if (_currentNovel == null || _currentChapter == null) return;
+        if (_currentNovel == null || _currentChapter == null)
+        {
+            Toast(_currentNovel == null
+                ? "⚠ 请先导入或创建小说，才能生成视频"
+                : "⚠ 请先在左侧选择一部小说并进入章节，才能生成视频");
+            return;
+        }
 
         var config = FileService.LoadConfig(App.WorkRoot);
         if (!config.VideoApi.IsConfigured)
@@ -1643,16 +2014,18 @@ public partial class VideoPage : UserControl
 
         win.Content = grid;
 
-        // 拖拽图片到窗口 → 自动归入当前章节图片资产目录并作为参考图加入
-        ViewHelpers.EnableImageDrop(grid,
+        // 拖拽媒体到窗口 → 图片自动归入资产目录并作参考图，视频/音频按扩展名自动归类为参考视频/参考音频
+        ViewHelpers.EnableMediaDrop(grid,
             assetImportDir: FileService.ChapterImagesPath(App.WorkRoot, _currentNovel!.MediaFolder, _currentChapter!.FolderName),
-            onImported: path =>
+            onImageImported: path =>
             {
                 ApplyRefImage(path);
                 assetPanel.SelectImported(path);
                 Toast("✓ 已加入参考图并归入项目资产");
             },
-            onInvalid: () => Toast("⚠ 请拖入支持格式的图片"));
+            onVideoImported: path => AddVideoRef(path),
+            onAudioImported: path => AddAudioRef(path),
+            onInvalid: () => Toast("⚠ 请拖入支持的图片/视频/音频文件"));
 
         // 生成按钮：创建任务并入队，窗口保持打开，生成交给后台队列串行执行
         genBtn.Click += (_, _) =>

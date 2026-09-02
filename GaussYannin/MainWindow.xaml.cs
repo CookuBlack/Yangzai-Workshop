@@ -261,9 +261,6 @@ namespace DesktopPet
             _pomoWorkMin = Math.Max(1, Math.Min(120, _settings.PomoWorkMin));
             _pomoBreakMin = Math.Max(1, Math.Min(120, _settings.PomoBreakMin));
 
-            // 开机自启动：以本地设置状态为准，同步注册表（应对用户曾手动修改注册表的情况）
-            PetSettings.SetAutoStart(_settings.AutoStart);
-
             Left = (SystemParameters.WorkArea.Width - Width) / 2;
             Top = SystemParameters.WorkArea.Height - Height - 40;
 
@@ -1330,10 +1327,9 @@ namespace DesktopPet
                 if (_showTime) ClockText.Text = FormatClock(DateTime.Now);
                 SaveSettings();
             };
-            _settingsWindow.AutoStartChanged += autoStart =>
+            _settingsWindow.AutoOpenPetChanged += autoOpenPet =>
             {
-                _settings.AutoStart = autoStart;
-                PetSettings.SetAutoStart(autoStart);
+                _settings.AutoOpenPet = autoOpenPet;
                 SaveSettings();
             };
             // 关闭设置窗口时兜底：把窗口最终生效值写回并持久化，
@@ -1351,7 +1347,7 @@ namespace DesktopPet
                 SaveSettings();
                 _settingsWindow = null;
             };
-            _settingsWindow.InitValues(Width, _runSpeed, _herdCount, _showSeconds, _use24Hour, _settings.AutoStart);
+            _settingsWindow.InitValues(Width, _runSpeed, _herdCount, _showSeconds, _use24Hour, _settings.AutoOpenPet);
             _settingsWindow.Show();
         }
 
